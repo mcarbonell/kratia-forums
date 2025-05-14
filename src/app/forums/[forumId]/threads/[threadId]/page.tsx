@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
+import ReplyForm from '@/components/forums/ReplyForm'; // Import ReplyForm
 import { mockThreads, mockPosts, mockForums } from '@/lib/mockData';
 import type { Thread, Post as PostType } from '@/lib/types';
-import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit } from 'lucide-react';
+import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 
 export default function ThreadPage() {
@@ -25,6 +26,7 @@ export default function ThreadPage() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [forumName, setForumName] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
+  const [showReplyForm, setShowReplyForm] = useState(false); // State for reply form visibility
 
   useEffect(() => {
     if (threadId && forumId) {
@@ -45,6 +47,19 @@ export default function ThreadPage() {
   }, [threadId, forumId]);
 
   const canReply = user && user.role !== 'visitor' && user.role !== 'guest';
+
+  const handleNewReply = (newPost: PostType) => {
+    setPosts(prevPosts => [...prevPosts, newPost]);
+    // Optionally update thread details in local state if displayed directly
+    if (thread) {
+        setThread(prevThread => prevThread ? {
+            ...prevThread,
+            postCount: prevThread.postCount + 1,
+            lastReplyAt: newPost.createdAt,
+        } : undefined);
+    }
+    setShowReplyForm(false); // Hide form after successful reply
+  };
 
   if (isLoading || authLoading) {
     return (
@@ -106,8 +121,9 @@ export default function ThreadPage() {
             </p>
         </div>
         {canReply && (
-          <Button disabled> {/* TODO: Implement reply functionality */}
-            <Edit className="mr-2 h-5 w-5" /> Reply to Thread
+          <Button onClick={() => setShowReplyForm(prev => !prev)}>
+            {showReplyForm ? <Edit className="mr-2 h-5 w-5" />  : <Reply className="mr-2 h-5 w-5" /> }
+            {showReplyForm ? 'Cancel Reply' : 'Reply to Thread'}
           </Button>
         )}
       </div>
@@ -129,6 +145,16 @@ export default function ThreadPage() {
                 </p>
             </CardContent>
         </Card>
+      )}
+
+      {/* Reply Form */}
+      {canReply && showReplyForm && thread && (
+        <ReplyForm 
+            threadId={thread.id} 
+            forumId={forumId} 
+            onReplySuccess={handleNewReply}
+            onCancel={() => setShowReplyForm(false)} 
+        />
       )}
 
        {!canReply && user && (user.role === 'visitor' || user.role === 'guest') && (
