@@ -16,9 +16,9 @@ export default function ForumListItem({ forum, isSubForum = false }: ForumListIt
           <Link href={`/forums/${forum.id}`} className="hover:text-primary transition-colors flex items-center">
             {isSubForum && <CornerDownRight className="mr-2 h-5 w-5 text-muted-foreground" />}
             {forum.name}
-            {forum.isPublic === false && <Lock className="ml-2 h-4 w-4 text-amber-600" titleAccess="Private Forum (members only)" />}
-            {forum.isPublic !== false && !forum.isAgora && <Eye className="ml-2 h-4 w-4 text-green-600" titleAccess="Public Forum" />}
-            {forum.isAgora && <Vote className="ml-2 h-4 w-4 text-blue-600" titleAccess="Agora - Votations Forum"/>}
+            {forum.isPublic === false && <Lock className="ml-2 h-4 w-4 text-amber-600" title="Private Forum (members only)" />}
+            {forum.isPublic !== false && !forum.isAgora && <Eye className="ml-2 h-4 w-4 text-green-600" title="Public Forum" />}
+            {forum.isAgora && <Vote className="ml-2 h-4 w-4 text-blue-600" title="Agora - Votations Forum"/>}
           </Link>
         </CardTitle>
         <CardDescription>{forum.description}</CardDescription>
@@ -44,8 +44,9 @@ export default function ForumListItem({ forum, isSubForum = false }: ForumListIt
 }
 
 // Placeholder Vote icon, replace with actual if available or use a more generic one like ShieldCheck
-const Vote = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className || "w-6 h-6"}>
+const Vote = ({ className, title }: { className?: string; title?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className || "w-6 h-6"} aria-label={title}>
+    {title && <title>{title}</title>}
     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-5h2v2h-2v-2zm0-8h2v6h-2V7z"/>
   </svg>
 );
