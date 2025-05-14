@@ -26,30 +26,51 @@ export function useMockAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate fetching user data
-    const storedUserRole = localStorage.getItem('mockUserRole') as UserRole | null;
-    if (storedUserRole && mockUsers[storedUserRole]) {
-      setCurrentUser(mockUsers[storedUserRole]);
+    setLoading(true);
+    const storedRoleIdentifier = localStorage.getItem('mockUserRole') as UserRole | string | null;
+
+    let userToSet: MockUser | null = null;
+
+    if (storedRoleIdentifier) {
+      // First, check if storedRoleIdentifier is a direct key in mockUsers (e.g., 'user1', 'admin1')
+      if (mockUsers[storedRoleIdentifier]) {
+        userToSet = mockUsers[storedRoleIdentifier];
+      } else {
+        // If not a direct key, check if it's a role value (e.g. 'user', 'admin')
+        // This ensures roles like 'user' (which is not a key in mockUsers) correctly map to a user like Alice (user1)
+        const userByRoleValue = Object.values(mockUsers).find(u => u.role === storedRoleIdentifier);
+        if (userByRoleValue) {
+          userToSet = userByRoleValue;
+        }
+      }
+    }
+
+    if (userToSet) {
+      setCurrentUser(userToSet);
     } else {
-      // Default to visitor if no role is stored or if trying to set to a user that doesn't exist as a key
-      setCurrentUser(mockUsers['visitor']); 
+      // Default to visitor if no role is stored or user not found by key/role
+      setCurrentUser(mockUsers['visitor']);
     }
     setLoading(false);
   }, []);
 
   const login = (role: UserRole = 'user') => {
-    // Allow specific user login by username if needed, for now, role based.
     const userToLogin = Object.values(mockUsers).find(u => u.role === role) || mockUsers['guest'];
     setCurrentUser(userToLogin);
-    localStorage.setItem('mockUserRole', userToLogin.role); // Store role key
+    localStorage.setItem('mockUserRole', userToLogin.role); 
   };
   
   const signup = (username: string, email: string) => {
-    // Simulate signup, logs in as a new 'user' (quarantined)
-    const newUser: MockUser = { id: `new-${Date.now()}`, username, email, role: 'user', isQuarantined: true, karma: 0 };
+    const newUser: MockUser = { 
+      id: `new-${Date.now()}`, 
+      username, 
+      email, 
+      role: 'user', // New users start with 'user' role
+      isQuarantined: true, 
+      karma: 0,
+      avatarUrl: `https://picsum.photos/seed/${username}/100/100` // Generic avatar for new user
+    };
     setCurrentUser(newUser);
-    // In a real app, this would go to backend and then you'd probably set a token
-    // For mock, let's assume they become 'user1' for simplicity of state persistence or a generic 'user'
     localStorage.setItem('mockUserRole', 'user'); 
   };
 
@@ -58,18 +79,18 @@ export function useMockAuth() {
     localStorage.removeItem('mockUserRole');
   };
   
-  // Function to allow test-switching users
-  const switchToUser = (role: UserRole) => {
-    if (mockUsers[role]) {
-      setCurrentUser(mockUsers[role]);
-      localStorage.setItem('mockUserRole', role);
-    } else if (Object.values(mockUsers).find(u => u.role === role)) {
-        const userByRole = Object.values(mockUsers).find(u => u.role === role)!;
-        setCurrentUser(userByRole);
-        localStorage.setItem('mockUserRole', userByRole.role);
+  const switchToUser = (roleOrKey: UserRole | string) => {
+    let userToSwitchTo: MockUser | undefined = mockUsers[roleOrKey]; // Try as key first
+
+    if (!userToSwitchTo) { // If not a key, try as a role value
+        userToSwitchTo = Object.values(mockUsers).find(u => u.role === roleOrKey);
     }
-     else {
-      console.warn(`Mock user for role "${role}" not found. Defaulting to visitor.`);
+
+    if (userToSwitchTo) {
+      setCurrentUser(userToSwitchTo);
+      localStorage.setItem('mockUserRole', userToSwitchTo.role); // Always store the role property
+    } else {
+      console.warn(`Mock user for role/key "${roleOrKey}" not found. Defaulting to visitor.`);
       setCurrentUser(mockUsers['visitor']);
       localStorage.setItem('mockUserRole', 'visitor');
     }
