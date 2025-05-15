@@ -3,7 +3,7 @@
 
 import { useState, type FormEvent, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useForm, type SubmitHandler } from 'react-hook-form';
+import { useForm, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -76,7 +76,7 @@ export default function NewThreadPage() {
   const [isLoadingForum, setIsLoadingForum] = useState(true);
   const [forumError, setForumError] = useState<string | null>(null);
 
-  const { register, handleSubmit, formState: { errors }, reset, watch } = useForm<NewThreadFormData>({
+  const { register, handleSubmit, formState: { errors }, reset, watch, control } = useForm<NewThreadFormData>({
     resolver: zodResolver(newThreadSchema),
     defaultValues: {
       addPoll: false,
@@ -103,7 +103,7 @@ export default function NewThreadPage() {
         const forumRef = doc(db, "forums", forumId);
         const forumSnap = await getDoc(forumRef);
         if (forumSnap.exists()) {
-          setForum({ id: forumSnap.id, ...forumSnap.data() } as Forum);
+          setForum({ id: forumSnap.id, ...forumSnap.data(), isPublic: forumSnap.data().isPublic === undefined ? true : forumSnap.data().isPublic } as Forum);
         } else {
           setForumError("The forum you are trying to post in does not exist.");
         }
@@ -213,7 +213,7 @@ export default function NewThreadPage() {
         postCount: 1,
         isSticky: false,
         isLocked: false,
-        isPublic: forum.isPublic === undefined ? true : forum.isPublic, 
+        isPublic: forum.isPublic, 
       };
       batch.set(newThreadRef, newThreadData);
 
@@ -299,10 +299,18 @@ export default function NewThreadPage() {
             <Card className="bg-muted/30">
               <CardHeader className="p-4">
                 <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="addPoll"
-                    {...register("addPoll")}
-                    disabled={isSubmitting}
+                  <Controller
+                    name="addPoll"
+                    control={control}
+                    render={({ field }) => (
+                      <Checkbox
+                        id="addPoll"
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={isSubmitting}
+                        ref={field.ref}
+                      />
+                    )}
                   />
                   <Label htmlFor="addPoll" className="font-medium text-base flex items-center">
                      <ListPlus className="mr-2 h-5 w-5 text-primary" /> Add a Poll to this Thread
@@ -361,3 +369,4 @@ export default function NewThreadPage() {
     </div>
   );
 }
+
