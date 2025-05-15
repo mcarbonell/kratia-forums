@@ -2,17 +2,20 @@
 'use server'; 
 
 import { db } from '@/lib/firebase';
-import type { ForumCategory, Forum, Thread, Post, User as KratiaUser } from '@/lib/types';
+import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll } from '@/lib/types';
 import { mockUsers as mockUsersData } from '@/lib/mockData'; 
 import { collection, doc, writeBatch, increment, getDoc } from 'firebase/firestore';
 
 // Helper to get author info in the denormalized structure
 const getAuthorInfo = (user: KratiaUser | undefined) => {
-  if (!user) return { id: 'unknown', username: 'Unknown User', avatarUrl: '' };
+  if (!user) {
+    console.warn("Attempted to get author info for undefined user. Returning 'Unknown User'.");
+    return { id: 'unknown', username: 'Unknown User', avatarUrl: '' };
+  }
   return {
     id: user.id,
     username: user.username,
-    avatarUrl: user.avatarUrl || '',
+    avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username[0]}`,
   };
 };
 
@@ -44,9 +47,19 @@ export async function seedDatabase() {
   });
   console.log("User data prepared for batch.");
   
-  const aliceAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user1'));
-  const bobAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user2'));
-  const charlieAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user3'));
+  const alice = mockUsersData.find(u => u.id === 'user1');
+  const bob = mockUsersData.find(u => u.id === 'user2');
+  const charlie = mockUsersData.find(u => u.id === 'user3');
+
+  if (!alice || !bob || !charlie) {
+    console.error("Critical error: Could not find core mock users (Alice, Bob, Charlie) for seeding. Aborting seed.");
+    return;
+  }
+  
+  const aliceAuthorInfo = getAuthorInfo(alice);
+  const bobAuthorInfo = getAuthorInfo(bob);
+  const charlieAuthorInfo = getAuthorInfo(charlie);
+
 
   // --- CATEGORIES ---
   const categories: Omit<ForumCategory, 'forums'>[] = [
@@ -101,7 +114,7 @@ export async function seedDatabase() {
   const post1_1_Id = 'post1_1_welcome';
   const post1_1_CreatedAt = '2023-05-01T10:00:00Z';
   const post1_1_Content = 'This is the first post in the general discussion thread. Welcome everyone!';
-  const post1_1_Poll = {
+  const post1_1_Poll: Poll = {
       id: 'poll1',
       question: 'What is your favorite season?',
       options: [
@@ -111,9 +124,13 @@ export async function seedDatabase() {
         { id: 'opt4', text: 'Winter', voteCount: 5 },
       ],
       totalVotes: 50,
+      voters: { // Example: user2 voted for opt2, user3 for opt3
+        [bob.id]: 'opt2',
+        [charlie.id]: 'opt3'
+      }
     };
   const post1_1_Reactions = {
-    '👍': { userIds: ['user2', 'user3'] } 
+    '👍': { userIds: [bob.id, charlie.id] } 
   };
   batch.set(doc(db, "posts", post1_1_Id), {
     threadId: thread1Id, author: aliceAuthorInfo, content: post1_1_Content, createdAt: post1_1_CreatedAt, reactions: post1_1_Reactions, poll: post1_1_Poll
@@ -134,7 +151,7 @@ export async function seedDatabase() {
 
   const post1_2_Id = 'post1_2_thanks';
   const post1_2_CreatedAt = '2023-05-01T10:05:00Z';
-  const post1_2_Reactions = { '😊': { userIds: ['user1'] } };
+  const post1_2_Reactions = { '😊': { userIds: [alice.id] } };
   batch.set(doc(db, "posts", post1_2_Id), {
     threadId: thread1Id, author: bobAuthorInfo, content: 'Thanks for the welcome, Alice! Glad to be here.', createdAt: post1_2_CreatedAt, reactions: post1_2_Reactions
   });
@@ -149,7 +166,7 @@ export async function seedDatabase() {
       totalReactionsReceived: increment(Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
     });
   }
-  if (aliceAuthorInfo.id !== 'unknown') {
+  if (aliceAuthorInfo.id !== 'unknown') { // Alice is the thread author
     batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
   }
 
@@ -253,7 +270,7 @@ export async function seedDatabase() {
   if (charlieAuthorInfo.id !== 'unknown') {
     batch.update(doc(db, "users", charlieAuthorInfo.id), { karma: increment(1), totalPostsByUser: increment(1) });
   }
-  if (aliceAuthorInfo.id !== 'unknown') {
+  if (aliceAuthorInfo.id !== 'unknown') { // Alice is the thread author
     batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
   }
   

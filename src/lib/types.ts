@@ -18,7 +18,7 @@ export interface User {
 export interface Post {
   id: string;
   threadId: string;
-  author: User; // Typically denormalized to { id, username, avatarUrl }
+  author: Pick<User, 'id' | 'username' | 'avatarUrl'>; 
   content: string; // Markdown or BBCode
   createdAt: string; // ISO date string
   updatedAt?: string; // ISO date string
@@ -31,7 +31,7 @@ export interface Thread {
   id: string;
   forumId: string;
   title: string;
-  author: User; // Typically denormalized to { id, username, avatarUrl }
+  author: Pick<User, 'id' | 'username' | 'avatarUrl'>;
   createdAt: string; // ISO date string
   lastReplyAt?: string; // ISO date string
   postCount: number;
@@ -71,9 +71,10 @@ export interface Poll { // Traditional, non-binding poll
   id: string;
   question: string;
   options: PollOption[];
-  allowMultipleVotes?: boolean;
+  allowMultipleVotes?: boolean; // Currently not implemented, defaults to single vote
   endDate?: string; // ISO date string
   totalVotes: number;
+  voters?: Record<string, string>; // Record<userId, optionId>
 }
 
 export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote';

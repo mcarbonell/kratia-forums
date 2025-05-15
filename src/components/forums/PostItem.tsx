@@ -12,7 +12,7 @@ import { useState, useEffect } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, runTransaction, increment } from 'firebase/firestore';
+import { doc, updateDoc, runTransaction, increment, getDoc } from 'firebase/firestore';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { cn } from '@/lib/utils';
@@ -29,19 +29,25 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
   const [currentPoll, setCurrentPoll] = useState<Poll | undefined>(post.poll);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  const [userVotedPolls, setUserVotedPolls] = useState<Record<string, boolean>>({}); 
-
+  
   const [currentReactions, setCurrentReactions] = useState<Record<string, { userIds: string[] }>>(post.reactions || {});
   const [isLiking, setIsLiking] = useState(false);
 
+  // Derived state to check if the current user has voted in this poll
+  const hasUserVotedInPoll = !!(user && currentPoll?.voters && currentPoll.voters[user.id]);
+  // Get the option ID the user voted for, if any
+  const userVoteOptionId = user && currentPoll?.voters ? currentPoll.voters[user.id] : null;
+
+
   useEffect(() => {
     setCurrentPoll(post.poll);
-    if (post.poll && userVotedPolls[post.poll.id]) {
-        // Persist selection visual if voted
+    // If user has already voted, pre-select their option (though it will be disabled)
+    if (user && post.poll?.voters?.[user.id]) {
+      setSelectedOptionId(post.poll.voters[user.id]);
     } else {
-        setSelectedOptionId(null);
+      setSelectedOptionId(null);
     }
-  }, [post.poll, userVotedPolls]);
+  }, [post.poll, user]);
 
   useEffect(() => {
     setCurrentReactions(post.reactions || {});
@@ -74,35 +80,71 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
         toast({ title: "No Option Selected", description: "Please select an option to vote.", variant: "destructive" });
         return;
     }
-    if (userVotedPolls[currentPoll.id]) {
-        toast({ title: "Already Voted", description: "You have already voted in this poll during this session.", variant: "destructive" });
+    if (hasUserVotedInPoll) {
+        toast({ title: "Already Voted", description: "You have already voted in this poll.", variant: "destructive" });
         return;
     }
 
     setIsSubmittingVote(true);
+    const postRef = doc(db, "posts", post.id);
+
     try {
-        const postRef = doc(db, "posts", post.id);
-        const updatedOptions = currentPoll.options.map(opt =>
-            opt.id === selectedOptionId ? { ...opt, voteCount: (opt.voteCount || 0) + 1 } : opt
-        );
-        const updatedPollData: Poll = {
-            ...currentPoll,
-            options: updatedOptions,
-            totalVotes: (currentPoll.totalVotes || 0) + 1,
+      const updatedPollData = await runTransaction(db, async (transaction) => {
+        const postDoc = await transaction.get(postRef);
+        if (!postDoc.exists() || !postDoc.data()?.poll) {
+          throw new Error("Poll not found or post does not exist.");
+        }
+        
+        const pollFromDb = postDoc.data()?.poll as Poll;
+
+        if (pollFromDb.voters && pollFromDb.voters[user.id]) {
+          // This check inside transaction is crucial for race conditions
+          toast({ title: "Already Voted", description: "It seems you've already cast your vote.", variant: "destructive" });
+          setIsSubmittingVote(false); // Early exit
+          return pollFromDb; // Return current poll data without changes
+        }
+
+        const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
+        if (optionIndex === -1) {
+          throw new Error("Selected option not found in poll.");
+        }
+
+        const newOptions = [...pollFromDb.options];
+        newOptions[optionIndex] = {
+          ...newOptions[optionIndex],
+          voteCount: (newOptions[optionIndex].voteCount || 0) + 1,
         };
-        await updateDoc(postRef, { poll: updatedPollData });
-        setCurrentPoll(updatedPollData);
-        setUserVotedPolls(prev => ({ ...prev, [currentPoll!.id]: true }));
-        toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
-    } catch (error) {
+
+        const newVoters = { ...(pollFromDb.voters || {}), [user.id]: selectedOptionId };
+        
+        const updatedPoll: Poll = {
+          ...pollFromDb,
+          options: newOptions,
+          totalVotes: (pollFromDb.totalVotes || 0) + 1,
+          voters: newVoters,
+        };
+        
+        transaction.update(postRef, { poll: updatedPoll });
+        return updatedPoll;
+      });
+
+      if (updatedPollData) { // Check if transaction returned data (wasn't an early exit due to already voted)
+        setCurrentPoll(updatedPollData); // Update local state with the version from the transaction
+        if (!updatedPollData.voters?.[user.id] || updatedPollData.voters[user.id] !== selectedOptionId ) {
+           // This means vote wasn't successful from DB check, but handlePollVote logic continued
+           // This case should be rare now with the check inside transaction
+        } else {
+           toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
+        }
+      }
+    } catch (error: any) {
         console.error("Error casting vote:", error);
-        toast({ title: "Error", description: "Failed to cast your vote. Please try again.", variant: "destructive" });
+        toast({ title: "Error", description: error.message || "Failed to cast your vote. Please try again.", variant: "destructive" });
     } finally {
         setIsSubmittingVote(false);
     }
   };
   
-  const hasVotedThisSession = currentPoll ? userVotedPolls[currentPoll.id] : false;
 
   const handleLike = async () => {
     if (!user || user.role === 'visitor' || user.role === 'guest') {
@@ -111,7 +153,7 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
     }
     setIsLiking(true);
     const postRef = doc(db, "posts", post.id);
-    const postAuthorRef = doc(db, "users", post.author.id);
+    const postAuthorUserRef = doc(db, "users", post.author.id);
     const emoji = '👍';
 
     try {
@@ -127,13 +169,16 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
 
         let newEmojiUserIds;
         let karmaChange = 0;
+        let reactionChange = 0;
 
         if (userHasReacted) { // User is unliking
           newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
           karmaChange = -1;
+          reactionChange = -1;
         } else { // User is liking
           newEmojiUserIds = [...emojiReactionData.userIds, user.id];
           karmaChange = 1;
+          reactionChange = 1;
         }
         
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
@@ -148,10 +193,10 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
         transaction.update(postRef, { reactions: newReactionsField });
         
         // Update post author's karma and totalReactionsReceived
-        if (karmaChange !== 0) {
-            transaction.update(postAuthorRef, {
+        if (post.author.id !== 'unknown' && reactionChange !==0) { // only update if author is known
+            transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChange),
-                totalReactionsReceived: increment(karmaChange),
+                totalReactionsReceived: increment(reactionChange),
             });
         }
         
@@ -167,7 +212,6 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
 
   const likeCount = currentReactions['👍']?.userIds?.length || 0;
   const hasUserLiked = user ? currentReactions['👍']?.userIds?.includes(user.id) : false;
-  // const authorKarma = post.author.karma; // This could be stale, consider fetching fresh user data or not showing karma here.
 
   return (
     <Card className={`w-full ${isFirstPost ? 'border-primary/40 shadow-lg' : 'shadow-md'}`}>
@@ -183,15 +227,6 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
             Posted {timeAgo(post.createdAt)}
             {post.isEdited && post.updatedAt && <span className="italic"> (edited {timeAgo(post.updatedAt)})</span>}
           </p>
-           {/* 
-             Displaying post.author.karma here can be misleading as it's denormalized and might be stale.
-             The true karma is on the user's profile page.
-             If you want to display it, ensure it's understood to be potentially outdated or implement live updates.
-             For now, let's remove it from here to avoid confusion.
-           {authorKarma !== undefined && (
-             <p className="text-xs text-muted-foreground mt-1">Karma: {authorKarma}</p>
-           )}
-           */}
         </div>
       </CardHeader>
       <CardContent className="p-4 prose prose-sm sm:prose-base dark:prose-invert max-w-none break-words" dangerouslySetInnerHTML={{ __html: formatContent(post.content) }} />
@@ -207,26 +242,34 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               <RadioGroup 
-                value={selectedOptionId || ""} 
+                value={selectedOptionId || userVoteOptionId || ""} 
                 onValueChange={(value) => {
-                    if (!hasVotedThisSession) setSelectedOptionId(value);
+                    if (!hasUserVotedInPoll) setSelectedOptionId(value);
                 }}
-                disabled={hasVotedThisSession}
+                disabled={hasUserVotedInPoll}
                 className="space-y-2"
               >
                 {currentPoll.options.map(option => (
-                  <div key={option.id} className={`p-3 rounded-md border ${selectedOptionId === option.id && !hasVotedThisSession ? 'border-primary ring-1 ring-primary' : 'bg-muted/50'}`}>
+                  <div key={option.id} className={cn(
+                      "p-3 rounded-md border",
+                      hasUserVotedInPoll && userVoteOptionId === option.id && "border-primary ring-2 ring-primary bg-primary/10",
+                      hasUserVotedInPoll && userVoteOptionId !== option.id && "bg-muted/30 border-muted/50",
+                      !hasUserVotedInPoll && selectedOptionId === option.id && "border-primary ring-1 ring-primary",
+                      !hasUserVotedInPoll && "bg-muted/50 hover:border-primary/50"
+                    )}>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                             <RadioGroupItem 
                                 value={option.id} 
                                 id={`${currentPoll.id}-${option.id}`} 
-                                disabled={hasVotedThisSession}
-                                className={hasVotedThisSession ? "cursor-not-allowed" : ""}
+                                disabled={hasUserVotedInPoll}
+                                className={cn(hasUserVotedInPoll ? "cursor-not-allowed" : "", 
+                                             "border-primary text-primary focus:ring-primary")}
+                                checked={userVoteOptionId === option.id || selectedOptionId === option.id}
                             />
                             <Label 
                                 htmlFor={`${currentPoll.id}-${option.id}`}
-                                className={`text-sm ${hasVotedThisSession ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer"}`}
+                                className={cn("text-sm", hasUserVotedInPoll ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer")}
                             >
                                 {option.text}
                             </Label>
@@ -253,12 +296,12 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
                 {currentPoll.endDate && <span>Poll ends: {new Date(currentPoll.endDate).toLocaleDateString()}</span>}
               </div>
 
-              {!hasVotedThisSession && user && user.role !== 'visitor' && user.role !== 'guest' && (
+              {!hasUserVotedInPoll && user && user.role !== 'visitor' && user.role !== 'guest' && (
                 <Button 
                     variant="default" 
                     size="sm" 
                     onClick={handlePollVote}
-                    disabled={!selectedOptionId || isSubmittingVote || hasVotedThisSession}
+                    disabled={!selectedOptionId || isSubmittingVote || hasUserVotedInPoll}
                     className="mt-3 w-full sm:w-auto"
                 >
                   {isSubmittingVote ? (
@@ -269,10 +312,10 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
                   {isSubmittingVote ? 'Casting Vote...' : 'Cast Your Vote'}
                 </Button>
               )}
-              {hasVotedThisSession && (
+              {hasUserVotedInPoll && (
                 <p className="mt-3 text-sm text-green-600 font-medium">You've voted in this poll.</p>
               )}
-               {(!user || user.role === 'visitor' || user.role === 'guest') && (
+               {(!user || user.role === 'visitor' || user.role === 'guest') && !hasUserVotedInPoll && (
                 <p className="mt-3 text-sm text-muted-foreground">
                     <Link href="/auth/login" className="text-primary hover:underline">Log in</Link> or <Link href="/auth/signup" className="text-primary hover:underline">sign up</Link> to vote.
                 </p>
