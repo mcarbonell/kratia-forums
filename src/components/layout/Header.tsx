@@ -6,7 +6,7 @@ import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, Sh
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user/UserAvatar';
-import { useMockAuth, type UserRole } from '@/hooks/use-mock-auth'; // Updated import
+import { useMockAuth, mockAuthUsers } from '@/hooks/use-mock-auth'; // Import mockAuthUsers
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from 'react';
 
@@ -20,27 +20,29 @@ export default function Header() {
     { href: '/agora', label: 'Agora', icon: <Vote /> },
   ];
 
+  // UserRoleSwitcher now uses the imported mockAuthUsers and switchToUser from the Header's scope
   const UserRoleSwitcher = () => (
     <div className="mt-4 p-2 border-t">
       <p className="text-sm font-semibold mb-2">Switch User Role (Dev):</p>
-      {(['visitor0', 'guest1', 'user1', 'user2', 'user3', 'user4', 'admin1', 'founder1'] as string[]).map(userKey => {
-        // Attempt to find the user by key to get a display name; fall back to key
-        const userObject = (useMockAuth() as any).mockAuthUsers?.[userKey] || { username: userKey.replace(/([A-Za-z]+)[0-9]+/, '$1') };
+      {Object.keys(mockAuthUsers).map(userKey => {
+        const userObject = mockAuthUsers[userKey];
         const displayName = userObject.username || userKey;
         return (
-            <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start mb-1 text-xs h-7" onClick={() => { switchToUser(userKey); setMobileMenuOpen(false); }}>
+            <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start mb-1 text-xs h-7" onClick={() => { switchToUser(userKey); if(isMobile()) setMobileMenuOpen(false); }}>
             Switch to {displayName} ({userKey})
             </Button>
         );
     })}
     </div>
   );
+  
+  const isMobile = () => mobileMenuOpen; // Helper to check if mobile menu is open for closing logic
 
-  const renderNavLinks = (isMobile: boolean = false) => navLinks.map((link) => (
-    <Button key={link.label} variant="ghost" asChild className={isMobile ? "justify-start w-full text-base py-3" : ""}>
-      <Link href={link.href} onClick={() => isMobile && setMobileMenuOpen(false)}>
+  const renderNavLinks = (isMobileLink: boolean = false) => navLinks.map((link) => (
+    <Button key={link.label} variant="ghost" asChild className={isMobileLink ? "justify-start w-full text-base py-3" : ""}>
+      <Link href={link.href} onClick={() => isMobileLink && setMobileMenuOpen(false)}>
         {link.icon}
-        <span className={isMobile ? "ml-2" : "ml-1"}>{link.label}</span>
+        <span className={isMobileLink ? "ml-2" : "ml-1"}>{link.label}</span>
       </Link>
     </Button>
   ));
@@ -88,10 +90,10 @@ export default function Header() {
                   Logout
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                 <div className="p-2">
+                 <div className="p-2"> {/* UserRoleSwitcher for desktop dropdown */}
                     <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
-                    {(['visitor0', 'guest1', 'user1', 'user2', 'user3', 'user4', 'admin1', 'founder1'] as string[]).map(userKey => {
-                        const userObject = (useMockAuth() as any).mockAuthUsers?.[userKey] || { username: userKey };
+                    {Object.keys(mockAuthUsers).map(userKey => {
+                        const userObject = mockAuthUsers[userKey];
                         const displayName = userObject.username || userKey;
                         return (
                             <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
@@ -176,7 +178,7 @@ export default function Header() {
                   </div>
                 )}
               </div>
-              <div className="overflow-y-auto"> {/* Make switcher scrollable if needed */}
+              <div className="overflow-y-auto"> {/* UserRoleSwitcher for mobile sheet */}
                 <UserRoleSwitcher />
               </div>
             </SheetContent>

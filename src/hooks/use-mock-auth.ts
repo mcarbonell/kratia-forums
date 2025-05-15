@@ -13,9 +13,9 @@ export interface MockUser extends User {
 }
 
 // This object defines the users available for quick switching in the mock auth hook.
-// The keys (e.g., 'visitor', 'user1', 'admin1') are used by switchToUser.
+// The keys (e.g., 'visitor0', 'user1', 'admin1') are used by switchToUser.
 // These keys should match the 'id' field of users in src/lib/mockData.ts
-const mockAuthUsers: Record<string, MockUser> = {
+export const mockAuthUsers: Record<string, MockUser> = {
   'visitor0': { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor' },
   'guest1': { id: 'guest1', username: 'Guest User', email: 'guest@example.com', avatarUrl: 'https://picsum.photos/seed/guest/100/100', role: 'guest' },
   'user1': { id: 'user1', username: 'Alice', email: 'alice@example.com', avatarUrl: 'https://picsum.photos/seed/alice/100/100', role: 'user', isQuarantined: true, karma: 10, location: 'Wonderland', aboutMe: 'Curiouser and curiouser!', registrationDate: '2023-01-15T10:00:00Z', canVote: true },
@@ -40,7 +40,7 @@ export function useMockAuth() {
       userToSet = mockAuthUsers[storedUserKey];
     } else {
       // Default to visitor if no key or invalid key
-      userToSet = mockAuthUsers['visitor0']; // Use a valid key for visitor
+      userToSet = mockAuthUsers['visitor0']; 
     }
     
     setCurrentUser(userToSet);
@@ -48,9 +48,9 @@ export function useMockAuth() {
   }, []);
 
   const login = (usernameOrEmail?: string, password?: string) => {
-    let userKeyToLogin: string = 'user2'; // Default to Bob (normal_user)
+    let userKeyToLogin: string = 'user2'; 
     
-    if (!usernameOrEmail) { // Handle case where no credentials are provided, default to guest or user
+    if (!usernameOrEmail) { 
         userKeyToLogin = 'guest1'; 
     } else if (usernameOrEmail?.toLowerCase().includes('admin')) {
         userKeyToLogin = 'admin1';
@@ -73,7 +73,6 @@ export function useMockAuth() {
   };
   
   const signup = (username: string, email: string) => {
-    // New users default to 'user4' (DianaNewbie) for simplicity of testing onboarding.
     const newUserKey = 'user4'; 
     setCurrentUser(mockAuthUsers[newUserKey]);
     localStorage.setItem('mockUserKey', newUserKey);
@@ -86,27 +85,25 @@ export function useMockAuth() {
   
   const switchToUser = (roleOrKey: UserRole | string) => {
     let userToSwitchTo: MockUser | undefined;
-    let keyToStore: string = 'visitor0'; // Default key
+    let keyToStore: string = 'visitor0'; 
 
-    // Check if roleOrKey is a direct key in mockAuthUsers (e.g., 'user1', 'admin1')
     if (mockAuthUsers[roleOrKey]) {
         userToSwitchTo = mockAuthUsers[roleOrKey];
-        keyToStore = roleOrKey; // The key itself
+        keyToStore = roleOrKey; 
     } else {
-      // If not a direct key, try if it's a role value (e.g., 'user', 'admin')
-      // This maps roles from the dropdown to specific pre-defined users
-      if (roleOrKey === 'user') {
-        userToSwitchTo = mockAuthUsers['user1']; keyToStore = 'user1'; // Alice
-      } else if (roleOrKey === 'normal_user') {
-        userToSwitchTo = mockAuthUsers['user2']; keyToStore = 'user2';// Bob
-      } else if (roleOrKey === 'admin') {
-        userToSwitchTo = mockAuthUsers['admin1']; keyToStore = 'admin1'; // AdminAnna
-      } else if (roleOrKey === 'founder') {
-        userToSwitchTo = mockAuthUsers['founder1']; keyToStore = 'founder1'; // FoundingFather
-      } else if (roleOrKey === 'guest') {
-        userToSwitchTo = mockAuthUsers['guest1']; keyToStore = 'guest1';
-      } else if (roleOrKey === 'visitor') {
-        userToSwitchTo = mockAuthUsers['visitor0']; keyToStore = 'visitor0';
+      // Fallback for role names if direct key not found (though keys are preferred)
+      const roleMap: Partial<Record<UserRole, string>> = {
+        'user': 'user1',
+        'normal_user': 'user2',
+        'admin': 'admin1',
+        'founder': 'founder1',
+        'guest': 'guest1',
+        'visitor': 'visitor0',
+      };
+      const mappedKey = roleMap[roleOrKey as UserRole];
+      if (mappedKey && mockAuthUsers[mappedKey]) {
+        userToSwitchTo = mockAuthUsers[mappedKey];
+        keyToStore = mappedKey;
       }
     }
 
