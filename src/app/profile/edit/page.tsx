@@ -26,7 +26,6 @@ const profileFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters.").max(50, "Username cannot exceed 50 characters."),
   location: z.string().max(100, "Location cannot exceed 100 characters.").optional().or(z.literal('')),
   aboutMe: z.string().max(500, "About me cannot exceed 500 characters.").optional().or(z.literal('')),
-  // avatarUrl is no longer a direct form input
 });
 
 type ProfileFormData = z.infer<typeof profileFormSchema>;
@@ -103,13 +102,13 @@ export default function EditProfilePage() {
     if (file) {
       if (file.size > 5 * 1024 * 1024) { // 5MB limit
         toast({ title: "File too large", description: "Please select an image smaller than 5MB.", variant: "destructive" });
-        event.target.value = ""; // Clear the input
+        event.target.value = ""; 
         setAvatarFile(null);
         return;
       }
       if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
         toast({ title: "Invalid file type", description: "Please select a JPG, PNG, GIF, or WEBP image.", variant: "destructive" });
-        event.target.value = ""; // Clear the input
+        event.target.value = ""; 
         setAvatarFile(null);
         return;
       }
@@ -126,12 +125,12 @@ export default function EditProfilePage() {
       return;
     }
     setIsSubmitting(true);
-    let newAvatarUrl = profileUser.avatarUrl; // Start with existing avatar URL
+    let newAvatarUrl = profileUser.avatarUrl; 
 
     try {
       if (avatarFile) {
         toast({ title: "Uploading Avatar...", description: "Please wait."});
-        const storageRef = ref(storage, `avatars/${loggedInUser.id}/profileImage`); // Using a fixed name to overwrite
+        const storageRef = ref(storage, `avatars/${loggedInUser.id}/profileImage`); 
         await uploadBytes(storageRef, avatarFile);
         newAvatarUrl = await getDownloadURL(storageRef);
         toast({ title: "Avatar Uploaded!", description: "Your new avatar is saved."});
@@ -142,10 +141,9 @@ export default function EditProfilePage() {
         username: data.username,
         location: data.location || null,
         aboutMe: data.aboutMe || null,
-        avatarUrl: newAvatarUrl || null, // Save new URL or existing, or null if cleared
+        avatarUrl: newAvatarUrl || null, 
       });
       
-      // Update local state for avatar display if it changed
       if (newAvatarUrl !== currentAvatarDisplayUrl) {
         setCurrentAvatarDisplayUrl(newAvatarUrl);
       }
@@ -156,11 +154,30 @@ export default function EditProfilePage() {
         description: "Your profile has been successfully updated.",
       });
       router.push(`/profile/${loggedInUser.id}`);
-    } catch (err) {
-      console.error("Error updating profile:", err);
+    } catch (error: any) {
+      console.error("Error updating profile:", error);
+      let description = "Could not update your profile. Please try again.";
+      if (error.code) { 
+        switch (error.code) {
+          case 'storage/unauthorized':
+            description = "Storage Error: You are not authorized to upload this file. Please check Firebase Storage rules. (Remember, mock auth might require temporarily open rules for development).";
+            break;
+          case 'storage/object-not-found':
+            description = "Storage Error: File not found after upload. This is unexpected.";
+            break;
+          case 'storage/canceled':
+            description = "Storage Error: The upload was canceled.";
+            break;
+          case 'permission-denied': // Firestore permission denied OR Storage permission denied without a more specific code
+            description = "Permission Denied: Could not save changes. Please check Firestore and Firebase Storage security rules.";
+            break;
+          default:
+            description = `An error occurred: ${error.message || 'Unknown error'}`;
+        }
+      }
       toast({
         title: "Update Failed",
-        description: "Could not update your profile. Please try again.",
+        description: description,
         variant: "destructive",
       });
     } finally {
@@ -238,7 +255,7 @@ export default function EditProfilePage() {
                     type="file"
                     accept="image/jpeg,image/png,image/gif,image/webp"
                     onChange={handleFileChange}
-                    className="hidden" // Hide the default input, use the label as button
+                    className="hidden" 
                     disabled={isSubmitting}
                   />
                   <p className="text-xs text-muted-foreground mt-1">Max 5MB. JPG, PNG, GIF, WEBP.</p>
@@ -318,3 +335,6 @@ export default function EditProfilePage() {
     </div>
   );
 }
+
+
+    
