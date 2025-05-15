@@ -20,9 +20,9 @@ import { cn } from '@/lib/utils';
 interface PostItemProps {
   post: Post;
   isFirstPost?: boolean;
-  threadPoll?: Poll; 
-  onPollUpdate?: (updatedPoll: Poll) => void; 
-  threadId?: string; 
+  threadPoll?: Poll;
+  onPollUpdate?: (updatedPoll: Poll) => void;
+  threadId?: string;
 }
 
 export default function PostItem({ post, isFirstPost = false, threadPoll, onPollUpdate, threadId }: PostItemProps) {
@@ -32,7 +32,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
   const [currentPoll, setCurrentPoll] = useState<Poll | undefined>(threadPoll);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  
+
   const [currentReactions, setCurrentReactions] = useState<Record<string, { userIds: string[] }>>(post.reactions || {});
   const [isLiking, setIsLiking] = useState(false);
 
@@ -78,27 +78,30 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
     processedContent = processedContent.replace(
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
-        if (!videoId) return match; // Safeguard: if videoId is not captured, return original text
+        console.log('Detected YouTube videoId:', videoId); // Diagnostic log
+        if (!videoId) return match;
         return `
           <div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">
-            <iframe 
+            <iframe
               title="YouTube video player"
-              src="https://www.youtube.com/embed/${videoId}" 
-              frameborder="0" 
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-              allowfullscreen 
+              src="https://www.youtube.com/embed/${videoId}"
+              width="100%"
+              height="100%"
+              frameborder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen
               class="absolute top-0 left-0 w-full h-full">
             </iframe>
           </div>`;
       }
     );
-    
+
     // Basic formatting (bold, italic, newlines)
     processedContent = processedContent
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/\n/g, '<br />');
-      
+
     return processedContent;
   };
 
@@ -133,8 +136,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
         }
 
         if (pollFromDb.voters && pollFromDb.voters[user.id]) {
-          // This check is redundant if UI prevents it, but good for safety.
-          return pollFromDb; 
+          return pollFromDb;
         }
 
         const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
@@ -164,8 +166,6 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
       if (updatedPollData) {
         setCurrentPoll(updatedPollData);
         if (onPollUpdate) onPollUpdate(updatedPollData);
-        // Check if vote was successfully recorded by checking voters map again,
-        // as the transaction might return the old poll data if the user had already voted (due to the early return)
         if (updatedPollData.voters?.[user.id] === selectedOptionId) {
             toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
         } else if (updatedPollData.voters?.[user.id]) {
@@ -232,9 +232,8 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
         }
 
         transaction.update(postRef, { reactions: newReactionsField });
-        
-        // Update author's karma only if the reactor is not the author and there was a change
-        if (post.author.id !== 'unknown' && reactionChange !== 0 && post.author.id !== user.id) { 
+
+        if (post.author.id !== 'unknown' && reactionChange !== 0 && post.author.id !== user.id) {
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChange),
                 totalReactionsReceived: increment(reactionChange),
@@ -399,3 +398,5 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
     </Card>
   );
 }
+
+    
