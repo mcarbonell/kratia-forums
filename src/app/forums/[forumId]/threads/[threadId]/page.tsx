@@ -5,15 +5,16 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
-import type { Thread, Post as PostType, User as KratiaUser, Poll } from '@/lib/types'; // Renamed User
-import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply } from 'lucide-react';
+import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation } from '@/lib/types'; // Renamed User
+import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs } from 'firebase/firestore';
+import { formatDistanceToNow } from 'date-fns';
 
 // Helper function for timestamp conversion
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
@@ -54,12 +55,12 @@ export default function ThreadPage() {
   const forumId = params.forumId as string;
 
   const [thread, setThread] = useState<Thread | null>(null);
-  const [threadPoll, setThreadPoll] = useState<Poll | undefined>(undefined); // State for the thread's poll
   const [posts, setPosts] = useState<PostType[]>([]);
   const [forumName, setForumName] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showReplyForm, setShowReplyForm] = useState(false);
+  const [votation, setVotation] = useState<Votation | null>(null); // State for fetched votation
 
   useEffect(() => {
     if (!threadId || !forumId) {
@@ -71,6 +72,7 @@ export default function ThreadPage() {
     const fetchThreadData = async () => {
       setIsLoading(true);
       setError(null);
+      setVotation(null); 
       try {
         const threadRef = doc(db, "threads", threadId);
         const threadSnap = await getDoc(threadRef);
@@ -91,7 +93,17 @@ export default function ThreadPage() {
           postCount: threadData.postCount || 0,
         } as Thread;
         setThread(fetchedThread);
-        setThreadPoll(fetchedThread.poll); // Set the poll from the thread data
+        
+        if (fetchedThread.relatedVotationId) {
+          const votationRef = doc(db, "votations", fetchedThread.relatedVotationId);
+          const votationSnap = await getDoc(votationRef);
+          if (votationSnap.exists()) {
+            setVotation({ id: votationSnap.id, ...votationSnap.data() } as Votation);
+          } else {
+            console.warn(`Votation document with ID ${fetchedThread.relatedVotationId} not found.`);
+          }
+        }
+
 
         if (fetchedThread.forumId === forumId) {
             const forumRefDoc = doc(db, "forums", forumId);
@@ -153,9 +165,7 @@ export default function ThreadPage() {
     setShowReplyForm(false);
   };
 
-   // Callback to update the poll in the thread's state when PostItem updates it in Firestore
   const handlePollUpdate = (updatedPoll: Poll) => {
-    setThreadPoll(updatedPoll);
     if (thread) {
       setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
     }
@@ -222,6 +232,63 @@ export default function ThreadPage() {
           </Button>
         )}
       </div>
+      
+      {/* Votation Details Display */}
+      {votation && (
+        <Card className="mb-6 border-blue-500 shadow-lg">
+          <CardHeader className="bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded-t-lg">
+            <CardTitle className="flex items-center text-xl">
+              <Vote className="mr-3 h-6 w-6" />
+              Votation Details: {votation.title}
+            </CardTitle>
+            <CardDescription className="text-blue-700 dark:text-blue-400">
+              This thread is associated with a formal community votation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 space-y-3">
+            {votation.type === 'sanction' && votation.targetUsername && (
+              <div className="flex items-center text-sm">
+                <UserX className="mr-2 h-4 w-4 text-destructive" />
+                <span>Proposed Sanction for: <strong>{votation.targetUsername}</strong> for <strong>{votation.sanctionDuration}</strong></span>
+              </div>
+            )}
+            <div className="text-sm">
+                <p><strong className="font-medium">Proposer:</strong> {votation.proposerUsername}</p>
+                <p><strong className="font-medium">Status:</strong> <span className="font-semibold capitalize">{votation.status}</span></p>
+                <p><strong className="font-medium">Deadline:</strong> {new Date(votation.deadline).toLocaleString()}</p>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-1 text-md">Current Tally:</h4>
+              <ul className="list-disc list-inside pl-1 space-y-1 text-sm">
+                <li>For: {votation.options.for}</li>
+                <li>Against: {votation.options.against}</li>
+                <li>Abstain: {votation.options.abstain}</li>
+              </ul>
+              <p className="text-xs text-muted-foreground mt-1">Total votes cast: {votation.totalVotesCast}</p>
+            </div>
+            {/* Voting UI will be added here in the next step */}
+            {votation.status === 'active' && (
+                 <Alert variant="default" className="mt-3">
+                    <ShieldCheck className="h-5 w-5 text-primary" />
+                    <AlertTitle>Voting is Active</AlertTitle>
+                    <AlertDescription>
+                        You can cast your vote on this proposal. Voting interface coming soon.
+                    </AlertDescription>
+                </Alert>
+            )}
+             {votation.status !== 'active' && (
+                 <Alert variant="default" className="mt-3">
+                    <ShieldCheck className="h-5 w-5"/>
+                    <AlertTitle>Voting Closed</AlertTitle>
+                    <AlertDescription>
+                        This votation is no longer active. Result: <span className="font-semibold">{votation.outcome || "Pending finalization"}</span>
+                    </AlertDescription>
+                </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
 
       {posts.length > 0 ? (
         <div className="space-y-6">
@@ -230,9 +297,9 @@ export default function ThreadPage() {
                 key={post.id}
                 post={post}
                 isFirstPost={index === 0}
-                threadPoll={index === 0 ? threadPoll : undefined} // Pass poll only to the first post
-                onPollUpdate={handlePollUpdate} // Pass callback to update poll
-                threadId={thread.id} // Pass threadId for poll updates
+                threadPoll={index === 0 ? thread.poll : undefined}
+                onPollUpdate={handlePollUpdate}
+                threadId={thread.id}
             />
           ))}
         </div>
@@ -273,3 +340,4 @@ export default function ThreadPage() {
     </div>
   );
 }
+

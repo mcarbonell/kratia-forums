@@ -78,7 +78,7 @@ export interface Poll { // For non-binding polls within threads
   allowMultipleVotes?: boolean;
   endDate?: string; // ISO date string
   totalVotes: number;
-  voters?: Record<string, string>; // Record<userId, optionId>
+  voters: Record<string, string>; // Record<userId, optionId>
 }
 
 // For binding votations in Agora
@@ -136,3 +136,4 @@ export interface Notification {
   createdAt: string; // ISO date string
   isRead?: boolean;
 }
+

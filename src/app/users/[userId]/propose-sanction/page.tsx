@@ -138,6 +138,9 @@ export default function ProposeSanctionPage() {
     
     try {
       const batch = writeBatch(db);
+      
+      // Create Votation Document first to get its ID
+      const newVotationRef = doc(collection(db, "votations"));
 
       // 1. Create Agora Thread
       const newAgoraThreadRef = doc(collection(db, "threads"));
@@ -149,6 +152,7 @@ export default function ProposeSanctionPage() {
         lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
         isPublic: true, // Agora threads are public
+        relatedVotationId: newVotationRef.id, // Link thread to votation
       };
       batch.set(newAgoraThreadRef, agoraThreadData);
 
@@ -177,8 +181,7 @@ export default function ProposeSanctionPage() {
       });
 
 
-      // 3. Create Votation Document
-      const newVotationRef = doc(collection(db, "votations"));
+      // 3. Create Votation Document (now with newAgoraThreadRef.id)
       const votationData: Votation = {
         id: newVotationRef.id,
         title: votationTitle,
@@ -196,8 +199,8 @@ export default function ProposeSanctionPage() {
         options: { for: 0, against: 0, abstain: 0 },
         voters: {},
         totalVotesCast: 0,
-        relatedThreadId: newAgoraThreadRef.id,
         quorumRequired: KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS,
+        relatedThreadId: newAgoraThreadRef.id, // Link votation to thread
       };
       batch.set(newVotationRef, votationData);
       
@@ -293,3 +296,4 @@ export default function ProposeSanctionPage() {
     </div>
   );
 }
+
