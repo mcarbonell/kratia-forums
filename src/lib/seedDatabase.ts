@@ -4,7 +4,7 @@
 import { db } from '@/lib/firebase';
 import type { ForumCategory, Forum, Thread, Post, User as KratiaUser } from '@/lib/types';
 import { mockUsers } from '@/lib/mockData'; // We'll use mockUsers for author details
-import { collection, doc, writeBatch, Timestamp } from 'firebase/firestore';
+import { collection, doc, writeBatch, Timestamp, increment } from 'firebase/firestore'; // Added increment
 
 // Helper to get author info in the denormalized structure
 const getAuthorInfo = (user: KratiaUser) => {
@@ -83,7 +83,7 @@ export async function seedDatabase() {
     threadId: thread1Id, author: alice, content: post1_1_Content, createdAt: post1_1_CreatedAt, reactions: [{ emoji: '👍', userId: 'user2', count: 1 }], poll: post1_1_Poll
   });
   thread1PostCount++;
-  forumPostCounts['forum1']++;
+  forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
   if (new Date(post1_1_CreatedAt) > new Date(thread1LastReplyAt)) thread1LastReplyAt = post1_1_CreatedAt;
 
   const post1_2_Id = 'post1_2_thanks';
@@ -92,13 +92,13 @@ export async function seedDatabase() {
     threadId: thread1Id, author: bob, content: 'Thanks for the welcome, Alice! Glad to be here.', createdAt: post1_2_CreatedAt, reactions: [{ emoji: '😊', userId: 'user1', count: 1 }]
   });
   thread1PostCount++;
-  forumPostCounts['forum1']++;
+  forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
   if (new Date(post1_2_CreatedAt) > new Date(thread1LastReplyAt)) thread1LastReplyAt = post1_2_CreatedAt;
 
   batch.set(doc(db, "threads", thread1Id), {
     forumId: 'forum1', title: 'General Discussion Welcome Thread', author: alice, createdAt: thread1CreatedAt, lastReplyAt: thread1LastReplyAt, postCount: thread1PostCount, isSticky: true, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "forum1"), { threadCount: 1 }); // Increment thread count for forum1
+  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); // Increment thread count for forum1
 
 
   // Thread 2: The Future of Technology (in forum2)
@@ -113,35 +113,35 @@ export async function seedDatabase() {
     threadId: thread2Id, author: charlie, content: "Let's talk about the future of technology. What are your predictions for AI in the next 5 years?", createdAt: post2_1_CreatedAt, reactions: []
   });
   thread2PostCount++;
-  forumPostCounts['forum2']++;
+  forumPostCounts['forum2'] = (forumPostCounts['forum2'] || 0) + 1;
   if (new Date(post2_1_CreatedAt) > new Date(thread2LastReplyAt)) thread2LastReplyAt = post2_1_CreatedAt;
 
   batch.set(doc(db, "threads", thread2Id), {
     forumId: 'forum2', title: 'The Future of Technology', author: charlie, createdAt: thread2CreatedAt, lastReplyAt: thread2LastReplyAt, postCount: thread2PostCount, isSticky: false, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "forum2"), { threadCount: 1 });
+  batch.update(doc(db, "forums", "forum2"), { threadCount: increment(1) });
 
 
-  // Thread 3: Favorite Books of 2024 (in forum1) - Empty for now or with one post
+  // Thread 3: Favorite Books of 2024 (in forum1)
   const thread3Id = 'thread3_books';
   const thread3CreatedAt = '2023-05-03T12:00:00Z';
   let thread3PostCount = 0;
   let thread3LastReplyAt = thread3CreatedAt;
-  // To make it appear, let's add one placeholder post
+  
   const post3_1_Id = 'post3_1_placeholder';
   const post3_1_CreatedAt = '2023-05-03T12:00:00Z';
    batch.set(doc(db, "posts", post3_1_Id), {
     threadId: thread3Id, author: bob, content: "What are everyone's favorite books this year?", createdAt: post3_1_CreatedAt, reactions: []
   });
   thread3PostCount++;
-  forumPostCounts['forum1']++;
+  forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
    if (new Date(post3_1_CreatedAt) > new Date(thread3LastReplyAt)) thread3LastReplyAt = post3_1_CreatedAt;
 
 
   batch.set(doc(db, "threads", thread3Id), {
     forumId: 'forum1', title: 'Favorite Books of 2024', author: bob, createdAt: thread3CreatedAt, lastReplyAt: thread3LastReplyAt, postCount: thread3PostCount, isSticky: false, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "forum1"), { threadCount: Timestamp.increment(1) }); // Increment thread count for forum1
+  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); // Increment thread count for forum1
 
 
   // Thread 4 (Agora): [VOTATION] Make "Introductions" thread sticky (in agora)
@@ -156,7 +156,7 @@ export async function seedDatabase() {
     threadId: thread4Id, author: alice, content: 'I propose we make the "Introductions" forum\'s main thread (or the forum itself) more prominent. It helps new users find where to post first.', createdAt: post4_1_CreatedAt, reactions: []
   });
   thread4PostCount++;
-  forumPostCounts['agora']++;
+  forumPostCounts['agora'] = (forumPostCounts['agora'] || 0) + 1;
   if (new Date(post4_1_CreatedAt) > new Date(thread4LastReplyAt)) thread4LastReplyAt = post4_1_CreatedAt;
 
   const post4_2_Id = 'post4_2_agree';
@@ -165,18 +165,20 @@ export async function seedDatabase() {
     threadId: thread4Id, author: charlie, content: 'I agree with Alice. A prominent introductions area would be very beneficial.', createdAt: post4_2_CreatedAt, reactions: []
   });
   thread4PostCount++;
-  forumPostCounts['agora']++;
+  forumPostCounts['agora'] = (forumPostCounts['agora'] || 0) + 1;
   if (new Date(post4_2_CreatedAt) > new Date(thread4LastReplyAt)) thread4LastReplyAt = post4_2_CreatedAt;
   
   batch.set(doc(db, "threads", thread4Id), {
     forumId: 'agora', title: '[VOTATION] Make "Introductions" area more prominent', author: alice, createdAt: thread4CreatedAt, lastReplyAt: thread4LastReplyAt, postCount: thread4PostCount, isSticky: false, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "agora"), { threadCount: 1 });
+  batch.update(doc(db, "forums", "agora"), { threadCount: increment(1) });
 
 
   // Update forum post counts
   for (const forumId in forumPostCounts) {
     if (forumPostCounts[forumId] > 0) {
+      // Ensure the forum document exists before trying to update its postCount
+      // The initial batch.set for forums already creates them with postCount: 0
       batch.update(doc(db, "forums", forumId), { postCount: forumPostCounts[forumId] });
     }
   }
@@ -201,3 +203,4 @@ export async function seedDatabase() {
 //   });
 //   console.log(`Test user ${username} created.`);
 // }
+
