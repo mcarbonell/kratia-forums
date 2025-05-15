@@ -6,13 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import ForumList from '@/components/forums/ForumList';
 import OnboardingMessage from '@/components/onboarding/OnboardingMessage';
 import Link from 'next/link';
-import { ShieldCheck, LogIn, UserPlus, Vote, Sparkles, Loader2, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, LogIn, UserPlus, Vote, Sparkles, Loader2, AlertTriangle, Database } from 'lucide-react';
 import { KRATIA_CONFIG } from '@/lib/config';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useEffect, useState } from 'react';
 import type { ForumCategory, Forum } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { seedDatabase } from '@/lib/seedDatabase'; // Import the seed function
+import { useToast } from '@/hooks/use-toast'; // Import useToast
 
 export default function HomePage() {
   const { user, loading: authLoading } = useMockAuth();
@@ -22,8 +24,20 @@ export default function HomePage() {
   
   const showOnboarding = user?.id === 'user4' && user.isQuarantined;
 
+  // State for seeding button
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [seedCompleted, setSeedCompleted] = useState(false);
+  const { toast } = useToast(); // Initialize toast
+
   useEffect(() => {
-    const fetchCategoriesAndForums = async () => {
+    // Check if seeding has been done before (e.g., using localStorage)
+    if (localStorage.getItem('db_seeded_kratia') === 'true') {
+      setSeedCompleted(true);
+    }
+    fetchCategoriesAndForums();
+  }, []);
+
+  const fetchCategoriesAndForums = async () => {
       setIsLoadingCategories(true);
       setCategoriesError(null);
       try {
@@ -37,7 +51,6 @@ export default function HomePage() {
           return {
             id: doc.id,
             ...data,
-            // Ensure counts are numbers, default to 0 if not present
             threadCount: data.threadCount || 0,
             postCount: data.postCount || 0,
           } as Forum;
@@ -56,14 +69,35 @@ export default function HomePage() {
         setCategories(fetchedCategories);
       } catch (error) {
         console.error("Error fetching categories for homepage:", error);
-        setCategoriesError("Could not load forum categories. Please try again later.");
+        setCategoriesError("Could not load forum categories. Ensure Firestore is set up and has data, or try seeding.");
       } finally {
         setIsLoadingCategories(false);
       }
     };
 
-    fetchCategoriesAndForums();
-  }, []);
+  const handleSeedDatabase = async () => {
+    setIsSeeding(true);
+    try {
+      await seedDatabase();
+      toast({
+        title: "Database Seeded!",
+        description: "Mock data has been successfully added to Firestore.",
+      });
+      setSeedCompleted(true);
+      localStorage.setItem('db_seeded_kratia', 'true'); // Mark as seeded
+      // Re-fetch categories to update the list
+      fetchCategoriesAndForums();
+    } catch (error) {
+      console.error("Error seeding database:", error);
+      toast({
+        title: "Seeding Failed",
+        description: (error as Error).message || "Could not seed the database. Check console for details.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSeeding(false);
+    }
+  };
 
   return (
     <div className="space-y-12">
@@ -96,6 +130,38 @@ export default function HomePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Temporary Seeding Button */}
+      {!seedCompleted && (
+        <Card className="shadow-md border-dashed border-primary/50">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Database className="mr-2 h-6 w-6 text-primary"/>
+              Initialize Database
+            </CardTitle>
+            <CardDescription>
+              If this is a new setup or your database is empty, click here to populate it with mock data.
+              This button will disappear after successful seeding.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              onClick={handleSeedDatabase}
+              disabled={isSeeding || seedCompleted}
+              className="w-full sm:w-auto"
+            >
+              {isSeeding ? (
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              ) : (
+                <Database className="mr-2 h-5 w-5" />
+              )}
+              {isSeeding ? 'Seeding...' : seedCompleted ? 'Database Seeded' : 'Seed Database with Mock Data'}
+            </Button>
+            {seedCompleted && <p className="text-sm text-green-600 mt-2">Database has been seeded. Refresh if data isn't showing.</p>}
+          </CardContent>
+        </Card>
+      )}
+
 
       {!authLoading && showOnboarding && user?.username && (
         <section aria-labelledby="onboarding-title">
@@ -133,7 +199,7 @@ export default function HomePage() {
             <p className="ml-4 text-muted-foreground">Loading forums...</p>
           </div>
         )}
-        {categoriesError && (
+        {categoriesError && !isLoadingCategories && (
           <Card className="border-destructive">
             <CardHeader>
               <CardTitle className="flex items-center text-destructive">
@@ -147,6 +213,21 @@ export default function HomePage() {
         )}
         {!isLoadingCategories && !categoriesError && (
           <ForumList categories={categories} />
+        )}
+         {/* Message if no categories and no error, potentially after seeding but before refresh or if seed is empty */}
+        {!isLoadingCategories && !categoriesError && categories.length === 0 && !seedCompleted && (
+             <Card>
+                <CardContent className="pt-6 text-center text-muted-foreground">
+                    <p>No forum categories found. Try seeding the database if it's a new setup.</p>
+                </CardContent>
+            </Card>
+        )}
+         {!isLoadingCategories && !categoriesError && categories.length === 0 && seedCompleted && (
+             <Card>
+                <CardContent className="pt-6 text-center text-muted-foreground">
+                    <p>Database seeded, but no categories are showing. Please refresh the page or check Firestore console.</p>
+                </CardContent>
+            </Card>
         )}
       </section>
     </div>
