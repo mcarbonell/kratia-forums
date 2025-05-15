@@ -6,7 +6,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button';
 import type { Post, Poll, PollOption, User as KratiaUser } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
-import { ThumbsUp, MessageSquare, Edit2, Trash2, BarChartBig, Vote as VoteIcon, Loader2 } from 'lucide-react'; 
+import { ThumbsUp, MessageSquare, Edit2, Trash2, BarChartBig, Vote as VoteIcon, Loader2 } from 'lucide-react';
 import UserAvatar from '../user/UserAvatar';
 import { useState, useEffect } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
@@ -20,34 +20,34 @@ import { cn } from '@/lib/utils';
 interface PostItemProps {
   post: Post;
   isFirstPost?: boolean;
+  threadPoll?: Poll; // Poll data passed from the thread
+  onPollUpdate?: (updatedPoll: Poll) => void; // Callback to update parent state
+  threadId?: string; // Required if threadPoll is present
 }
 
-export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
+export default function PostItem({ post, isFirstPost = false, threadPoll, onPollUpdate, threadId }: PostItemProps) {
   const { user } = useMockAuth();
   const { toast } = useToast();
 
-  const [currentPoll, setCurrentPoll] = useState<Poll | undefined>(post.poll);
+  const [currentPoll, setCurrentPoll] = useState<Poll | undefined>(threadPoll);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  
+
   const [currentReactions, setCurrentReactions] = useState<Record<string, { userIds: string[] }>>(post.reactions || {});
   const [isLiking, setIsLiking] = useState(false);
 
-  // Derived state to check if the current user has voted in this poll
   const hasUserVotedInPoll = !!(user && currentPoll?.voters && currentPoll.voters[user.id]);
-  // Get the option ID the user voted for, if any
   const userVoteOptionId = user && currentPoll?.voters ? currentPoll.voters[user.id] : null;
 
 
   useEffect(() => {
-    setCurrentPoll(post.poll);
-    // If user has already voted, pre-select their option (though it will be disabled)
-    if (user && post.poll?.voters?.[user.id]) {
-      setSelectedOptionId(post.poll.voters[user.id]);
+    setCurrentPoll(threadPoll); // Poll data now comes from props (for the first post)
+    if (user && threadPoll?.voters?.[user.id]) {
+      setSelectedOptionId(threadPoll.voters[user.id]);
     } else {
       setSelectedOptionId(null);
     }
-  }, [post.poll, user]);
+  }, [threadPoll, user]);
 
   useEffect(() => {
     setCurrentReactions(post.reactions || {});
@@ -76,8 +76,8 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
         toast({ title: "Login Required", description: "You must be logged in to vote.", variant: "destructive" });
         return;
     }
-    if (!selectedOptionId || !currentPoll) {
-        toast({ title: "No Option Selected", description: "Please select an option to vote.", variant: "destructive" });
+    if (!selectedOptionId || !currentPoll || !threadId) { // Ensure threadId is present
+        toast({ title: "Error", description: "Poll data or thread ID is missing.", variant: "destructive" });
         return;
     }
     if (hasUserVotedInPoll) {
@@ -86,22 +86,20 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
     }
 
     setIsSubmittingVote(true);
-    const postRef = doc(db, "posts", post.id);
+    const threadRef = doc(db, "threads", threadId); // Target the thread document for poll updates
 
     try {
       const updatedPollData = await runTransaction(db, async (transaction) => {
-        const postDoc = await transaction.get(postRef);
-        if (!postDoc.exists() || !postDoc.data()?.poll) {
-          throw new Error("Poll not found or post does not exist.");
+        const threadDoc = await transaction.get(threadRef);
+        if (!threadDoc.exists() || !threadDoc.data()?.poll) {
+          throw new Error("Poll not found or thread does not exist.");
         }
-        
-        const pollFromDb = postDoc.data()?.poll as Poll;
+
+        const pollFromDb = threadDoc.data()?.poll as Poll;
 
         if (pollFromDb.voters && pollFromDb.voters[user.id]) {
-          // This check inside transaction is crucial for race conditions
           toast({ title: "Already Voted", description: "It seems you've already cast your vote.", variant: "destructive" });
-          setIsSubmittingVote(false); // Early exit
-          return pollFromDb; // Return current poll data without changes
+          return pollFromDb;
         }
 
         const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
@@ -116,24 +114,22 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
         };
 
         const newVoters = { ...(pollFromDb.voters || {}), [user.id]: selectedOptionId };
-        
+
         const updatedPoll: Poll = {
           ...pollFromDb,
           options: newOptions,
           totalVotes: (pollFromDb.totalVotes || 0) + 1,
           voters: newVoters,
         };
-        
-        transaction.update(postRef, { poll: updatedPoll });
+
+        transaction.update(threadRef, { poll: updatedPoll });
         return updatedPoll;
       });
 
-      if (updatedPollData) { // Check if transaction returned data (wasn't an early exit due to already voted)
-        setCurrentPoll(updatedPollData); // Update local state with the version from the transaction
-        if (!updatedPollData.voters?.[user.id] || updatedPollData.voters[user.id] !== selectedOptionId ) {
-           // This means vote wasn't successful from DB check, but handlePollVote logic continued
-           // This case should be rare now with the check inside transaction
-        } else {
+      if (updatedPollData) {
+        setCurrentPoll(updatedPollData);
+        if (onPollUpdate) onPollUpdate(updatedPollData); // Notify parent component
+        if (updatedPollData.voters?.[user.id] === selectedOptionId) {
            toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
         }
       }
@@ -144,7 +140,7 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
         setIsSubmittingVote(false);
     }
   };
-  
+
 
   const handleLike = async () => {
     if (!user || user.role === 'visitor' || user.role === 'guest') {
@@ -180,27 +176,26 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
           karmaChange = 1;
           reactionChange = 1;
         }
-        
+
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
         const newReactionsField = { ...serverReactions };
 
         if (newEmojiUserIds.length === 0) {
-          delete newReactionsField[emoji]; 
+          delete newReactionsField[emoji];
         } else {
           newReactionsField[emoji] = updatedReactionsForEmoji;
         }
-        
+
         transaction.update(postRef, { reactions: newReactionsField });
-        
-        // Update post author's karma and totalReactionsReceived
-        if (post.author.id !== 'unknown' && reactionChange !==0) { // only update if author is known
+
+        if (post.author.id !== 'unknown' && reactionChange !==0) {
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChange),
                 totalReactionsReceived: increment(reactionChange),
             });
         }
-        
-        setCurrentReactions(newReactionsField); 
+
+        setCurrentReactions(newReactionsField);
       });
     } catch (error) {
       console.error("Error updating reaction:", error);
@@ -230,8 +225,8 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
         </div>
       </CardHeader>
       <CardContent className="p-4 prose prose-sm sm:prose-base dark:prose-invert max-w-none break-words" dangerouslySetInnerHTML={{ __html: formatContent(post.content) }} />
-      
-      {currentPoll && (
+
+      {isFirstPost && currentPoll && ( // Only display poll if it's the first post and poll data is provided
         <CardContent className="p-4 border-t">
           <Card className="bg-background/70">
             <CardHeader className="pb-2">
@@ -241,8 +236,8 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <RadioGroup 
-                value={selectedOptionId || userVoteOptionId || ""} 
+              <RadioGroup
+                value={selectedOptionId || userVoteOptionId || ""}
                 onValueChange={(value) => {
                     if (!hasUserVotedInPoll) setSelectedOptionId(value);
                 }}
@@ -259,15 +254,15 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
                     )}>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                            <RadioGroupItem 
-                                value={option.id} 
-                                id={`${currentPoll.id}-${option.id}`} 
+                            <RadioGroupItem
+                                value={option.id}
+                                id={`${currentPoll.id}-${option.id}`}
                                 disabled={hasUserVotedInPoll}
-                                className={cn(hasUserVotedInPoll ? "cursor-not-allowed" : "", 
+                                className={cn(hasUserVotedInPoll ? "cursor-not-allowed" : "",
                                              "border-primary text-primary focus:ring-primary")}
                                 checked={userVoteOptionId === option.id || selectedOptionId === option.id}
                             />
-                            <Label 
+                            <Label
                                 htmlFor={`${currentPoll.id}-${option.id}`}
                                 className={cn("text-sm", hasUserVotedInPoll ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer")}
                             >
@@ -278,8 +273,8 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
                     </div>
                     {currentPoll.totalVotes > 0 && (
                       <div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden">
-                          <div 
-                              className="h-full bg-primary transition-all duration-300 ease-in-out" 
+                          <div
+                              className="h-full bg-primary transition-all duration-300 ease-in-out"
                               style={{ width: `${((option.voteCount || 0) / (currentPoll.totalVotes || 1)) * 100}%` }}
                           />
                       </div>
@@ -290,18 +285,18 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
                   </div>
                 ))}
               </RadioGroup>
-              
+
               <div className="text-xs text-muted-foreground pt-2 flex justify-between items-center">
                 <span>Total Votes: {currentPoll.totalVotes || 0}</span>
                 {currentPoll.endDate && <span>Poll ends: {new Date(currentPoll.endDate).toLocaleDateString()}</span>}
               </div>
 
               {!hasUserVotedInPoll && user && user.role !== 'visitor' && user.role !== 'guest' && (
-                <Button 
-                    variant="default" 
-                    size="sm" 
+                <Button
+                    variant="default"
+                    size="sm"
                     onClick={handlePollVote}
-                    disabled={!selectedOptionId || isSubmittingVote || hasUserVotedInPoll}
+                    disabled={!selectedOptionId || isSubmittingVote || hasUserVotedInPoll || !threadId}
                     className="mt-3 w-full sm:w-auto"
                 >
                   {isSubmittingVote ? (
@@ -327,9 +322,9 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
 
       <CardFooter className="p-4 flex justify-between items-center border-t">
         <div className="flex space-x-2">
-          <Button 
-            variant={hasUserLiked ? "secondary" : "outline"} 
-            size="sm" 
+          <Button
+            variant={hasUserLiked ? "secondary" : "outline"}
+            size="sm"
             onClick={handleLike}
             disabled={isLiking || !user || user.role === 'visitor' || user.role === 'guest'}
             className="min-w-[80px]"

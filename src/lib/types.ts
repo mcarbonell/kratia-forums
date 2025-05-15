@@ -18,13 +18,13 @@ export interface User {
 export interface Post {
   id: string;
   threadId: string;
-  author: Pick<User, 'id' | 'username' | 'avatarUrl'>; 
+  author: Pick<User, 'id' | 'username' | 'avatarUrl'>;
   content: string; // Markdown or BBCode
   createdAt: string; // ISO date string
   updatedAt?: string; // ISO date string
-  reactions: Record<string, { userIds: string[] }>; 
+  reactions: Record<string, { userIds: string[] }>;
   isEdited?: boolean;
-  poll?: Poll; // Optional traditional poll
+  // poll?: Poll; // Removed from Post
 }
 
 export interface Thread {
@@ -39,6 +39,7 @@ export interface Thread {
   isLocked?: boolean;
   isPublic?: boolean; // Visible to non-logged-in users
   tags?: string[];
+  poll?: Poll; // Added to Thread
 }
 
 export interface Forum {

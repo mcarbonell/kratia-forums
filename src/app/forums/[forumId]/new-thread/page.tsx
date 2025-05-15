@@ -47,7 +47,7 @@ const newThreadSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "A poll must have at least 2 valid options.",
-        path: ["pollOption1"], 
+        path: ["pollOption1"],
       });
     }
     options.forEach((opt, index) => {
@@ -136,7 +136,7 @@ export default function NewThreadPage() {
       </Alert>
     );
   }
-  
+
   if (!user || user.role === 'visitor' || user.role === 'guest') {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
@@ -169,7 +169,7 @@ export default function NewThreadPage() {
     const authorInfo: Pick<KratiaUser, 'id' | 'username' | 'avatarUrl'> = {
       id: user.id,
       username: user.username,
-      avatarUrl: user.avatarUrl || "", 
+      avatarUrl: user.avatarUrl || "",
     };
 
     const now = Timestamp.fromDate(new Date());
@@ -183,7 +183,7 @@ export default function NewThreadPage() {
         data.pollOption4,
       ]
       .map((optText, index) => ({
-        id: `opt${index + 1}`,
+        id: `opt${index + 1}_${Date.now()}`, // Ensure unique IDs for options
         text: optText?.trim() || '',
         voteCount: 0,
       }))
@@ -191,10 +191,11 @@ export default function NewThreadPage() {
 
       if (pollOptions.length >= 2) {
         pollToSave = {
-          id: `poll_${Date.now()}`, 
+          id: `poll_${Date.now()}`,
           question: data.pollQuestion.trim(),
           options: pollOptions,
           totalVotes: 0,
+          voters: {}, // Initialize voters map
         };
       }
     }
@@ -204,34 +205,35 @@ export default function NewThreadPage() {
       const batch = writeBatch(db);
 
       const newThreadRef = doc(collection(db, "threads"));
-      const newThreadData: Omit<Thread, 'id'> = { 
+      const newThreadData: Omit<Thread, 'id'> = {
         forumId: forum.id,
         title: data.title,
         author: authorInfo,
-        createdAt: now.toDate().toISOString(), 
+        createdAt: now.toDate().toISOString(),
         lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
         isSticky: false,
         isLocked: false,
-        isPublic: forum.isPublic === undefined ? true : forum.isPublic, 
+        isPublic: forum.isPublic === undefined ? true : forum.isPublic,
+        ...(pollToSave && { poll: pollToSave }), // Add poll to thread data
       };
       batch.set(newThreadRef, newThreadData);
 
       const newPostRef = doc(collection(db, "posts"));
-      const initialPostData: Omit<Post, 'id'> = { 
-        threadId: newThreadRef.id, 
+      const initialPostData: Omit<Post, 'id'> = {
+        threadId: newThreadRef.id,
         author: authorInfo,
         content: data.content,
         createdAt: now.toDate().toISOString(),
         reactions: {},
-        ...(pollToSave && { poll: pollToSave }), 
+        // Poll is no longer stored in the post
       };
       batch.set(newPostRef, initialPostData);
-      
+
       const forumRef = doc(db, "forums", forum.id);
       batch.update(forumRef, {
         threadCount: increment(1),
-        postCount: increment(1) 
+        postCount: increment(1)
       });
 
       // Karma update for the thread/post author
@@ -248,7 +250,7 @@ export default function NewThreadPage() {
         title: "Thread Created!",
         description: "Your new thread has been successfully posted.",
       });
-      reset(); 
+      reset();
       router.push(`/forums/${forum.id}/threads/${newThreadRef.id}`);
 
     } catch (error) {
@@ -338,7 +340,7 @@ export default function NewThreadPage() {
                     />
                     {errors.pollQuestion && <p className="text-sm text-destructive">{errors.pollQuestion.message}</p>}
                   </div>
-                  
+
                   {[1, 2, 3, 4].map(i => (
                     <div key={`pollOpt${i}`} className="space-y-1">
                       <Label htmlFor={`pollOption${i}`}>{`Option ${i}`}{i > 2 ? " (Optional)" : ""}</Label>
@@ -356,7 +358,7 @@ export default function NewThreadPage() {
                 </CardContent>
               )}
             </Card>
-            
+
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
                     Cancel

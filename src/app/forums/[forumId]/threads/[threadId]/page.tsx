@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
-import type { Thread, Post as PostType, User as KratiaUser } from '@/lib/types'; // Renamed User
+import type { Thread, Post as PostType, User as KratiaUser, Poll } from '@/lib/types'; // Renamed User
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
@@ -21,13 +21,10 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
     return undefined; // Field might be optional
   }
   if (typeof timestamp === 'string') {
-    // Basic validation for ISO string: YYYY-MM-DDTHH:mm:ss.sssZ
     if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
-        // Ensure it's a valid date by trying to parse and re-stringify
         const d = new Date(timestamp);
         if (d.toISOString() === timestamp) return timestamp;
     }
-    // Try to parse if not strictly ISO or if validation above failed
     const parsedDate = new Date(timestamp);
     if (!isNaN(parsedDate.getTime())) {
         return parsedDate.toISOString();
@@ -36,17 +33,16 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
     return undefined;
   }
   if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-    // Firestore Timestamp object
     return timestamp.toDate().toISOString();
   }
-  if (timestamp instanceof Date) { // JS Date object
+  if (timestamp instanceof Date) {
     return timestamp.toISOString();
   }
-  if (typeof timestamp === 'number') { // Milliseconds since epoch
+  if (typeof timestamp === 'number') {
     return new Date(timestamp).toISOString();
   }
   console.warn('Unknown timestamp format:', timestamp);
-  return undefined; // Fallback for unknown types
+  return undefined;
 };
 
 export default function ThreadPage() {
@@ -58,6 +54,7 @@ export default function ThreadPage() {
   const forumId = params.forumId as string;
 
   const [thread, setThread] = useState<Thread | null>(null);
+  const [threadPoll, setThreadPoll] = useState<Poll | undefined>(undefined); // State for the thread's poll
   const [posts, setPosts] = useState<PostType[]>([]);
   const [forumName, setForumName] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,7 +72,6 @@ export default function ThreadPage() {
       setIsLoading(true);
       setError(null);
       try {
-        // Fetch Thread
         const threadRef = doc(db, "threads", threadId);
         const threadSnap = await getDoc(threadRef);
 
@@ -89,15 +85,16 @@ export default function ThreadPage() {
         const fetchedThread = {
           id: threadSnap.id,
           ...threadData,
-          createdAt: formatFirestoreTimestamp(threadData.createdAt) || new Date(0).toISOString(), // Fallback for safety
+          createdAt: formatFirestoreTimestamp(threadData.createdAt) || new Date(0).toISOString(),
           lastReplyAt: formatFirestoreTimestamp(threadData.lastReplyAt),
           author: threadData.author || { username: 'Unknown', id: '' },
           postCount: threadData.postCount || 0,
         } as Thread;
         setThread(fetchedThread);
+        setThreadPoll(fetchedThread.poll); // Set the poll from the thread data
 
         if (fetchedThread.forumId === forumId) {
-            const forumRefDoc = doc(db, "forums", forumId); // Changed variable name to avoid conflict
+            const forumRefDoc = doc(db, "forums", forumId);
             const forumSnap = await getDoc(forumRefDoc);
             if (forumSnap.exists()) {
                 setForumName(forumSnap.data().name);
@@ -120,7 +117,7 @@ export default function ThreadPage() {
             createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
             updatedAt: formatFirestoreTimestamp(data.updatedAt),
             author: data.author || { username: 'Unknown', id: '' },
-            reactions: data.reactions || [],
+            reactions: data.reactions || {}, // Ensure reactions is an object
           } as PostType;
         });
         setPosts(fetchedPosts);
@@ -155,6 +152,15 @@ export default function ThreadPage() {
     }
     setShowReplyForm(false);
   };
+
+   // Callback to update the poll in the thread's state when PostItem updates it in Firestore
+  const handlePollUpdate = (updatedPoll: Poll) => {
+    setThreadPoll(updatedPoll);
+    if (thread) {
+      setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
+    }
+  };
+
 
   if (isLoading || authLoading) {
     return (
@@ -220,7 +226,14 @@ export default function ThreadPage() {
       {posts.length > 0 ? (
         <div className="space-y-6">
           {posts.map((post, index) => (
-            <PostItem key={post.id} post={post} isFirstPost={index === 0} />
+            <PostItem
+                key={post.id}
+                post={post}
+                isFirstPost={index === 0}
+                threadPoll={index === 0 ? threadPoll : undefined} // Pass poll only to the first post
+                onPollUpdate={handlePollUpdate} // Pass callback to update poll
+                threadId={thread.id} // Pass threadId for poll updates
+            />
           ))}
         </div>
       ) : (
@@ -260,4 +273,3 @@ export default function ThreadPage() {
     </div>
   );
 }
-

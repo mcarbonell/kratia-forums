@@ -1,9 +1,9 @@
 
-'use server'; 
+'use server';
 
 import { db } from '@/lib/firebase';
 import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll } from '@/lib/types';
-import { mockUsers as mockUsersData } from '@/lib/mockData'; 
+import { mockUsers as mockUsersData } from '@/lib/mockData';
 import { collection, doc, writeBatch, increment, getDoc } from 'firebase/firestore';
 
 // Helper to get author info in the denormalized structure
@@ -46,7 +46,7 @@ export async function seedDatabase() {
     batch.set(userRef, userData);
   });
   console.log("User data prepared for batch.");
-  
+
   const alice = mockUsersData.find(u => u.id === 'user1');
   const bob = mockUsersData.find(u => u.id === 'user2');
   const charlie = mockUsersData.find(u => u.id === 'user3');
@@ -55,7 +55,7 @@ export async function seedDatabase() {
     console.error("Critical error: Could not find core mock users (Alice, Bob, Charlie) for seeding. Aborting seed.");
     return;
   }
-  
+
   const aliceAuthorInfo = getAuthorInfo(alice);
   const bobAuthorInfo = getAuthorInfo(bob);
   const charlieAuthorInfo = getAuthorInfo(charlie);
@@ -82,7 +82,7 @@ export async function seedDatabase() {
     { id: 'forum3', categoryId: 'cat2', name: 'Hobbies Corner', description: 'Share your hobbies and interests.', threadCount: 0, postCount: 0, isPublic: true },
     { id: 'agora', categoryId: 'cat_agora', name: 'Agora - Votations', description: 'Official proposals and community votations.', threadCount: 0, postCount: 0, isPublic: true, isAgora: true },
   ];
-  
+
   forums.forEach(forum => {
     const forumRef = doc(db, "forums", forum.id);
     batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 });
@@ -93,7 +93,7 @@ export async function seedDatabase() {
   // --- THREADS & POSTS ---
   let forumPostCounts: Record<string, number> = {};
   forums.forEach(f => forumPostCounts[f.id] = 0);
-  
+
   // Reset karma components for mock users before calculating from seeded posts
   mockUsersData.forEach(user => {
     batch.update(doc(db, "users", user.id), {
@@ -111,38 +111,39 @@ export async function seedDatabase() {
   let thread1PostCount = 0;
   let thread1LastReplyAt = thread1CreatedAt;
 
-  const post1_1_Id = 'post1_1_welcome';
-  const post1_1_CreatedAt = '2023-05-01T10:00:00Z';
-  const post1_1_Content = 'This is the first post in the general discussion thread. Welcome everyone!';
-  const post1_1_Poll: Poll = {
-      id: 'poll1',
+  const thread1Poll: Poll = {
+      id: 'poll_thread1_favseason', // Unique ID for the poll
       question: 'What is your favorite season?',
       options: [
-        { id: 'opt1', text: 'Spring', voteCount: 10 },
-        { id: 'opt2', text: 'Summer', voteCount: 15 },
-        { id: 'opt3', text: 'Autumn', voteCount: 20 },
-        { id: 'opt4', text: 'Winter', voteCount: 5 },
+        { id: 'opt1_spring', text: 'Spring', voteCount: 10 },
+        { id: 'opt2_summer', text: 'Summer', voteCount: 15 },
+        { id: 'opt3_autumn', text: 'Autumn', voteCount: 20 },
+        { id: 'opt4_winter', text: 'Winter', voteCount: 5 },
       ],
       totalVotes: 50,
       voters: { // Example: user2 voted for opt2, user3 for opt3
-        [bob.id]: 'opt2',
-        [charlie.id]: 'opt3'
+        [bob.id]: 'opt2_summer',
+        [charlie.id]: 'opt3_autumn'
       }
     };
+
+  const post1_1_Id = 'post1_1_welcome';
+  const post1_1_CreatedAt = '2023-05-01T10:00:00Z';
+  const post1_1_Content = 'This is the first post in the general discussion thread. Welcome everyone! What is your favorite season? (Check out the poll above!)';
   const post1_1_Reactions = {
-    '👍': { userIds: [bob.id, charlie.id] } 
+    '👍': { userIds: [bob.id, charlie.id] }
   };
   batch.set(doc(db, "posts", post1_1_Id), {
-    threadId: thread1Id, author: aliceAuthorInfo, content: post1_1_Content, createdAt: post1_1_CreatedAt, reactions: post1_1_Reactions, poll: post1_1_Poll
+    threadId: thread1Id, author: aliceAuthorInfo, content: post1_1_Content, createdAt: post1_1_CreatedAt, reactions: post1_1_Reactions
   });
   thread1PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
   if (new Date(post1_1_CreatedAt) > new Date(thread1LastReplyAt)) thread1LastReplyAt = post1_1_CreatedAt;
-  
+
   if (aliceAuthorInfo.id !== 'unknown') {
-    batch.update(doc(db, "users", aliceAuthorInfo.id), { 
+    batch.update(doc(db, "users", aliceAuthorInfo.id), {
       karma: increment(2 + Object.values(post1_1_Reactions).reduce((sum, r) => sum + r.userIds.length, 0)),
-      totalPostsByUser: increment(1), 
+      totalPostsByUser: increment(1),
       totalPostsInThreadsStartedByUser: increment(1),
       totalReactionsReceived: increment(Object.values(post1_1_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
     });
@@ -153,15 +154,15 @@ export async function seedDatabase() {
   const post1_2_CreatedAt = '2023-05-01T10:05:00Z';
   const post1_2_Reactions = { '😊': { userIds: [alice.id] } };
   batch.set(doc(db, "posts", post1_2_Id), {
-    threadId: thread1Id, author: bobAuthorInfo, content: 'Thanks for the welcome, Alice! Glad to be here.', createdAt: post1_2_CreatedAt, reactions: post1_2_Reactions
+    threadId: thread1Id, author: bobAuthorInfo, content: 'Thanks for the welcome, Alice! Glad to be here. I voted Summer!', createdAt: post1_2_CreatedAt, reactions: post1_2_Reactions
   });
   thread1PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
   if (new Date(post1_2_CreatedAt) > new Date(thread1LastReplyAt)) thread1LastReplyAt = post1_2_CreatedAt;
 
   if (bobAuthorInfo.id !== 'unknown') {
-    batch.update(doc(db, "users", bobAuthorInfo.id), { 
-      karma: increment(1 + Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0)), 
+    batch.update(doc(db, "users", bobAuthorInfo.id), {
+      karma: increment(1 + Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0)),
       totalPostsByUser: increment(1),
       totalReactionsReceived: increment(Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
     });
@@ -172,10 +173,10 @@ export async function seedDatabase() {
 
 
   batch.set(doc(db, "threads", thread1Id), {
-    forumId: 'forum1', title: 'General Discussion Welcome Thread', author: aliceAuthorInfo, createdAt: thread1CreatedAt, lastReplyAt: thread1LastReplyAt, postCount: thread1PostCount, isSticky: true, isLocked: false, isPublic: true
+    forumId: 'forum1', title: 'General Discussion Welcome Thread', author: aliceAuthorInfo, createdAt: thread1CreatedAt, lastReplyAt: thread1LastReplyAt, postCount: thread1PostCount, isSticky: true, isLocked: false, isPublic: true, poll: thread1Poll // Poll added to thread
   });
-  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
-  console.log("Thread 1 and its posts prepared.");
+  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) });
+  console.log("Thread 1 (with poll) and its posts prepared.");
 
   // Thread 2: The Future of Technology (in forum2)
   const thread2Id = 'thread2_tech';
@@ -193,10 +194,10 @@ export async function seedDatabase() {
   if (new Date(post2_1_CreatedAt) > new Date(thread2LastReplyAt)) thread2LastReplyAt = post2_1_CreatedAt;
 
   if (charlieAuthorInfo.id !== 'unknown') {
-    batch.update(doc(db, "users", charlieAuthorInfo.id), { 
-      karma: increment(2), 
-      totalPostsByUser: increment(1), 
-      totalPostsInThreadsStartedByUser: increment(1) 
+    batch.update(doc(db, "users", charlieAuthorInfo.id), {
+      karma: increment(2),
+      totalPostsByUser: increment(1),
+      totalPostsInThreadsStartedByUser: increment(1)
     });
   }
 
@@ -211,7 +212,7 @@ export async function seedDatabase() {
   const thread3CreatedAt = '2023-05-03T12:00:00Z';
   let thread3PostCount = 0;
   let thread3LastReplyAt = thread3CreatedAt;
-  
+
   const post3_1_Id = 'post3_1_placeholder';
   const post3_1_CreatedAt = '2023-05-03T12:00:00Z';
    batch.set(doc(db, "posts", post3_1_Id), {
@@ -222,17 +223,17 @@ export async function seedDatabase() {
    if (new Date(post3_1_CreatedAt) > new Date(thread3LastReplyAt)) thread3LastReplyAt = post3_1_CreatedAt;
 
    if (bobAuthorInfo.id !== 'unknown') {
-     batch.update(doc(db, "users", bobAuthorInfo.id), { 
-      karma: increment(2), 
-      totalPostsByUser: increment(1), 
-      totalPostsInThreadsStartedByUser: increment(1) 
+     batch.update(doc(db, "users", bobAuthorInfo.id), {
+      karma: increment(2),
+      totalPostsByUser: increment(1),
+      totalPostsInThreadsStartedByUser: increment(1)
     });
    }
 
   batch.set(doc(db, "threads", thread3Id), {
     forumId: 'forum1', title: 'Favorite Books of 2024', author: bobAuthorInfo, createdAt: thread3CreatedAt, lastReplyAt: thread3LastReplyAt, postCount: thread3PostCount, isSticky: false, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
+  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) });
   console.log("Thread 3 and its posts prepared.");
 
   // Thread 4 (Agora): [VOTATION] Make "Introductions" thread sticky (in agora)
@@ -251,10 +252,10 @@ export async function seedDatabase() {
   if (new Date(post4_1_CreatedAt) > new Date(thread4LastReplyAt)) thread4LastReplyAt = post4_1_CreatedAt;
 
   if (aliceAuthorInfo.id !== 'unknown') {
-    batch.update(doc(db, "users", aliceAuthorInfo.id), { 
-      karma: increment(2), 
-      totalPostsByUser: increment(1), 
-      totalPostsInThreadsStartedByUser: increment(1) 
+    batch.update(doc(db, "users", aliceAuthorInfo.id), {
+      karma: increment(2),
+      totalPostsByUser: increment(1),
+      totalPostsInThreadsStartedByUser: increment(1)
     });
   }
 
@@ -273,7 +274,7 @@ export async function seedDatabase() {
   if (aliceAuthorInfo.id !== 'unknown') { // Alice is the thread author
     batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
   }
-  
+
   batch.set(doc(db, "threads", thread4Id), {
     forumId: 'agora', title: '[VOTATION] Make "Introductions" area more prominent', author: aliceAuthorInfo, createdAt: thread4CreatedAt, lastReplyAt: thread4LastReplyAt, postCount: thread4PostCount, isSticky: false, isLocked: false, isPublic: true
   });
