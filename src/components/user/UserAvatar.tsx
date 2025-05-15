@@ -1,3 +1,4 @@
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { User } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -24,7 +25,11 @@ export default function UserAvatar({ user, size = 'md', className }: UserAvatarP
 
   return (
     <Avatar className={cn(sizeClasses[size], className)}>
-      <AvatarImage src={user?.avatarUrl || undefined} alt={user?.username || 'User avatar'} data-ai-hint="profile avatar" />
+      <AvatarImage 
+        src={user?.avatarUrl || `https://placehold.co/100x100.png?text=${getInitials(user?.username)}`} 
+        alt={user?.username ? `${user.username}'s avatar` : 'User avatar'} 
+        data-ai-hint="profile avatar" 
+      />
       <AvatarFallback className={cn(sizeClasses[size])}>
         {getInitials(user?.username)}
       </AvatarFallback>
