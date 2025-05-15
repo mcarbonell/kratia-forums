@@ -1,11 +1,12 @@
+
 "use client";
 
 import Link from 'next/link';
-import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu } from 'lucide-react';
+import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu, BadgeAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user/UserAvatar';
-import { useMockAuth, UserRole } from '@/hooks/use-mock-auth'; // Updated import
+import { useMockAuth, type UserRole } from '@/hooks/use-mock-auth'; // Updated import
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from 'react';
 
@@ -22,11 +23,16 @@ export default function Header() {
   const UserRoleSwitcher = () => (
     <div className="mt-4 p-2 border-t">
       <p className="text-sm font-semibold mb-2">Switch User Role (Dev):</p>
-      {(['visitor', 'guest', 'user', 'normal_user', 'admin', 'founder'] as UserRole[]).map(role => (
-         <Button key={role} variant="ghost" size="sm" className="w-full justify-start mb-1" onClick={() => { switchToUser(role); setMobileMenuOpen(false); }}>
-          Switch to {role.replace('_', ' ')}
-        </Button>
-      ))}
+      {(['visitor0', 'guest1', 'user1', 'user2', 'user3', 'user4', 'admin1', 'founder1'] as string[]).map(userKey => {
+        // Attempt to find the user by key to get a display name; fall back to key
+        const userObject = (useMockAuth() as any).mockAuthUsers?.[userKey] || { username: userKey.replace(/([A-Za-z]+)[0-9]+/, '$1') };
+        const displayName = userObject.username || userKey;
+        return (
+            <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start mb-1 text-xs h-7" onClick={() => { switchToUser(userKey); setMobileMenuOpen(false); }}>
+            Switch to {displayName} ({userKey})
+            </Button>
+        );
+    })}
     </div>
   );
 
@@ -63,7 +69,7 @@ export default function Header() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{user.username}</DropdownMenuLabel>
+                <DropdownMenuLabel>{user.username} ({user.role})</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href={`/profile/${user.id}`}>My Profile</Link>
@@ -71,11 +77,11 @@ export default function Header() {
                 <DropdownMenuItem asChild>
                   <Link href="/profile/edit">Settings</Link>
                 </DropdownMenuItem>
-                {user.role === 'admin' || user.role === 'founder' ? (
+                {(user.role === 'admin' || user.role === 'founder') && (
                   <DropdownMenuItem asChild>
-                    <Link href="/admin">Admin Panel</Link>
+                    <Link href="/admin"><BadgeAlert className="mr-2 h-4 w-4 text-primary"/>Admin Panel</Link>
                   </DropdownMenuItem>
-                ) : null}
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout}>
                   <LogOut className="mr-2 h-4 w-4" />
@@ -84,11 +90,15 @@ export default function Header() {
                 <DropdownMenuSeparator />
                  <div className="p-2">
                     <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
-                    {(['visitor', 'guest', 'user', 'normal_user', 'admin', 'founder'] as UserRole[]).map(role => (
-                        <Button key={role} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(role)}>
-                         {role.replace('_', ' ')}
-                        </Button>
-                    ))}
+                    {(['visitor0', 'guest1', 'user1', 'user2', 'user3', 'user4', 'admin1', 'founder1'] as string[]).map(userKey => {
+                        const userObject = (useMockAuth() as any).mockAuthUsers?.[userKey] || { username: userKey };
+                        const displayName = userObject.username || userKey;
+                        return (
+                            <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
+                             {displayName} ({userKey})
+                            </Button>
+                        );
+                    })}
                 </div>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -117,7 +127,7 @@ export default function Header() {
                 <span className="sr-only">Open menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-full max-w-xs p-0">
+            <SheetContent side="left" className="w-full max-w-xs p-0 flex flex-col">
               <div className="p-4 border-b">
                 <Link href="/" className="flex items-center gap-2 text-primary" onClick={() => setMobileMenuOpen(false)}>
                   <ShieldCheck className="h-7 w-7" />
@@ -134,7 +144,7 @@ export default function Header() {
                   <div className="flex flex-col space-y-2">
                      <div className="flex items-center space-x-2 mb-2">
                         <UserAvatar user={user} size="md" />
-                        <span>{user.username}</span>
+                        <span>{user.username} ({user.role})</span>
                       </div>
                     <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
                       <Link href={`/profile/${user.id}`}>My Profile</Link>
@@ -144,7 +154,7 @@ export default function Header() {
                     </Button>
                      {(user.role === 'admin' || user.role === 'founder') && (
                         <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
-                            <Link href="/admin">Admin Panel</Link>
+                            <Link href="/admin"><BadgeAlert className="mr-2 h-4 w-4 text-primary"/>Admin Panel</Link>
                         </Button>
                     )}
                     <Button variant="destructive" onClick={() => { logout(); setMobileMenuOpen(false); }} className="w-full">
@@ -166,7 +176,9 @@ export default function Header() {
                   </div>
                 )}
               </div>
-              <UserRoleSwitcher />
+              <div className="overflow-y-auto"> {/* Make switcher scrollable if needed */}
+                <UserRoleSwitcher />
+              </div>
             </SheetContent>
           </Sheet>
         </div>
