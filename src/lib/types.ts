@@ -1,3 +1,4 @@
+
 export interface User {
   id: string;
   username: string;
@@ -11,12 +12,6 @@ export interface User {
   canVote?: boolean; // True if user is a "Usuario Normal"
 }
 
-export interface Reaction {
-  emoji: string; // e.g., '👍', '❤️'
-  userId: string; // User who reacted
-  count?: number; // if reactions are aggregated
-}
-
 export interface Post {
   id: string;
   threadId: string;
@@ -24,7 +19,7 @@ export interface Post {
   content: string; // Markdown or BBCode
   createdAt: string; // ISO date string
   updatedAt?: string; // ISO date string
-  reactions: Reaction[];
+  reactions: Record<string, { userIds: string[] }>; // Updated structure: e.g., { "👍": { userIds: ["id1", "id2"] } }
   isEdited?: boolean;
   poll?: Poll; // Optional traditional poll
 }

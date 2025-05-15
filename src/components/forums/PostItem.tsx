@@ -12,9 +12,10 @@ import { useState, useEffect } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, runTransaction } from 'firebase/firestore';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { cn } from '@/lib/utils';
 
 interface PostItemProps {
   post: Post;
@@ -28,19 +29,24 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
   const [currentPoll, setCurrentPoll] = useState<Poll | undefined>(post.poll);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  // Tracks if user has voted on this poll *in this session*
-  // Key: pollId, Value: true if voted
   const [userVotedPolls, setUserVotedPolls] = useState<Record<string, boolean>>({}); 
+
+  // State for reactions
+  const [currentReactions, setCurrentReactions] = useState<Record<string, { userIds: string[] }>>(post.reactions || {});
+  const [isLiking, setIsLiking] = useState(false);
 
   useEffect(() => {
     setCurrentPoll(post.poll);
-    // If a poll exists and we previously recorded a vote for it in this session, keep selection disabled
     if (post.poll && userVotedPolls[post.poll.id]) {
-        // No need to reset selectedOptionId here as RadioGroup won't allow re-selection if disabled
+        // Persist selection visual if voted
     } else {
-        setSelectedOptionId(null); // Reset selection if poll changes or no vote recorded
+        setSelectedOptionId(null);
     }
-  }, [post.poll, userVotedPolls]); // Rerun if userVotedPolls changes to ensure UI reflects vote status
+  }, [post.poll, userVotedPolls]);
+
+  useEffect(() => {
+    setCurrentReactions(post.reactions || {});
+  }, [post.reactions]);
 
   const timeAgo = (dateString: string) => {
     if (!dateString) return 'some time ago';
@@ -60,7 +66,7 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
       .replace(/\n/g, '<br />');
   };
 
-  const handleVote = async () => {
+  const handlePollVote = async () => {
     if (!user || user.role === 'visitor' || user.role === 'guest') {
         toast({ title: "Login Required", description: "You must be logged in to vote.", variant: "destructive" });
         return;
@@ -75,10 +81,8 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
     }
 
     setIsSubmittingVote(true);
-
     try {
         const postRef = doc(db, "posts", post.id);
-        
         const updatedOptions = currentPoll.options.map(opt =>
             opt.id === selectedOptionId ? { ...opt, voteCount: (opt.voteCount || 0) + 1 } : opt
         );
@@ -87,17 +91,10 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
             options: updatedOptions,
             totalVotes: (currentPoll.totalVotes || 0) + 1,
         };
-
-        await updateDoc(postRef, {
-            poll: updatedPollData
-        });
-
-        setCurrentPoll(updatedPollData); // Update local state for immediate UI feedback
-        setUserVotedPolls(prev => ({ ...prev, [currentPoll!.id]: true })); // Mark as voted in this session
-        // selectedOptionId is kept to show the user's choice, but radio items will be disabled.
-        
+        await updateDoc(postRef, { poll: updatedPollData });
+        setCurrentPoll(updatedPollData);
+        setUserVotedPolls(prev => ({ ...prev, [currentPoll!.id]: true }));
         toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
-
     } catch (error) {
         console.error("Error casting vote:", error);
         toast({ title: "Error", description: "Failed to cast your vote. Please try again.", variant: "destructive" });
@@ -108,11 +105,62 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
   
   const hasVotedThisSession = currentPoll ? userVotedPolls[currentPoll.id] : false;
 
+  const handleLike = async () => {
+    if (!user || user.role === 'visitor' || user.role === 'guest') {
+      toast({ title: "Login Required", description: "You must be logged in to react.", variant: "destructive" });
+      return;
+    }
+    setIsLiking(true);
+    const postRef = doc(db, "posts", post.id);
+    const emoji = '👍';
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const postDoc = await transaction.get(postRef);
+        if (!postDoc.exists()) {
+          throw new Error("Post document does not exist!");
+        }
+
+        const serverReactions = postDoc.data().reactions || {};
+        const emojiReactionData = serverReactions[emoji] || { userIds: [] };
+        const userHasReacted = emojiReactionData.userIds.includes(user.id);
+
+        let newEmojiUserIds;
+        if (userHasReacted) {
+          newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
+        } else {
+          newEmojiUserIds = [...emojiReactionData.userIds, user.id];
+        }
+        
+        const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
+        const newReactionsField = { ...serverReactions };
+
+        if (newEmojiUserIds.length === 0) {
+          delete newReactionsField[emoji]; // Remove emoji if no users reacted
+        } else {
+          newReactionsField[emoji] = updatedReactionsForEmoji;
+        }
+        
+        transaction.update(postRef, { reactions: newReactionsField });
+        setCurrentReactions(newReactionsField); // Update local state
+      });
+      // Optional: toast({ title: "Reaction updated!" });
+    } catch (error) {
+      console.error("Error updating reaction:", error);
+      toast({ title: "Error", description: "Could not update reaction.", variant: "destructive" });
+    } finally {
+      setIsLiking(false);
+    }
+  };
+
+  const likeCount = currentReactions['👍']?.userIds?.length || 0;
+  const hasUserLiked = user ? currentReactions['👍']?.userIds?.includes(user.id) : false;
+
   return (
     <Card className={`w-full ${isFirstPost ? 'border-primary/40 shadow-lg' : 'shadow-md'}`}>
       <CardHeader className="flex flex-row items-start space-x-4 p-4 bg-muted/30 rounded-t-lg">
         <Link href={`/profile/${post.author.id}`} className="flex-shrink-0">
-          <UserAvatar user={post.author as User} size="md" />
+          <UserAvatar user={post.author as KratiaUser} size="md" />
         </Link>
         <div className="flex-grow">
           <Link href={`/profile/${post.author.id}`} className="font-semibold text-primary hover:underline">
@@ -190,7 +238,7 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
                 <Button 
                     variant="default" 
                     size="sm" 
-                    onClick={handleVote}
+                    onClick={handlePollVote}
                     disabled={!selectedOptionId || isSubmittingVote || hasVotedThisSession}
                     className="mt-3 w-full sm:w-auto"
                 >
@@ -217,10 +265,19 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
 
       <CardFooter className="p-4 flex justify-between items-center border-t">
         <div className="flex space-x-2">
-          <Button variant="outline" size="sm" disabled>
-            <ThumbsUp className="mr-1 h-4 w-4" /> Like ({post.reactions?.find(r => r.emoji === '👍')?.count || 0})
+          <Button 
+            variant={hasUserLiked ? "secondary" : "outline"} 
+            size="sm" 
+            onClick={handleLike}
+            disabled={isLiking || !user || user.role === 'visitor' || user.role === 'guest'}
+            className="min-w-[80px]"
+          >
+            {isLiking ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> :
+            <ThumbsUp className={cn("mr-1 h-4 w-4", hasUserLiked ? "text-primary fill-primary" : "")} />
+            }
+            Like ({likeCount})
           </Button>
-          <Button variant="outline" size="sm" disabled>
+          <Button variant="outline" size="sm" disabled> {/* Quote button still disabled */}
             <MessageSquare className="mr-1 h-4 w-4" /> Quote
           </Button>
         </div>
@@ -238,4 +295,3 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
     </Card>
   );
 }
-

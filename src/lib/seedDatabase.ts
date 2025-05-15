@@ -93,8 +93,11 @@ export async function seedDatabase() {
       ],
       totalVotes: 50,
     };
+  const post1_1_Reactions = {
+    '👍': { userIds: ['user2', 'user3'] } // Alice (user1) has not liked her own post in seed
+  };
   batch.set(doc(db, "posts", post1_1_Id), {
-    threadId: thread1Id, author: alice, content: post1_1_Content, createdAt: post1_1_CreatedAt, reactions: [{ emoji: '👍', userId: 'user2', count: 1 }], poll: post1_1_Poll
+    threadId: thread1Id, author: alice, content: post1_1_Content, createdAt: post1_1_CreatedAt, reactions: post1_1_Reactions, poll: post1_1_Poll
   });
   thread1PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
@@ -103,7 +106,7 @@ export async function seedDatabase() {
   const post1_2_Id = 'post1_2_thanks';
   const post1_2_CreatedAt = '2023-05-01T10:05:00Z';
   batch.set(doc(db, "posts", post1_2_Id), {
-    threadId: thread1Id, author: bob, content: 'Thanks for the welcome, Alice! Glad to be here.', createdAt: post1_2_CreatedAt, reactions: [{ emoji: '😊', userId: 'user1', count: 1 }]
+    threadId: thread1Id, author: bob, content: 'Thanks for the welcome, Alice! Glad to be here.', createdAt: post1_2_CreatedAt, reactions: { '😊': { userIds: ['user1'] } }
   });
   thread1PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
@@ -124,7 +127,7 @@ export async function seedDatabase() {
   const post2_1_Id = 'post2_1_ai';
   const post2_1_CreatedAt = '2023-05-02T11:00:00Z';
   batch.set(doc(db, "posts", post2_1_Id), {
-    threadId: thread2Id, author: charlie, content: "Let's talk about the future of technology. What are your predictions for AI in the next 5 years?", createdAt: post2_1_CreatedAt, reactions: []
+    threadId: thread2Id, author: charlie, content: "Let's talk about the future of technology. What are your predictions for AI in the next 5 years?", createdAt: post2_1_CreatedAt, reactions: {}
   });
   thread2PostCount++;
   forumPostCounts['forum2'] = (forumPostCounts['forum2'] || 0) + 1;
@@ -145,7 +148,7 @@ export async function seedDatabase() {
   const post3_1_Id = 'post3_1_placeholder';
   const post3_1_CreatedAt = '2023-05-03T12:00:00Z';
    batch.set(doc(db, "posts", post3_1_Id), {
-    threadId: thread3Id, author: bob, content: "What are everyone's favorite books this year?", createdAt: post3_1_CreatedAt, reactions: []
+    threadId: thread3Id, author: bob, content: "What are everyone's favorite books this year?", createdAt: post3_1_CreatedAt, reactions: {}
   });
   thread3PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
@@ -167,7 +170,7 @@ export async function seedDatabase() {
   const post4_1_Id = 'post4_1_propose';
   const post4_1_CreatedAt = '2023-06-01T09:00:00Z';
   batch.set(doc(db, "posts", post4_1_Id), {
-    threadId: thread4Id, author: alice, content: 'I propose we make the "Introductions" forum\'s main thread (or the forum itself) more prominent. It helps new users find where to post first.', createdAt: post4_1_CreatedAt, reactions: []
+    threadId: thread4Id, author: alice, content: 'I propose we make the "Introductions" forum\'s main thread (or the forum itself) more prominent. It helps new users find where to post first.', createdAt: post4_1_CreatedAt, reactions: {}
   });
   thread4PostCount++;
   forumPostCounts['agora'] = (forumPostCounts['agora'] || 0) + 1;
@@ -176,7 +179,7 @@ export async function seedDatabase() {
   const post4_2_Id = 'post4_2_agree';
   const post4_2_CreatedAt = '2023-06-01T09:15:00Z';
   batch.set(doc(db, "posts", post4_2_Id), {
-    threadId: thread4Id, author: charlie, content: 'I agree with Alice. A prominent introductions area would be very beneficial.', createdAt: post4_2_CreatedAt, reactions: []
+    threadId: thread4Id, author: charlie, content: 'I agree with Alice. A prominent introductions area would be very beneficial.', createdAt: post4_2_CreatedAt, reactions: {}
   });
   thread4PostCount++;
   forumPostCounts['agora'] = (forumPostCounts['agora'] || 0) + 1;
@@ -197,5 +200,5 @@ export async function seedDatabase() {
 
   // Commit the batch
   await batch.commit();
-  console.log("Database seeded successfully with mock data, including users collection!");
+  console.log("Database seeded successfully with mock data, including users collection and new reactions structure!");
 }
