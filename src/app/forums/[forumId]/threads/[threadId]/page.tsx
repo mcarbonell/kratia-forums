@@ -5,15 +5,49 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardDescription
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
-import type { Thread, Post as PostType, Forum } from '@/lib/types';
+import type { Thread, Post as PostType, User as KratiaUser } from '@/lib/types'; // Renamed User
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs } from 'firebase/firestore';
+
+// Helper function for timestamp conversion
+const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
+  if (!timestamp) {
+    return undefined; // Field might be optional
+  }
+  if (typeof timestamp === 'string') {
+    // Basic validation for ISO string: YYYY-MM-DDTHH:mm:ss.sssZ
+    if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
+        // Ensure it's a valid date by trying to parse and re-stringify
+        const d = new Date(timestamp);
+        if (d.toISOString() === timestamp) return timestamp;
+    }
+    // Try to parse if not strictly ISO or if validation above failed
+    const parsedDate = new Date(timestamp);
+    if (!isNaN(parsedDate.getTime())) {
+        return parsedDate.toISOString();
+    }
+    console.warn('Unparseable string timestamp:', timestamp);
+    return undefined;
+  }
+  if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+    // Firestore Timestamp object
+    return timestamp.toDate().toISOString();
+  }
+  if (timestamp instanceof Date) { // JS Date object
+    return timestamp.toISOString();
+  }
+  if (typeof timestamp === 'number') { // Milliseconds since epoch
+    return new Date(timestamp).toISOString();
+  }
+  console.warn('Unknown timestamp format:', timestamp);
+  return undefined; // Fallback for unknown types
+};
 
 export default function ThreadPage() {
   const params = useParams();
@@ -55,27 +89,23 @@ export default function ThreadPage() {
         const fetchedThread = {
           id: threadSnap.id,
           ...threadData,
-          createdAt: (threadData.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-          lastReplyAt: (threadData.lastReplyAt as Timestamp)?.toDate().toISOString(),
+          createdAt: formatFirestoreTimestamp(threadData.createdAt) || new Date(0).toISOString(), // Fallback for safety
+          lastReplyAt: formatFirestoreTimestamp(threadData.lastReplyAt),
           author: threadData.author || { username: 'Unknown', id: '' },
           postCount: threadData.postCount || 0,
         } as Thread;
         setThread(fetchedThread);
 
-        // Fetch Forum Name (if forumId matches thread's forumId for consistency)
         if (fetchedThread.forumId === forumId) {
-            const forumRef = doc(db, "forums", forumId);
-            const forumSnap = await getDoc(forumRef);
+            const forumRefDoc = doc(db, "forums", forumId); // Changed variable name to avoid conflict
+            const forumSnap = await getDoc(forumRefDoc);
             if (forumSnap.exists()) {
                 setForumName(forumSnap.data().name);
             }
         } else {
              console.warn("Mismatch between URL forumId and thread's forumId");
-             // Optionally fetch forum based on threadData.forumId
         }
 
-
-        // Fetch Posts
         const postsQuery = query(
           collection(db, "posts"),
           where("threadId", "==", threadId),
@@ -87,8 +117,8 @@ export default function ThreadPage() {
           return {
             id: docSnap.id,
             ...data,
-            createdAt: (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-            updatedAt: (data.updatedAt as Timestamp)?.toDate().toISOString(),
+            createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
+            updatedAt: formatFirestoreTimestamp(data.updatedAt),
             author: data.author || { username: 'Unknown', id: '' },
             reactions: data.reactions || [],
           } as PostType;
@@ -109,14 +139,13 @@ export default function ThreadPage() {
   const canReply = user && user.role !== 'visitor' && user.role !== 'guest';
 
   const handleNewReply = (newPost: PostType) => {
-    // Convert Firestore Timestamp to ISO string if it's not already
     const formattedNewPost = {
         ...newPost,
-        createdAt: typeof newPost.createdAt === 'string' ? newPost.createdAt : (newPost.createdAt as unknown as Timestamp).toDate().toISOString(),
-        author: newPost.author || (user as User) || {username: 'Unknown', id: ''} // Ensure author object is complete
+        createdAt: formatFirestoreTimestamp(newPost.createdAt) || new Date(0).toISOString(),
+        author: newPost.author || (user as KratiaUser) || {username: 'Unknown', id: ''}
     };
     setPosts(prevPosts => [...prevPosts, formattedNewPost]);
-    
+
     if (thread) {
         setThread(prevThread => prevThread ? {
             ...prevThread,
@@ -135,7 +164,7 @@ export default function ThreadPage() {
         </div>
     );
   }
-  
+
   if (error) {
     return (
       <Alert variant="destructive">
@@ -163,7 +192,7 @@ export default function ThreadPage() {
       </Alert>
     );
   }
-  
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -187,7 +216,7 @@ export default function ThreadPage() {
           </Button>
         )}
       </div>
-      
+
       {posts.length > 0 ? (
         <div className="space-y-6">
           {posts.map((post, index) => (
@@ -211,11 +240,11 @@ export default function ThreadPage() {
       )}
 
       {canReply && showReplyForm && thread && (
-        <ReplyForm 
-            threadId={thread.id} 
-            forumId={forumId} 
+        <ReplyForm
+            threadId={thread.id}
+            forumId={forumId}
             onReplySuccess={handleNewReply}
-            onCancel={() => setShowReplyForm(false)} 
+            onCancel={() => setShowReplyForm(false)}
         />
       )}
 
@@ -231,3 +260,4 @@ export default function ThreadPage() {
     </div>
   );
 }
+

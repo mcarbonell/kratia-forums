@@ -4,7 +4,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardDescription as it's not used here
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import ThreadListItem from '@/components/forums/ThreadListItem';
 import { useMockAuth } from '@/hooks/use-mock-auth';
@@ -13,6 +13,41 @@ import type { Forum, Thread } from '@/lib/types';
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs } from 'firebase/firestore';
+
+// Helper function for timestamp conversion
+const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
+  if (!timestamp) {
+    return undefined; // Field might be optional
+  }
+  if (typeof timestamp === 'string') {
+    // Basic validation for ISO string: YYYY-MM-DDTHH:mm:ss.sssZ
+    if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
+        // Ensure it's a valid date by trying to parse and re-stringify
+        const d = new Date(timestamp);
+        if (d.toISOString() === timestamp) return timestamp;
+    }
+    // Try to parse if not strictly ISO or if validation above failed
+    const parsedDate = new Date(timestamp);
+    if (!isNaN(parsedDate.getTime())) {
+        return parsedDate.toISOString();
+    }
+    console.warn('Unparseable string timestamp:', timestamp);
+    return undefined;
+  }
+  if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+    // Firestore Timestamp object
+    return timestamp.toDate().toISOString();
+  }
+  if (timestamp instanceof Date) { // JS Date object
+    return timestamp.toISOString();
+  }
+  if (typeof timestamp === 'number') { // Milliseconds since epoch
+    return new Date(timestamp).toISOString();
+  }
+  console.warn('Unknown timestamp format:', timestamp);
+  return undefined; // Fallback for unknown types
+};
+
 
 export default function ForumPage() {
   const params = useParams();
@@ -47,8 +82,8 @@ export default function ForumPage() {
           return;
         }
         const forumData = forumSnap.data();
-        setForum({ 
-            id: forumSnap.id, 
+        setForum({
+            id: forumSnap.id,
             ...forumData,
             threadCount: forumData.threadCount || 0,
             postCount: forumData.postCount || 0,
@@ -58,7 +93,7 @@ export default function ForumPage() {
         const threadsQuery = query(
           collection(db, "threads"),
           where("forumId", "==", forumId),
-          orderBy("lastReplyAt", "desc") // Assuming 'lastReplyAt' is a Timestamp or comparable value
+          orderBy("lastReplyAt", "desc")
         );
         const threadsSnapshot = await getDocs(threadsQuery);
         const fetchedThreads = threadsSnapshot.docs.map(docSnap => {
@@ -66,9 +101,9 @@ export default function ForumPage() {
           return {
             id: docSnap.id,
             ...data,
-            createdAt: (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-            lastReplyAt: (data.lastReplyAt as Timestamp)?.toDate().toISOString(),
-            author: data.author || { username: 'Unknown', id: '' }, // Ensure author is at least an empty object
+            createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(), // Fallback to epoch if undefined
+            lastReplyAt: formatFirestoreTimestamp(data.lastReplyAt),
+            author: data.author || { username: 'Unknown', id: '' },
             postCount: data.postCount || 0,
           } as Thread;
         });
@@ -108,7 +143,7 @@ export default function ForumPage() {
       </Alert>
     );
   }
-  
+
   if (!forum) {
      return (
       <Alert variant="destructive">
@@ -189,7 +224,6 @@ export default function ForumPage() {
           </CardContent>
         </Card>
       )}
-      {/* Subforums are not handled in this Firestore version for simplicity */}
     </div>
   );
 }
