@@ -9,23 +9,21 @@ export type UserRole = 'visitor' | 'guest' | 'user' | 'normal_user' | 'admin' | 
 
 export interface MockUser extends User {
   role: UserRole;
-  isQuarantined?: boolean; 
+  isQuarantined?: boolean;
 }
 
 // This object defines the users available for quick switching in the mock auth hook.
-// The keys (e.g., 'visitor', 'alice', 'admin_anna') are used by switchToUser.
-// The 'role' property within each user object defines their functional role in the app.
+// The keys (e.g., 'visitor', 'user1', 'admin1') are used by switchToUser.
+// These keys should match the 'id' field of users in src/lib/mockData.ts
 const mockAuthUsers: Record<string, MockUser> = {
-  'visitor': { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor' }, // id can be empty or a placeholder
-  'guest': { id: 'guest1', username: 'Guest User', email: 'guest@example.com', avatarUrl: 'https://picsum.photos/seed/guest/100/100', role: 'guest' },
-  // User 'user1' from mockData.ts (Alice) represents the 'user' role (quarantined)
-  'user1': { id: 'user1', username: 'Alice', email: 'alice@example.com', avatarUrl: 'https://picsum.photos/seed/alice/100/100', role: 'user', isQuarantined: true, karma: 10, location: 'Wonderland', aboutMe: 'Curiouser and curiouser!' },
-  // User 'user2' from mockData.ts (BobTheBuilder) represents the 'normal_user' role
-  'user2': { id: 'user2', username: 'BobTheBuilder', email: 'bob@example.com', avatarUrl: 'https://picsum.photos/seed/bob/100/100', role: 'normal_user', karma: 150, location: 'Construction Site', aboutMe: 'Can we fix it? Yes, we can!' },
-  // User 'admin1' from mockData.ts (AdminAnna) represents the 'admin' role
-  'admin1': { id: 'admin1', username: 'AdminAnna', email: 'adminana@example.com', avatarUrl: 'https://picsum.photos/seed/adminana/100/100', role: 'admin', karma: 500, location: 'Control Room', aboutMe: 'Ensuring order and progress.' },
-  // User 'founder1' from mockData.ts (FoundingFather) represents the 'founder' role
-  'founder1': { id: 'founder1', username: 'FoundingFather', email: 'founder@example.com', avatarUrl: 'https://picsum.photos/seed/founder/100/100', role: 'founder', karma: 1000, location: 'The Genesis Block', aboutMe: 'Laid the first stone.' },
+  'visitor0': { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor' },
+  'guest1': { id: 'guest1', username: 'Guest User', email: 'guest@example.com', avatarUrl: 'https://picsum.photos/seed/guest/100/100', role: 'guest' },
+  'user1': { id: 'user1', username: 'Alice', email: 'alice@example.com', avatarUrl: 'https://picsum.photos/seed/alice/100/100', role: 'user', isQuarantined: true, karma: 10, location: 'Wonderland', aboutMe: 'Curiouser and curiouser!', registrationDate: '2023-01-15T10:00:00Z', canVote: true },
+  'user2': { id: 'user2', username: 'BobTheBuilder', email: 'bob@example.com', avatarUrl: 'https://picsum.photos/seed/bob/100/100', role: 'normal_user', karma: 150, location: 'Construction Site', aboutMe: 'Can we fix it? Yes, we can!', registrationDate: '2023-03-20T14:30:00Z', canVote: true },
+  'user3': { id: 'user3', username: 'CharlieComm', email: 'charlie@example.com', avatarUrl: 'https://picsum.photos/seed/charlie/100/100', role: 'normal_user', karma: 75, location: 'The Internet', aboutMe: 'Loves to discuss and debate.', registrationDate: '2022-11-01T08:00:00Z', canVote: true },
+  'user4': { id: 'user4', username: 'DianaNewbie', email: 'diana@example.com', avatarUrl: 'https://picsum.photos/seed/diana/100/100', role: 'user', isQuarantined: true, karma: 0, location: 'New York', aboutMe: 'Just joined, excited to learn!', registrationDate: '2023-03-20T14:30:00Z', canVote: false },
+  'admin1': { id: 'admin1', username: 'AdminAnna', email: 'adminana@example.com', avatarUrl: 'https://picsum.photos/seed/adminana/100/100', role: 'admin', karma: 500, location: 'Control Room', aboutMe: 'Ensuring order and progress.', registrationDate: '2022-10-01T08:00:00Z', canVote: true },
+  'founder1': { id: 'founder1', username: 'FoundingFather', email: 'founder@example.com', avatarUrl: 'https://picsum.photos/seed/founder/100/100', role: 'founder', karma: 1000, location: 'The Genesis Block', aboutMe: 'Laid the first stone.', registrationDate: '2022-09-01T08:00:00Z', canVote: true },
 };
 
 
@@ -35,16 +33,14 @@ export function useMockAuth() {
 
   useEffect(() => {
     setLoading(true);
-    // The key stored in localStorage should be one of the keys from mockAuthUsers (e.g., 'user1', 'admin1')
     const storedUserKey = localStorage.getItem('mockUserKey') as string | null;
-
     let userToSet: MockUser | null = null;
 
     if (storedUserKey && mockAuthUsers[storedUserKey]) {
       userToSet = mockAuthUsers[storedUserKey];
     } else {
-      // Default to visitor if no key is stored or key is invalid
-      userToSet = mockAuthUsers['visitor'];
+      // Default to visitor if no key or invalid key
+      userToSet = mockAuthUsers['visitor0']; // Use a valid key for visitor
     }
     
     setCurrentUser(userToSet);
@@ -52,65 +48,75 @@ export function useMockAuth() {
   }, []);
 
   const login = (usernameOrEmail?: string, password?: string) => {
-    // Simple login: if admin keyword, log in as admin, else as normal_user
-    // In a real app, this would involve API calls
     let userKeyToLogin: string = 'user2'; // Default to Bob (normal_user)
-    if (usernameOrEmail?.toLowerCase().includes('admin')) {
+    
+    if (!usernameOrEmail) { // Handle case where no credentials are provided, default to guest or user
+        userKeyToLogin = 'guest1'; 
+    } else if (usernameOrEmail?.toLowerCase().includes('admin')) {
         userKeyToLogin = 'admin1';
     } else if (usernameOrEmail?.toLowerCase().includes('alice')) {
         userKeyToLogin = 'user1';
     } else if (usernameOrEmail?.toLowerCase().includes('founder')) {
         userKeyToLogin = 'founder1';
+    } else if (usernameOrEmail?.toLowerCase().includes('diana')) {
+        userKeyToLogin = 'user4';
+    } else if (usernameOrEmail?.toLowerCase().includes('bob')) {
+        userKeyToLogin = 'user2';
+    } else if (usernameOrEmail?.toLowerCase().includes('charlie')) {
+        userKeyToLogin = 'user3';
     }
 
-    const userToLogin = mockAuthUsers[userKeyToLogin] || mockAuthUsers['guest'];
+
+    const userToLogin = mockAuthUsers[userKeyToLogin] || mockAuthUsers['guest1'];
     setCurrentUser(userToLogin);
-    localStorage.setItem('mockUserKey', userKeyToLogin); 
+    localStorage.setItem('mockUserKey', userKeyToLogin);
   };
   
   const signup = (username: string, email: string) => {
-    // For mock purposes, signup might switch to a generic 'new user' state
-    // or, for more advanced testing, you could dynamically add to mockAuthUsers
-    // For now, let's assume signup makes them 'user1' (Alice) for simplicity of testing profile.
-    const newUserKey = 'user1'; // New users default to Alice (quarantined user)
+    // New users default to 'user4' (DianaNewbie) for simplicity of testing onboarding.
+    const newUserKey = 'user4'; 
     setCurrentUser(mockAuthUsers[newUserKey]);
-    localStorage.setItem('mockUserKey', newUserKey); 
+    localStorage.setItem('mockUserKey', newUserKey);
   };
 
   const logout = () => {
-    setCurrentUser(mockAuthUsers['visitor']);
+    setCurrentUser(mockAuthUsers['visitor0']);
     localStorage.removeItem('mockUserKey');
   };
   
   const switchToUser = (roleOrKey: UserRole | string) => {
-    // This function is primarily for the dev switcher.
-    // It tries to find a user in mockAuthUsers whose 'role' property matches roleOrKey,
-    // OR whose key in mockAuthUsers matches roleOrKey.
     let userToSwitchTo: MockUser | undefined;
+    let keyToStore: string = 'visitor0'; // Default key
 
-    // First, try if roleOrKey is a direct key in mockAuthUsers (e.g., 'user1', 'admin1')
+    // Check if roleOrKey is a direct key in mockAuthUsers (e.g., 'user1', 'admin1')
     if (mockAuthUsers[roleOrKey]) {
         userToSwitchTo = mockAuthUsers[roleOrKey];
+        keyToStore = roleOrKey; // The key itself
     } else {
       // If not a direct key, try if it's a role value (e.g., 'user', 'admin')
       // This maps roles from the dropdown to specific pre-defined users
-      if (roleOrKey === 'user') userToSwitchTo = mockAuthUsers['user1']; // Alice
-      else if (roleOrKey === 'normal_user') userToSwitchTo = mockAuthUsers['user2']; // Bob
-      else if (roleOrKey === 'admin') userToSwitchTo = mockAuthUsers['admin1']; // AdminAnna
-      else if (roleOrKey === 'founder') userToSwitchTo = mockAuthUsers['founder1']; // FoundingFather
-      else if (roleOrKey === 'guest') userToSwitchTo = mockAuthUsers['guest'];
-      else if (roleOrKey === 'visitor') userToSwitchTo = mockAuthUsers['visitor'];
+      if (roleOrKey === 'user') {
+        userToSwitchTo = mockAuthUsers['user1']; keyToStore = 'user1'; // Alice
+      } else if (roleOrKey === 'normal_user') {
+        userToSwitchTo = mockAuthUsers['user2']; keyToStore = 'user2';// Bob
+      } else if (roleOrKey === 'admin') {
+        userToSwitchTo = mockAuthUsers['admin1']; keyToStore = 'admin1'; // AdminAnna
+      } else if (roleOrKey === 'founder') {
+        userToSwitchTo = mockAuthUsers['founder1']; keyToStore = 'founder1'; // FoundingFather
+      } else if (roleOrKey === 'guest') {
+        userToSwitchTo = mockAuthUsers['guest1']; keyToStore = 'guest1';
+      } else if (roleOrKey === 'visitor') {
+        userToSwitchTo = mockAuthUsers['visitor0']; keyToStore = 'visitor0';
+      }
     }
 
     if (userToSwitchTo) {
       setCurrentUser(userToSwitchTo);
-      // Store the key that uniquely identifies this user in mockAuthUsers (e.g., 'admin1', not just 'admin')
-      const userKey = Object.keys(mockAuthUsers).find(key => mockAuthUsers[key].id === userToSwitchTo!.id);
-      localStorage.setItem('mockUserKey', userKey || 'visitor');
+      localStorage.setItem('mockUserKey', keyToStore);
     } else {
-      console.warn(\`Mock user for role/key "\${roleOrKey}" not found. Defaulting to visitor.\`);
-      setCurrentUser(mockAuthUsers['visitor']);
-      localStorage.setItem('mockUserKey', 'visitor');
+      console.warn(`Mock user for role/key "${roleOrKey}" not found. Defaulting to visitor.`);
+      setCurrentUser(mockAuthUsers['visitor0']);
+      localStorage.setItem('mockUserKey', 'visitor0');
     }
   };
 
