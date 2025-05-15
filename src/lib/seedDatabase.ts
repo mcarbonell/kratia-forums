@@ -3,11 +3,11 @@
 
 import { db } from '@/lib/firebase';
 import type { ForumCategory, Forum, Thread, Post, User as KratiaUser } from '@/lib/types';
-import { mockUsers as mockUsersData } from '@/lib/mockData'; // Renamed to avoid conflict
-import { collection, doc, writeBatch, Timestamp, increment, getDoc } from 'firebase/firestore';
+import { mockUsers as mockUsersData } from '@/lib/mockData'; 
+import { collection, doc, writeBatch, increment, getDoc } from 'firebase/firestore';
 
 // Helper to get author info in the denormalized structure
-const getAuthorInfo = (user: KratiaUser) => {
+const getAuthorInfo = (user: KratiaUser | undefined) => {
   if (!user) return { id: 'unknown', username: 'Unknown User', avatarUrl: '' };
   return {
     id: user.id,
@@ -18,18 +18,20 @@ const getAuthorInfo = (user: KratiaUser) => {
 
 export async function seedDatabase() {
   const batch = writeBatch(db);
+  console.log("Starting database seed...");
 
   // --- USERS (from mockData, now also seeding to 'users' collection) ---
+  console.log(`Processing ${mockUsersData.length} users from mockData...`);
   mockUsersData.forEach(user => {
+    console.log(`Processing user for seed: ${user.id} - ${user.username}`);
     const userRef = doc(db, "users", user.id);
-    // Ensure all fields from mockUsersData are included
     const userData: KratiaUser = {
         id: user.id,
         username: user.username,
         email: user.email,
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username[0]}`,
         registrationDate: user.registrationDate || new Date().toISOString(),
-        karma: user.karma || 0, // Will be overwritten if we calculate from components
+        karma: user.karma || 0,
         location: user.location,
         aboutMe: user.aboutMe,
         canVote: user.canVote || false,
@@ -40,10 +42,11 @@ export async function seedDatabase() {
     };
     batch.set(userRef, userData);
   });
+  console.log("User data prepared for batch.");
   
-  const aliceAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user1')!);
-  const bobAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user2')!);
-  const charlieAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user3')!);
+  const aliceAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user1'));
+  const bobAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user2'));
+  const charlieAuthorInfo = getAuthorInfo(mockUsersData.find(u => u.id === 'user3'));
 
   // --- CATEGORIES ---
   const categories: Omit<ForumCategory, 'forums'>[] = [
@@ -56,6 +59,7 @@ export async function seedDatabase() {
     const catRef = doc(db, "categories", category.id);
     batch.set(catRef, category);
   });
+  console.log("Categories prepared for batch.");
 
   // --- FORUMS ---
   const forums: Forum[] = [
@@ -70,6 +74,7 @@ export async function seedDatabase() {
     const forumRef = doc(db, "forums", forum.id);
     batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 });
   });
+  console.log("Forums prepared for batch.");
 
 
   // --- THREADS & POSTS ---
@@ -85,7 +90,7 @@ export async function seedDatabase() {
         totalPostsInThreadsStartedByUser: 0,
     });
   });
-
+  console.log("User karma components reset for calculation.");
 
   // Thread 1: General Discussion Welcome Thread (in forum1)
   const thread1Id = 'thread1_welcome';
@@ -116,13 +121,15 @@ export async function seedDatabase() {
   thread1PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
   if (new Date(post1_1_CreatedAt) > new Date(thread1LastReplyAt)) thread1LastReplyAt = post1_1_CreatedAt;
-  // Karma for Alice (post1_1 author)
-  batch.update(doc(db, "users", aliceAuthorInfo.id), { 
-    karma: increment(2 + Object.values(post1_1_Reactions).reduce((sum, r) => sum + r.userIds.length, 0)), // 1 for post, 1 for post in own thread, + reactions
-    totalPostsByUser: increment(1), 
-    totalPostsInThreadsStartedByUser: increment(1),
-    totalReactionsReceived: increment(Object.values(post1_1_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
-  });
+  
+  if (aliceAuthorInfo.id !== 'unknown') {
+    batch.update(doc(db, "users", aliceAuthorInfo.id), { 
+      karma: increment(2 + Object.values(post1_1_Reactions).reduce((sum, r) => sum + r.userIds.length, 0)),
+      totalPostsByUser: increment(1), 
+      totalPostsInThreadsStartedByUser: increment(1),
+      totalReactionsReceived: increment(Object.values(post1_1_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
+    });
+  }
 
 
   const post1_2_Id = 'post1_2_thanks';
@@ -134,21 +141,24 @@ export async function seedDatabase() {
   thread1PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
   if (new Date(post1_2_CreatedAt) > new Date(thread1LastReplyAt)) thread1LastReplyAt = post1_2_CreatedAt;
-  // Karma for Bob (post1_2 author)
-  batch.update(doc(db, "users", bobAuthorInfo.id), { 
-    karma: increment(1 + Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0)), 
-    totalPostsByUser: increment(1),
-    totalReactionsReceived: increment(Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
-  });
-  // Karma for Alice (thread1 author, because Bob posted in her thread)
-  batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
+
+  if (bobAuthorInfo.id !== 'unknown') {
+    batch.update(doc(db, "users", bobAuthorInfo.id), { 
+      karma: increment(1 + Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0)), 
+      totalPostsByUser: increment(1),
+      totalReactionsReceived: increment(Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
+    });
+  }
+  if (aliceAuthorInfo.id !== 'unknown') {
+    batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
+  }
 
 
   batch.set(doc(db, "threads", thread1Id), {
     forumId: 'forum1', title: 'General Discussion Welcome Thread', author: aliceAuthorInfo, createdAt: thread1CreatedAt, lastReplyAt: thread1LastReplyAt, postCount: thread1PostCount, isSticky: true, isLocked: false, isPublic: true
   });
   batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
-
+  console.log("Thread 1 and its posts prepared.");
 
   // Thread 2: The Future of Technology (in forum2)
   const thread2Id = 'thread2_tech';
@@ -164,18 +174,20 @@ export async function seedDatabase() {
   thread2PostCount++;
   forumPostCounts['forum2'] = (forumPostCounts['forum2'] || 0) + 1;
   if (new Date(post2_1_CreatedAt) > new Date(thread2LastReplyAt)) thread2LastReplyAt = post2_1_CreatedAt;
-   // Karma for Charlie (post2_1 author)
-  batch.update(doc(db, "users", charlieAuthorInfo.id), { 
-    karma: increment(2), // 1 for post, 1 for post in own thread
-    totalPostsByUser: increment(1), 
-    totalPostsInThreadsStartedByUser: increment(1) 
-  });
+
+  if (charlieAuthorInfo.id !== 'unknown') {
+    batch.update(doc(db, "users", charlieAuthorInfo.id), { 
+      karma: increment(2), 
+      totalPostsByUser: increment(1), 
+      totalPostsInThreadsStartedByUser: increment(1) 
+    });
+  }
 
   batch.set(doc(db, "threads", thread2Id), {
     forumId: 'forum2', title: 'The Future of Technology', author: charlieAuthorInfo, createdAt: thread2CreatedAt, lastReplyAt: thread2LastReplyAt, postCount: thread2PostCount, isSticky: false, isLocked: false, isPublic: true
   });
   batch.update(doc(db, "forums", "forum2"), { threadCount: increment(1) });
-
+  console.log("Thread 2 and its posts prepared.");
 
   // Thread 3: Favorite Books of 2024 (in forum1)
   const thread3Id = 'thread3_books';
@@ -191,18 +203,20 @@ export async function seedDatabase() {
   thread3PostCount++;
   forumPostCounts['forum1'] = (forumPostCounts['forum1'] || 0) + 1;
    if (new Date(post3_1_CreatedAt) > new Date(thread3LastReplyAt)) thread3LastReplyAt = post3_1_CreatedAt;
-   // Karma for Bob (post3_1 author)
-   batch.update(doc(db, "users", bobAuthorInfo.id), { 
-    karma: increment(2), // 1 for post, 1 for post in own thread
-    totalPostsByUser: increment(1), 
-    totalPostsInThreadsStartedByUser: increment(1) 
-  });
+
+   if (bobAuthorInfo.id !== 'unknown') {
+     batch.update(doc(db, "users", bobAuthorInfo.id), { 
+      karma: increment(2), 
+      totalPostsByUser: increment(1), 
+      totalPostsInThreadsStartedByUser: increment(1) 
+    });
+   }
 
   batch.set(doc(db, "threads", thread3Id), {
     forumId: 'forum1', title: 'Favorite Books of 2024', author: bobAuthorInfo, createdAt: thread3CreatedAt, lastReplyAt: thread3LastReplyAt, postCount: thread3PostCount, isSticky: false, isLocked: false, isPublic: true
   });
   batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
-
+  console.log("Thread 3 and its posts prepared.");
 
   // Thread 4 (Agora): [VOTATION] Make "Introductions" thread sticky (in agora)
   const thread4Id = 'votation1_thread_sticky';
@@ -218,12 +232,14 @@ export async function seedDatabase() {
   thread4PostCount++;
   forumPostCounts['agora'] = (forumPostCounts['agora'] || 0) + 1;
   if (new Date(post4_1_CreatedAt) > new Date(thread4LastReplyAt)) thread4LastReplyAt = post4_1_CreatedAt;
-  // Karma for Alice (post4_1 author)
-  batch.update(doc(db, "users", aliceAuthorInfo.id), { 
-    karma: increment(2), // 1 for post, 1 for post in own thread
-    totalPostsByUser: increment(1), 
-    totalPostsInThreadsStartedByUser: increment(1) 
-  });
+
+  if (aliceAuthorInfo.id !== 'unknown') {
+    batch.update(doc(db, "users", aliceAuthorInfo.id), { 
+      karma: increment(2), 
+      totalPostsByUser: increment(1), 
+      totalPostsInThreadsStartedByUser: increment(1) 
+    });
+  }
 
   const post4_2_Id = 'post4_2_agree';
   const post4_2_CreatedAt = '2023-06-01T09:15:00Z';
@@ -233,17 +249,19 @@ export async function seedDatabase() {
   thread4PostCount++;
   forumPostCounts['agora'] = (forumPostCounts['agora'] || 0) + 1;
   if (new Date(post4_2_CreatedAt) > new Date(thread4LastReplyAt)) thread4LastReplyAt = post4_2_CreatedAt;
-  // Karma for Charlie (post4_2 author)
-  batch.update(doc(db, "users", charlieAuthorInfo.id), { karma: increment(1), totalPostsByUser: increment(1) });
-  // Karma for Alice (thread4 author, because Charlie posted in her thread)
-  batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
 
+  if (charlieAuthorInfo.id !== 'unknown') {
+    batch.update(doc(db, "users", charlieAuthorInfo.id), { karma: increment(1), totalPostsByUser: increment(1) });
+  }
+  if (aliceAuthorInfo.id !== 'unknown') {
+    batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
+  }
   
   batch.set(doc(db, "threads", thread4Id), {
     forumId: 'agora', title: '[VOTATION] Make "Introductions" area more prominent', author: aliceAuthorInfo, createdAt: thread4CreatedAt, lastReplyAt: thread4LastReplyAt, postCount: thread4PostCount, isSticky: false, isLocked: false, isPublic: true
   });
   batch.update(doc(db, "forums", "agora"), { threadCount: increment(1) });
-
+  console.log("Thread 4 (Agora) and its posts prepared.");
 
   // Update forum post counts
   for (const forumId in forumPostCounts) {
@@ -251,8 +269,9 @@ export async function seedDatabase() {
       batch.update(doc(db, "forums", forumId), { postCount: increment(forumPostCounts[forumId]) });
     }
   }
+  console.log("Forum post counts updated.");
 
   // Commit the batch
   await batch.commit();
-  console.log("Database seeded successfully with mock data, including users collection, new reactions structure, and initial karma components!");
+  console.log("Database seeded successfully with mock data, including all users, categories, forums, threads, posts, and initial karma components!");
 }
