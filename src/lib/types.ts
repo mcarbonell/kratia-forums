@@ -13,6 +13,8 @@ export interface User {
   totalPostsByUser?: number;
   totalReactionsReceived?: number;
   totalPostsInThreadsStartedByUser?: number;
+  status?: 'active' | 'under_sanction_process' | 'sanctioned'; // New status field
+  sanctionEndDate?: string; // ISO date string, if sanctioned
 }
 
 export interface Post {
@@ -24,7 +26,7 @@ export interface Post {
   updatedAt?: string; // ISO date string
   reactions: Record<string, { userIds: string[] }>;
   isEdited?: boolean;
-  lastEditedBy?: Pick<User, 'id' | 'username'>; // Added for editor tracking
+  lastEditedBy?: Pick<User, 'id' | 'username'>;
 }
 
 export interface Thread {
@@ -39,7 +41,8 @@ export interface Thread {
   isLocked?: boolean;
   isPublic?: boolean; // Visible to non-logged-in users
   tags?: string[];
-  poll?: Poll;
+  poll?: Poll; // For non-binding polls
+  relatedVotationId?: string; // Link to a binding votation
 }
 
 export interface Forum {
@@ -68,7 +71,7 @@ export interface PollOption {
   voteCount: number;
 }
 
-export interface Poll {
+export interface Poll { // For non-binding polls within threads
   id: string;
   question: string;
   options: PollOption[];
@@ -78,23 +81,42 @@ export interface Poll {
   voters?: Record<string, string>; // Record<userId, optionId>
 }
 
-export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote';
+// For binding votations in Agora
+export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote' | 'closed_executed' | 'closed_rejected';
+
+export interface VotationOptionTally {
+  for: number;
+  against: number;
+  abstain: number;
+}
 
 export interface Votation {
   id: string;
   title: string;
-  description: string;
-  justification?: string;
-  proposer: User;
+  description: string; // Primary details of what's being voted on
+  justification?: string; // Proposer's reasoning (can be first post in thread)
+  proposerId: string;
+  proposerUsername: string;
+  type: 'sanction' | 'rule_change' | 'forum_management' | 'other'; // Type of votation
   createdAt: string; // ISO date string
-  endDate: string; // ISO date string
+  deadline: string; // ISO date string for when voting ends
   status: VotationStatus;
-  quorumRequired: number;
-  votesFor: number;
-  votesAgainst: number;
+  
+  // Specific to sanction votations
+  targetUserId?: string;
+  targetUsername?: string;
+  sanctionDuration?: string; // e.g., "7 days", "permanent"
+  
+  // Vote tracking
+  options: VotationOptionTally; // e.g., { for: 0, against: 0, abstain: 0 }
+  voters: Record<string, 'for' | 'against' | 'abstain'>; // Record<userId, voteChoice>
   totalVotesCast: number;
-  relatedThreadId?: string;
+  quorumRequired?: number;
+  
+  relatedThreadId: string; // ID of the discussion thread in Agora
+  outcome?: string; // Text describing the result after closing
 }
+
 
 export interface PrivateMessage {
   id: string;

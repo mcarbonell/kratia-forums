@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit } from "lucide-react";
+import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert } from "lucide-react";
 import UserAvatar from "@/components/user/UserAvatar";
 import type { User as KratiaUser } from '@/lib/types';
 import { db } from '@/lib/firebase';
@@ -14,12 +14,13 @@ import { doc, getDoc } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useMockAuth } from '@/hooks/use-mock-auth';
+import { KRATIA_CONFIG } from '@/lib/config';
 
 
 export default function UserProfilePage() {
   const params = useParams();
   const router = useRouter();
-  const { user: loggedInUser } = useMockAuth(); // To check if current user is viewing their own profile
+  const { user: loggedInUser } = useMockAuth();
   const userId = params.userId as string;
 
   const [profileUser, setProfileUser] = useState<KratiaUser | null>(null);
@@ -41,7 +42,7 @@ export default function UserProfilePage() {
         const userSnap = await getDoc(userRef);
 
         if (userSnap.exists()) {
-          setProfileUser({ id: userSnap.id, ...userSnap.data() } as KratiaUser);
+          setProfileUser({ id: userSnap.id, ...userSnap.data(), status: userSnap.data().status || 'active' } as KratiaUser);
         } else {
           setError("User not found. This profile does not exist or could not be loaded.");
           setProfileUser(null);
@@ -87,6 +88,11 @@ export default function UserProfilePage() {
     : 'Unknown';
 
   const isOwnProfile = loggedInUser?.id === profileUser.id;
+  const canProposeSanction = loggedInUser && 
+                            loggedInUser.id !== profileUser.id &&
+                            loggedInUser.canVote &&
+                            loggedInUser.status === 'active' &&
+                            profileUser.status !== 'sanctioned'; // Don't allow sanctioning an already sanctioned user via this button.
 
   return (
     <div className="space-y-8">
@@ -95,15 +101,44 @@ export default function UserProfilePage() {
           <UserIcon className="mr-3 h-8 w-8 text-primary" />
           {profileUser.username}'s Profile
         </h1>
-        {isOwnProfile && (
-          <Button variant="outline" asChild>
-            {/* We'll implement /profile/edit later */}
-            <Link href={`/profile/edit`}> 
-              <Edit className="mr-2 h-4 w-4" /> Edit Profile
-            </Link>
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {isOwnProfile && (
+            <Button variant="outline" asChild>
+              <Link href={`/profile/edit`}> 
+                <Edit className="mr-2 h-4 w-4" /> Edit Profile
+              </Link>
+            </Button>
+          )}
+          {canProposeSanction && (
+            <Button variant="destructive" asChild>
+              <Link href={`/users/${profileUser.id}/propose-sanction`}>
+                <ShieldAlert className="mr-2 h-4 w-4" /> Propose Sanction
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
+
+      {profileUser.status === 'under_sanction_process' && (
+        <Alert variant="destructive">
+          <ShieldAlert className="h-5 w-5" />
+          <AlertTitle>User Under Sanction Process</AlertTitle>
+          <AlertDescription>
+            This user is currently undergoing a community sanction votation process. Some actions might be restricted.
+          </AlertDescription>
+        </Alert>
+      )}
+       {profileUser.status === 'sanctioned' && (
+        <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
+          <ShieldAlert className="h-5 w-5" />
+          <AlertTitle>User Sanctioned</AlertTitle>
+          <AlertDescription>
+            This user is currently sanctioned.
+            {profileUser.sanctionEndDate && ` Sanction ends: ${new Date(profileUser.sanctionEndDate).toLocaleDateString()}`}
+          </AlertDescription>
+        </Alert>
+      )}
+
 
       <Card className="shadow-xl overflow-hidden">
         <CardHeader className="bg-muted/30 p-6 flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
@@ -171,7 +206,6 @@ export default function UserProfilePage() {
             <p className="text-muted-foreground text-center">
               User activity feed (recent posts, threads, etc.) is under construction. Check back soon!
             </p>
-            {/* Placeholder for activity items */}
           </div>
 
         </CardContent>
