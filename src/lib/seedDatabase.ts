@@ -1,10 +1,10 @@
 
-'use server'; // Or remove if not needed, but good practice for server-side logic files
+'use server'; 
 
 import { db } from '@/lib/firebase';
 import type { ForumCategory, Forum, Thread, Post, User as KratiaUser } from '@/lib/types';
-import { mockUsers } from '@/lib/mockData'; // We'll use mockUsers for author details
-import { collection, doc, writeBatch, Timestamp, increment } from 'firebase/firestore'; // Added increment
+import { mockUsers as mockUsersData } from '@/lib/mockData'; // Renamed to avoid conflict
+import { collection, doc, writeBatch, Timestamp, increment } from 'firebase/firestore';
 
 // Helper to get author info in the denormalized structure
 const getAuthorInfo = (user: KratiaUser) => {
@@ -16,15 +16,31 @@ const getAuthorInfo = (user: KratiaUser) => {
   };
 };
 
-const nowISO = () => new Date().toISOString();
-
 export async function seedDatabase() {
   const batch = writeBatch(db);
 
-  // --- USERS (from mockData, used for embedding) ---
-  const alice = getAuthorInfo(mockUsers.find(u => u.id === 'user1')!);
-  const bob = getAuthorInfo(mockUsers.find(u => u.id === 'user2')!);
-  const charlie = getAuthorInfo(mockUsers.find(u => u.id === 'user3')!);
+  // --- USERS (from mockData, now also seeding to 'users' collection) ---
+  mockUsersData.forEach(user => {
+    const userRef = doc(db, "users", user.id);
+    // Ensure all fields from mockUsersData are included
+    const userData: KratiaUser = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username[0]}`,
+        registrationDate: user.registrationDate || new Date().toISOString(),
+        karma: user.karma || 0,
+        location: user.location,
+        aboutMe: user.aboutMe,
+        canVote: user.canVote || false,
+        isQuarantined: user.isQuarantined === undefined ? true : user.isQuarantined,
+    };
+    batch.set(userRef, userData);
+  });
+  
+  const alice = getAuthorInfo(mockUsersData.find(u => u.id === 'user1')!);
+  const bob = getAuthorInfo(mockUsersData.find(u => u.id === 'user2')!);
+  const charlie = getAuthorInfo(mockUsersData.find(u => u.id === 'user3')!);
 
   // --- CATEGORIES ---
   const categories: Omit<ForumCategory, 'forums'>[] = [
@@ -39,7 +55,6 @@ export async function seedDatabase() {
   });
 
   // --- FORUMS ---
-  // Note: threadCount and postCount will be updated by the threads/posts seeded below.
   const forums: Forum[] = [
     { id: 'forum1', categoryId: 'cat1', name: 'General Discussion', description: 'A place to discuss anything and everything.', threadCount: 0, postCount: 0, isPublic: true },
     { id: 'forum_intro', categoryId: 'cat1', name: 'Introductions', description: 'Introduce yourself to the community!', threadCount: 0, postCount: 0, isPublic: true },
@@ -50,7 +65,6 @@ export async function seedDatabase() {
   
   forums.forEach(forum => {
     const forumRef = doc(db, "forums", forum.id);
-    // Initialize counts, will be updated by threads/posts
     batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 });
   });
 
@@ -98,7 +112,7 @@ export async function seedDatabase() {
   batch.set(doc(db, "threads", thread1Id), {
     forumId: 'forum1', title: 'General Discussion Welcome Thread', author: alice, createdAt: thread1CreatedAt, lastReplyAt: thread1LastReplyAt, postCount: thread1PostCount, isSticky: true, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); // Increment thread count for forum1
+  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
 
 
   // Thread 2: The Future of Technology (in forum2)
@@ -141,7 +155,7 @@ export async function seedDatabase() {
   batch.set(doc(db, "threads", thread3Id), {
     forumId: 'forum1', title: 'Favorite Books of 2024', author: bob, createdAt: thread3CreatedAt, lastReplyAt: thread3LastReplyAt, postCount: thread3PostCount, isSticky: false, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); // Increment thread count for forum1
+  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
 
 
   // Thread 4 (Agora): [VOTATION] Make "Introductions" thread sticky (in agora)
@@ -177,30 +191,11 @@ export async function seedDatabase() {
   // Update forum post counts
   for (const forumId in forumPostCounts) {
     if (forumPostCounts[forumId] > 0) {
-      // Ensure the forum document exists before trying to update its postCount
-      // The initial batch.set for forums already creates them with postCount: 0
-      batch.update(doc(db, "forums", forumId), { postCount: forumPostCounts[forumId] });
+      batch.update(doc(db, "forums", forumId), { postCount: increment(forumPostCounts[forumId]) });
     }
   }
 
   // Commit the batch
   await batch.commit();
-  console.log("Database seeded successfully with mock data!");
+  console.log("Database seeded successfully with mock data, including users collection!");
 }
-
-// Example of how to create a user with specific karma for testing, if needed
-// export async function createTestUser(userId: string, username: string, karma: number) {
-//   const userRef = doc(db, "users", userId); // Assuming a 'users' collection for user profiles
-//   await setDoc(userRef, {
-//     id: userId,
-//     username: username,
-//     karma: karma,
-//     email: `${username.toLowerCase()}@example.com`,
-//     avatarUrl: `https://placehold.co/100x100.png?text=${username[0]}`,
-//     registrationDate: nowISO(),
-//     canVote: karma >= KRATIA_CONFIG.KARMA_THRESHOLD_FOR_VOTING,
-//     isQuarantined: karma < KRATIA_CONFIG.KARMA_THRESHOLD_FOR_VOTING,
-//   });
-//   console.log(`Test user ${username} created.`);
-// }
-
