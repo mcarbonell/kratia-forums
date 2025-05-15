@@ -65,10 +65,40 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
   };
 
   const formatContent = (content: string) => {
-    return content
+    let processedContent = content;
+
+    // Image URLs
+    processedContent = processedContent.replace(
+      /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp)(\?[^\s]*)?)/gi,
+      (match) => {
+        return `<div class="my-4"><img src="${match}" alt="User embedded image" class="max-w-full h-auto rounded-md shadow-md border" data-ai-hint="forum image" /></div>`;
+      }
+    );
+
+    // YouTube URLs
+    processedContent = processedContent.replace(
+      /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
+      (match, videoId) => {
+        return `
+          <div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">
+            <iframe 
+              src="https://www.youtube.com/embed/${videoId}" 
+              frameborder="0" 
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+              allowfullscreen 
+              class="absolute top-0 left-0 w-full h-full">
+            </iframe>
+          </div>`;
+      }
+    );
+    
+    // Basic formatting (bold, italic, newlines)
+    processedContent = processedContent
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/\n/g, '<br />');
+      
+    return processedContent;
   };
 
   const handlePollVote = async () => {
@@ -101,7 +131,6 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
 
         if (pollFromDb.voters && pollFromDb.voters[user.id]) {
-          // This redundant check is fine, good for race conditions.
           toast({ title: "Already Voted", description: "It seems you've already cast your vote.", variant: "destructive" });
           return pollFromDb;
         }
@@ -198,7 +227,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
         transaction.update(postRef, { reactions: newReactionsField });
 
-        if (post.author.id !== 'unknown' && reactionChange !==0 && post.author.id !== user.id) { // Check if author is not self
+        if (post.author.id !== 'unknown' && reactionChange !==0 && post.author.id !== user.id) { 
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChange),
                 totalReactionsReceived: increment(reactionChange),
@@ -365,3 +394,4 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
   );
 }
 
+    
