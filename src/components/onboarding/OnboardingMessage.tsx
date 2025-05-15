@@ -1,10 +1,11 @@
+
 "use client";
 
 import { useEffect, useState } from 'react';
 import { generatePersonalizedOnboardingMessage, type PersonalizedOnboardingMessageInput, type PersonalizedOnboardingMessageOutput } from '@/ai/flows/personalized-onboarding-message';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { KRATIA_CONFIG } from '@/lib/config';
 
 interface OnboardingMessageProps {
@@ -23,9 +24,22 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
       return;
     }
 
+    const controller = new AbortController();
+    const signal = controller.signal;
+    let timeoutId: NodeJS.Timeout;
+
     const fetchOnboardingMessage = async () => {
       setIsLoading(true);
       setError(null);
+
+      timeoutId = setTimeout(() => {
+        if (!signal.aborted) {
+          controller.abort();
+          setError("The welcome message is taking too long to generate. Please try again later or explore the forum!");
+          setIsLoading(false);
+        }
+      }, 20000); // 20 seconds timeout
+
       try {
         const input: PersonalizedOnboardingMessageInput = {
           username,
@@ -33,17 +47,38 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
           daysToKarma: KRATIA_CONFIG.DAYS_TO_KARMA_ELIGIBILITY,
           karmaThreshold: KRATIA_CONFIG.KARMA_THRESHOLD_FOR_VOTING,
         };
+        
         const output: PersonalizedOnboardingMessageOutput = await generatePersonalizedOnboardingMessage(input);
+        
+        if (signal.aborted) return; 
+
+        clearTimeout(timeoutId);
         setMessage(output.message);
-      } catch (e) {
+      } catch (e: any) {
+        if (signal.aborted) return; 
+        clearTimeout(timeoutId);
         console.error("Failed to generate onboarding message:", e);
-        setError("Could not generate your personalized welcome message at this time. Please explore the forum!");
+        
+        let displayError = "Could not generate your personalized welcome message at this time. Please explore the forum!";
+        if (e.message?.toLowerCase().includes('api key') || e.message?.toLowerCase().includes('permission denied') || e.message?.toLowerCase().includes('quota')) {
+          displayError = "Could not generate the welcome message due to an AI service configuration issue. The site administrator has been notified.";
+        }
+        setError(displayError);
       } finally {
-        setIsLoading(false);
+        if (!signal.aborted) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchOnboardingMessage();
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (!signal.aborted) {
+        controller.abort();
+      }
+    };
   }, [username]);
 
   if (isLoading) {
@@ -66,14 +101,16 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Welcome Error</AlertTitle>
+        <AlertTriangle className="h-5 w-5"/>
+        <AlertTitle>Welcome Message Error</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
   }
 
   if (!message) {
-    return null; // Or some fallback if message is null but no error
+    // This case should ideally be covered by isLoading or error states
+    return null; 
   }
 
   return (
