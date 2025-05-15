@@ -40,7 +40,7 @@ export default function NewThreadPage() {
   const [isLoadingForum, setIsLoadingForum] = useState(true);
   const [forumError, setForumError] = useState<string | null>(null);
 
-  const { register, handleSubmit, formState: { errors } } = useForm<NewThreadFormData>({
+  const { register, handleSubmit, formState: { errors }, reset } = useForm<NewThreadFormData>({
     resolver: zodResolver(newThreadSchema),
   });
 
@@ -142,6 +142,7 @@ export default function NewThreadPage() {
         postCount: 1,
         isSticky: false,
         isLocked: false,
+        isPublic: forum.isPublic === undefined ? true : forum.isPublic, // Inherit public status from forum
       };
       batch.set(newThreadRef, newThreadData);
 
@@ -169,6 +170,7 @@ export default function NewThreadPage() {
         title: "Thread Created!",
         description: "Your new thread has been successfully posted.",
       });
+      reset(); // Reset form fields on successful submission
       router.push(`/forums/${forum.id}/threads/${newThreadRef.id}`);
 
     } catch (error) {
