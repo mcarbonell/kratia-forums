@@ -4,9 +4,9 @@
 import Link from 'next/link';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import type { Post, Poll, PollOption, User as KratiaUser } from '@/lib/types';
+import type { Post, Poll, PollOption, User as KratiaUser, Thread } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
-import { ThumbsUp, MessageSquare, Edit2, Trash2, BarChartBig, Vote as VoteIcon, Loader2 } from 'lucide-react';
+import { ThumbsUp, MessageSquare, Edit2, Trash2, BarChartBig, Vote as VoteIcon, Loader2, UserCircle } from 'lucide-react';
 import UserAvatar from '../user/UserAvatar';
 import { useState, useEffect } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
@@ -41,7 +41,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
 
   useEffect(() => {
-    setCurrentPoll(threadPoll); // Poll data now comes from props (for the first post)
+    setCurrentPoll(threadPoll);
     if (user && threadPoll?.voters?.[user.id]) {
       setSelectedOptionId(threadPoll.voters[user.id]);
     } else {
@@ -76,7 +76,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
         toast({ title: "Login Required", description: "You must be logged in to vote.", variant: "destructive" });
         return;
     }
-    if (!selectedOptionId || !currentPoll || !threadId) { // Ensure threadId is present
+    if (!selectedOptionId || !currentPoll || !threadId) {
         toast({ title: "Error", description: "Poll data or thread ID is missing.", variant: "destructive" });
         return;
     }
@@ -86,18 +86,22 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
     }
 
     setIsSubmittingVote(true);
-    const threadRef = doc(db, "threads", threadId); // Target the thread document for poll updates
+    const threadRef = doc(db, "threads", threadId);
 
     try {
       const updatedPollData = await runTransaction(db, async (transaction) => {
         const threadDoc = await transaction.get(threadRef);
-        if (!threadDoc.exists() || !threadDoc.data()?.poll) {
-          throw new Error("Poll not found or thread does not exist.");
+        if (!threadDoc.exists()) {
+          throw new Error("Thread not found, cannot update poll.");
+        }
+        const pollFromDb = threadDoc.data()?.poll as Poll | undefined;
+        if (!pollFromDb) {
+            throw new Error("Poll not found in thread, cannot update.");
         }
 
-        const pollFromDb = threadDoc.data()?.poll as Poll;
 
         if (pollFromDb.voters && pollFromDb.voters[user.id]) {
+          // This redundant check is fine, good for race conditions.
           toast({ title: "Already Voted", description: "It seems you've already cast your vote.", variant: "destructive" });
           return pollFromDb;
         }
@@ -128,7 +132,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
       if (updatedPollData) {
         setCurrentPoll(updatedPollData);
-        if (onPollUpdate) onPollUpdate(updatedPollData); // Notify parent component
+        if (onPollUpdate) onPollUpdate(updatedPollData);
         if (updatedPollData.voters?.[user.id] === selectedOptionId) {
            toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
         }
@@ -147,6 +151,12 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
       toast({ title: "Login Required", description: "You must be logged in to react.", variant: "destructive" });
       return;
     }
+
+    if (user.id === post.author.id) {
+      toast({ title: "Cannot Like Own Post", description: "You cannot react to your own posts.", variant: "default" });
+      return;
+    }
+
     setIsLiking(true);
     const postRef = doc(db, "posts", post.id);
     const postAuthorUserRef = doc(db, "users", post.author.id);
@@ -188,7 +198,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
         transaction.update(postRef, { reactions: newReactionsField });
 
-        if (post.author.id !== 'unknown' && reactionChange !==0) {
+        if (post.author.id !== 'unknown' && reactionChange !==0 && post.author.id !== user.id) { // Check if author is not self
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChange),
                 totalReactionsReceived: increment(reactionChange),
@@ -207,6 +217,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
   const likeCount = currentReactions['👍']?.userIds?.length || 0;
   const hasUserLiked = user ? currentReactions['👍']?.userIds?.includes(user.id) : false;
+  const isOwnPost = user?.id === post.author.id;
 
   return (
     <Card className={`w-full ${isFirstPost ? 'border-primary/40 shadow-lg' : 'shadow-md'}`}>
@@ -226,7 +237,7 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
       </CardHeader>
       <CardContent className="p-4 prose prose-sm sm:prose-base dark:prose-invert max-w-none break-words" dangerouslySetInnerHTML={{ __html: formatContent(post.content) }} />
 
-      {isFirstPost && currentPoll && ( // Only display poll if it's the first post and poll data is provided
+      {isFirstPost && currentPoll && (
         <CardContent className="p-4 border-t">
           <Card className="bg-background/70">
             <CardHeader className="pb-2">
@@ -326,8 +337,9 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
             variant={hasUserLiked ? "secondary" : "outline"}
             size="sm"
             onClick={handleLike}
-            disabled={isLiking || !user || user.role === 'visitor' || user.role === 'guest'}
+            disabled={isLiking || !user || user.role === 'visitor' || user.role === 'guest' || isOwnPost}
             className="min-w-[80px]"
+            title={isOwnPost ? "You cannot like your own post" : (hasUserLiked ? "Unlike" : "Like")}
           >
             {isLiking ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> :
             <ThumbsUp className={cn("mr-1 h-4 w-4", hasUserLiked ? "text-primary fill-primary" : "")} />
@@ -352,3 +364,4 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
     </Card>
   );
 }
+
