@@ -24,7 +24,7 @@ export interface Post {
   updatedAt?: string; // ISO date string
   reactions: Record<string, { userIds: string[] }>;
   isEdited?: boolean;
-  // poll?: Poll; // Removed from Post
+  lastEditedBy?: Pick<User, 'id' | 'username'>; // Added for editor tracking
 }
 
 export interface Thread {
@@ -39,7 +39,7 @@ export interface Thread {
   isLocked?: boolean;
   isPublic?: boolean; // Visible to non-logged-in users
   tags?: string[];
-  poll?: Poll; // Added to Thread
+  poll?: Poll;
 }
 
 export interface Forum {
@@ -68,11 +68,11 @@ export interface PollOption {
   voteCount: number;
 }
 
-export interface Poll { // Traditional, non-binding poll
+export interface Poll {
   id: string;
   question: string;
   options: PollOption[];
-  allowMultipleVotes?: boolean; // Currently not implemented, defaults to single vote
+  allowMultipleVotes?: boolean;
   endDate?: string; // ISO date string
   totalVotes: number;
   voters?: Record<string, string>; // Record<userId, optionId>
@@ -80,11 +80,11 @@ export interface Poll { // Traditional, non-binding poll
 
 export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote';
 
-export interface Votation { // Binding Agora votation
+export interface Votation {
   id: string;
   title: string;
-  description: string; // Formal proposal
-  justification?: string; // Proposer's message
+  description: string;
+  justification?: string;
   proposer: User;
   createdAt: string; // ISO date string
   endDate: string; // ISO date string
@@ -93,9 +93,7 @@ export interface Votation { // Binding Agora votation
   votesFor: number;
   votesAgainst: number;
   totalVotesCast: number;
-  // type: 'sticky' | 'create_subforum' | 'delete_subforum' | 'set_subforum_privacy' | 'sanction_user' | 'modify_constitution';
-  // actionDetails: any; // Specifics for the action
-  relatedThreadId?: string; // For debate
+  relatedThreadId?: string;
 }
 
 export interface PrivateMessage {
@@ -109,10 +107,10 @@ export interface PrivateMessage {
 
 export interface Notification {
   id: string;
-  userId: string; // User to notify
+  userId: string;
   type: 'reply' | 'mention' | 'pm' | 'votation_result';
   content: string;
-  link?: string; // Link to the relevant content
+  link?: string;
   createdAt: string; // ISO date string
   isRead?: boolean;
 }

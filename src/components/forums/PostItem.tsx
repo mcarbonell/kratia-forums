@@ -76,10 +76,12 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
 
   const formatContent = (content: string) => {
     let processedContent = content;
+    // Image embedding
     processedContent = processedContent.replace(
       /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp)(\?[^\s]*)?)/gi,
       (match) => `<div class="my-4"><img src="${match}" alt="User embedded image" class="max-w-full h-auto rounded-md shadow-md border" data-ai-hint="forum image" /></div>`
     );
+    // YouTube video embedding
     processedContent = processedContent.replace(
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
@@ -89,8 +91,9 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         return `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
       }
     );
+    // Basic markdown-like formatting (only if no HTML tags are present, to avoid messing up embeds)
     let finalContent = processedContent;
-    if (!finalContent.match(/<[^>]+>/)) { 
+    if (!finalContent.match(/<[^>]+>/)) {
         finalContent = finalContent
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>');
@@ -121,7 +124,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         const currentThreadData = threadDoc.data() as Thread;
         const pollFromDb = currentThreadData.poll;
         if (!pollFromDb) throw new Error("Poll not found in thread, cannot update.");
-        if (pollFromDb.voters && pollFromDb.voters[user.id]) return pollFromDb; 
+        if (pollFromDb.voters && pollFromDb.voters[user.id]) return pollFromDb;
         const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
         if (optionIndex === -1) throw new Error("Selected option not found in poll.");
         const newOptions = [...pollFromDb.options];
@@ -169,10 +172,10 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         let newEmojiUserIds;
         let karmaChangeForAuthor = 0;
         let reactionChangeForAuthor = 0;
-        if (userHasReacted) { 
+        if (userHasReacted) {
           newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
           karmaChangeForAuthor = -1; reactionChangeForAuthor = -1;
-        } else { 
+        } else {
           newEmojiUserIds = [...emojiReactionData.userIds, user.id];
           karmaChangeForAuthor = 1; reactionChangeForAuthor = 1;
         }
@@ -187,7 +190,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                 totalReactionsReceived: increment(reactionChangeForAuthor),
             });
         }
-        setCurrentReactions(newReactionsField); 
+        setCurrentReactions(newReactionsField);
       });
     } catch (error) {
       console.error("Error updating reaction:", error);
@@ -198,8 +201,8 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   };
 
   const handleEditToggle = () => {
-    if (isEditing) { // If canceling edit
-        setEditedContent(post.content); // Reset editText to original content
+    if (isEditing) {
+        setEditedContent(post.content);
     }
     setIsEditing(!isEditing);
   };
@@ -218,17 +221,24 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     setIsSavingEdit(true);
     const postRef = doc(db, "posts", post.id);
     const newUpdatedAt = new Date().toISOString();
+    const editorInfo: Pick<KratiaUser, 'id' | 'username'> = {
+      id: user.id,
+      username: user.username,
+    };
+
     try {
         await updateDoc(postRef, {
             content: editedContent,
             updatedAt: newUpdatedAt,
             isEdited: true,
+            lastEditedBy: editorInfo, // Store who edited
         });
         setPost(prevPost => ({
             ...prevPost,
             content: editedContent,
             updatedAt: newUpdatedAt,
             isEdited: true,
+            lastEditedBy: editorInfo,
         }));
         setIsEditing(false);
         toast({ title: "Post Updated", description: "Your post has been successfully updated."});
@@ -264,41 +274,18 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
           </Link>
           <p className="text-xs text-muted-foreground">
             Posted {timeAgo(post.createdAt)}
-            {post.isEdited && post.updatedAt && <span className="italic"> (edited {timeAgo(post.updatedAt)})</span>}
+            {post.isEdited && post.updatedAt && (
+              <span className="italic">
+                {' '}(edited {timeAgo(post.updatedAt)}
+                {post.lastEditedBy ? ` by ${post.lastEditedBy.username}` : ''})
+              </span>
+            )}
           </p>
         </div>
       </CardHeader>
 
-      <CardContent className="p-4">
-        {isEditing ? (
-            <div className="space-y-3">
-                <Label htmlFor={`edit-content-${post.id}`} className="sr-only">Edit Content</Label>
-                <Textarea
-                    id={`edit-content-${post.id}`}
-                    value={editedContent}
-                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditedContent(e.target.value)}
-                    rows={5}
-                    className="w-full text-sm"
-                    disabled={isSavingEdit}
-                />
-                <div className="flex justify-end space-x-2">
-                    <Button variant="outline" size="sm" onClick={handleEditToggle} disabled={isSavingEdit}>
-                        <XCircle className="mr-1 h-4 w-4" />Cancel
-                    </Button>
-                    <Button variant="default" size="sm" onClick={handleSaveEdit} disabled={isSavingEdit || editedContent.trim().length < 5}>
-                        {isSavingEdit ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-                        Save
-                    </Button>
-                </div>
-            </div>
-        ) : (
-             <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none break-words" dangerouslySetInnerHTML={{ __html: formatContent(post.content) }} />
-        )}
-      </CardContent>
-
-
-      {isFirstPost && currentPoll && !isEditing && (
-        <CardContent className="p-4 border-t">
+      {!isEditing && currentPoll && isFirstPost && (
+         <CardContent className="p-4 border-b">
           <Card className="bg-background/70">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg font-semibold flex items-center">
@@ -354,13 +341,41 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         </CardContent>
       )}
 
+
+      <CardContent className="p-4">
+        {isEditing ? (
+            <div className="space-y-3">
+                <Label htmlFor={`edit-content-${post.id}`} className="sr-only">Edit Content</Label>
+                <Textarea
+                    id={`edit-content-${post.id}`}
+                    value={editedContent}
+                    onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditedContent(e.target.value)}
+                    rows={5}
+                    className="w-full text-sm"
+                    disabled={isSavingEdit}
+                />
+                <div className="flex justify-end space-x-2">
+                    <Button variant="outline" size="sm" onClick={handleEditToggle} disabled={isSavingEdit}>
+                        <XCircle className="mr-1 h-4 w-4" />Cancel
+                    </Button>
+                    <Button variant="default" size="sm" onClick={handleSaveEdit} disabled={isSavingEdit || editedContent.trim().length < 5}>
+                        {isSavingEdit ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
+                        Save
+                    </Button>
+                </div>
+            </div>
+        ) : (
+             <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none break-words" dangerouslySetInnerHTML={{ __html: formatContent(post.content) }} />
+        )}
+      </CardContent>
+
       {!isEditing && (
           <CardFooter className="p-4 flex justify-between items-center border-t">
             <div className="flex space-x-2">
             <Button variant={hasUserLiked ? "secondary" : "outline"} size="sm" onClick={handleLike} disabled={isLiking || !user || user.role === 'visitor' || user.role === 'guest' || isOwnPost} className="min-w-[80px]" title={isOwnPost ? "You cannot like your own post" : (hasUserLiked ? "Unlike" : "Like")}>
                 {isLiking ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ThumbsUp className={cn("mr-1 h-4 w-4", hasUserLiked ? "text-primary fill-primary" : "")} />} Like ({likeCount})
             </Button>
-            <Button variant="outline" size="sm" disabled> 
+            <Button variant="outline" size="sm" disabled>
                 <MessageSquare className="mr-1 h-4 w-4" /> Quote
             </Button>
             </div>
@@ -370,7 +385,6 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                     <Edit2 className="h-4 w-4" /> <span className="sr-only">Edit</span>
                 </Button>
             )}
-            {/* Delete button can be enabled for admins or own posts (with permissions) later */}
             <Button variant="ghost" size="sm" disabled title="Delete Post" className="text-destructive hover:text-destructive/80 hover:bg-destructive/10">
                 <Trash2 className="h-4 w-4" /> <span className="sr-only">Delete</span>
             </Button>
@@ -380,6 +394,3 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     </Card>
   );
 }
-
-
-    
