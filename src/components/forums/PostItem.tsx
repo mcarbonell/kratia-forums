@@ -20,9 +20,9 @@ import { cn } from '@/lib/utils';
 interface PostItemProps {
   post: Post;
   isFirstPost?: boolean;
-  threadPoll?: Poll; // Poll data passed from the thread
-  onPollUpdate?: (updatedPoll: Poll) => void; // Callback to update parent state
-  threadId?: string; // Required if threadPoll is present
+  threadPoll?: Poll; 
+  onPollUpdate?: (updatedPoll: Poll) => void; 
+  threadId?: string; 
 }
 
 export default function PostItem({ post, isFirstPost = false, threadPoll, onPollUpdate, threadId }: PostItemProps) {
@@ -32,13 +32,12 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
   const [currentPoll, setCurrentPoll] = useState<Poll | undefined>(threadPoll);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-
+  
   const [currentReactions, setCurrentReactions] = useState<Record<string, { userIds: string[] }>>(post.reactions || {});
   const [isLiking, setIsLiking] = useState(false);
 
   const hasUserVotedInPoll = !!(user && currentPoll?.voters && currentPoll.voters[user.id]);
   const userVoteOptionId = user && currentPoll?.voters ? currentPoll.voters[user.id] : null;
-
 
   useEffect(() => {
     setCurrentPoll(threadPoll);
@@ -79,9 +78,11 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
     processedContent = processedContent.replace(
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
+        if (!videoId) return match; // Safeguard: if videoId is not captured, return original text
         return `
           <div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">
             <iframe 
+              title="YouTube video player"
               src="https://www.youtube.com/embed/${videoId}" 
               frameborder="0" 
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
@@ -124,15 +125,16 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
         if (!threadDoc.exists()) {
           throw new Error("Thread not found, cannot update poll.");
         }
-        const pollFromDb = threadDoc.data()?.poll as Poll | undefined;
+        const currentThreadData = threadDoc.data() as Thread;
+        const pollFromDb = currentThreadData.poll;
+
         if (!pollFromDb) {
             throw new Error("Poll not found in thread, cannot update.");
         }
 
-
         if (pollFromDb.voters && pollFromDb.voters[user.id]) {
-          toast({ title: "Already Voted", description: "It seems you've already cast your vote.", variant: "destructive" });
-          return pollFromDb;
+          // This check is redundant if UI prevents it, but good for safety.
+          return pollFromDb; 
         }
 
         const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
@@ -162,8 +164,12 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
       if (updatedPollData) {
         setCurrentPoll(updatedPollData);
         if (onPollUpdate) onPollUpdate(updatedPollData);
+        // Check if vote was successfully recorded by checking voters map again,
+        // as the transaction might return the old poll data if the user had already voted (due to the early return)
         if (updatedPollData.voters?.[user.id] === selectedOptionId) {
-           toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
+            toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
+        } else if (updatedPollData.voters?.[user.id]) {
+             toast({ title: "Already Voted", description: "It seems you've already cast your vote here.", variant: "default" });
         }
       }
     } catch (error: any) {
@@ -226,14 +232,14 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
         }
 
         transaction.update(postRef, { reactions: newReactionsField });
-
-        if (post.author.id !== 'unknown' && reactionChange !==0 && post.author.id !== user.id) { 
+        
+        // Update author's karma only if the reactor is not the author and there was a change
+        if (post.author.id !== 'unknown' && reactionChange !== 0 && post.author.id !== user.id) { 
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChange),
                 totalReactionsReceived: increment(reactionChange),
             });
         }
-
         setCurrentReactions(newReactionsField);
       });
     } catch (error) {
@@ -393,5 +399,3 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
     </Card>
   );
 }
-
-    
