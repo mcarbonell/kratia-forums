@@ -16,7 +16,7 @@ import { useMockAuth } from '@/hooks/use-mock-auth';
 import type { Forum, Thread, Post, User as KratiaUser, Poll, PollOption } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, ShieldAlert, Edit3, Send, Frown, ListPlus, BarChartBig } from 'lucide-react';
+import { Loader2, ShieldAlert, Edit3, Send, Frown, ListPlus } from 'lucide-react';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
@@ -47,7 +47,7 @@ const newThreadSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "A poll must have at least 2 valid options.",
-        path: ["pollOption1"], // Generic path, or point to the first problematic option
+        path: ["pollOption1"], 
       });
     }
     options.forEach((opt, index) => {
@@ -166,7 +166,7 @@ export default function NewThreadPage() {
         return;
     }
 
-    const authorInfo = {
+    const authorInfo: Pick<KratiaUser, 'id' | 'username' | 'avatarUrl'> = {
       id: user.id,
       username: user.username,
       avatarUrl: user.avatarUrl || "", 
@@ -191,7 +191,7 @@ export default function NewThreadPage() {
 
       if (pollOptions.length >= 2) {
         pollToSave = {
-          id: `poll_${Date.now()}`, // Simple unique ID for the poll
+          id: `poll_${Date.now()}`, 
           question: data.pollQuestion.trim(),
           options: pollOptions,
           totalVotes: 0,
@@ -213,7 +213,7 @@ export default function NewThreadPage() {
         postCount: 1,
         isSticky: false,
         isLocked: false,
-        isPublic: forum.isPublic, 
+        isPublic: forum.isPublic === undefined ? true : forum.isPublic, 
       };
       batch.set(newThreadRef, newThreadData);
 
@@ -223,8 +223,8 @@ export default function NewThreadPage() {
         author: authorInfo,
         content: data.content,
         createdAt: now.toDate().toISOString(),
-        reactions: [],
-        ...(pollToSave && { poll: pollToSave }), // Add poll if it exists
+        reactions: {},
+        ...(pollToSave && { poll: pollToSave }), 
       };
       batch.set(newPostRef, initialPostData);
       
@@ -232,6 +232,14 @@ export default function NewThreadPage() {
       batch.update(forumRef, {
         threadCount: increment(1),
         postCount: increment(1) 
+      });
+
+      // Karma update for the thread/post author
+      const userRef = doc(db, "users", authorInfo.id);
+      batch.update(userRef, {
+        karma: increment(2), // +1 for post, +1 for post in own thread
+        totalPostsByUser: increment(1),
+        totalPostsInThreadsStartedByUser: increment(1),
       });
 
       await batch.commit();
@@ -295,7 +303,6 @@ export default function NewThreadPage() {
               {errors.content && <p className="text-sm text-destructive">{errors.content.message}</p>}
             </div>
 
-            {/* Poll Section */}
             <Card className="bg-muted/30">
               <CardHeader className="p-4">
                 <div className="flex items-center space-x-2">
@@ -369,4 +376,3 @@ export default function NewThreadPage() {
     </div>
   );
 }
-

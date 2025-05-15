@@ -10,16 +10,19 @@ export interface User {
   aboutMe?: string;
   isQuarantined?: boolean; // True if user is new and hasn't met criteria
   canVote?: boolean; // True if user is a "Usuario Normal"
+  totalPostsByUser?: number;
+  totalReactionsReceived?: number;
+  totalPostsInThreadsStartedByUser?: number;
 }
 
 export interface Post {
   id: string;
   threadId: string;
-  author: User;
+  author: User; // Typically denormalized to { id, username, avatarUrl }
   content: string; // Markdown or BBCode
   createdAt: string; // ISO date string
   updatedAt?: string; // ISO date string
-  reactions: Record<string, { userIds: string[] }>; // Updated structure: e.g., { "👍": { userIds: ["id1", "id2"] } }
+  reactions: Record<string, { userIds: string[] }>; 
   isEdited?: boolean;
   poll?: Poll; // Optional traditional poll
 }
@@ -28,7 +31,7 @@ export interface Thread {
   id: string;
   forumId: string;
   title: string;
-  author: User;
+  author: User; // Typically denormalized to { id, username, avatarUrl }
   createdAt: string; // ISO date string
   lastReplyAt?: string; // ISO date string
   postCount: number;

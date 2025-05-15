@@ -12,7 +12,7 @@ import { useState, useEffect } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, runTransaction } from 'firebase/firestore';
+import { doc, updateDoc, runTransaction, increment } from 'firebase/firestore';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { cn } from '@/lib/utils';
@@ -31,7 +31,6 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
   const [userVotedPolls, setUserVotedPolls] = useState<Record<string, boolean>>({}); 
 
-  // State for reactions
   const [currentReactions, setCurrentReactions] = useState<Record<string, { userIds: string[] }>>(post.reactions || {});
   const [isLiking, setIsLiking] = useState(false);
 
@@ -112,6 +111,7 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
     }
     setIsLiking(true);
     const postRef = doc(db, "posts", post.id);
+    const postAuthorRef = doc(db, "users", post.author.id);
     const emoji = '👍';
 
     try {
@@ -126,25 +126,37 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
         const userHasReacted = emojiReactionData.userIds.includes(user.id);
 
         let newEmojiUserIds;
-        if (userHasReacted) {
+        let karmaChange = 0;
+
+        if (userHasReacted) { // User is unliking
           newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
-        } else {
+          karmaChange = -1;
+        } else { // User is liking
           newEmojiUserIds = [...emojiReactionData.userIds, user.id];
+          karmaChange = 1;
         }
         
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
         const newReactionsField = { ...serverReactions };
 
         if (newEmojiUserIds.length === 0) {
-          delete newReactionsField[emoji]; // Remove emoji if no users reacted
+          delete newReactionsField[emoji]; 
         } else {
           newReactionsField[emoji] = updatedReactionsForEmoji;
         }
         
         transaction.update(postRef, { reactions: newReactionsField });
-        setCurrentReactions(newReactionsField); // Update local state
+        
+        // Update post author's karma and totalReactionsReceived
+        if (karmaChange !== 0) {
+            transaction.update(postAuthorRef, {
+                karma: increment(karmaChange),
+                totalReactionsReceived: increment(karmaChange),
+            });
+        }
+        
+        setCurrentReactions(newReactionsField); 
       });
-      // Optional: toast({ title: "Reaction updated!" });
     } catch (error) {
       console.error("Error updating reaction:", error);
       toast({ title: "Error", description: "Could not update reaction.", variant: "destructive" });
@@ -155,6 +167,7 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
 
   const likeCount = currentReactions['👍']?.userIds?.length || 0;
   const hasUserLiked = user ? currentReactions['👍']?.userIds?.includes(user.id) : false;
+  // const authorKarma = post.author.karma; // This could be stale, consider fetching fresh user data or not showing karma here.
 
   return (
     <Card className={`w-full ${isFirstPost ? 'border-primary/40 shadow-lg' : 'shadow-md'}`}>
@@ -170,9 +183,15 @@ export default function PostItem({ post, isFirstPost = false }: PostItemProps) {
             Posted {timeAgo(post.createdAt)}
             {post.isEdited && post.updatedAt && <span className="italic"> (edited {timeAgo(post.updatedAt)})</span>}
           </p>
-           {post.author.karma !== undefined && (
-             <p className="text-xs text-muted-foreground mt-1">Karma: {post.author.karma}</p>
+           {/* 
+             Displaying post.author.karma here can be misleading as it's denormalized and might be stale.
+             The true karma is on the user's profile page.
+             If you want to display it, ensure it's understood to be potentially outdated or implement live updates.
+             For now, let's remove it from here to avoid confusion.
+           {authorKarma !== undefined && (
+             <p className="text-xs text-muted-foreground mt-1">Karma: {authorKarma}</p>
            )}
+           */}
         </div>
       </CardHeader>
       <CardContent className="p-4 prose prose-sm sm:prose-base dark:prose-invert max-w-none break-words" dangerouslySetInnerHTML={{ __html: formatContent(post.content) }} />

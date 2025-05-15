@@ -12,10 +12,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
-import type { Post as PostType, User as KratiaUser } from '@/lib/types'; // Renamed User
+import type { Post as PostType, User as KratiaUser, Thread } from '@/lib/types';
 import { Loader2, Send, MessageSquare } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, doc, Timestamp, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, Timestamp, writeBatch, increment, getDoc } from 'firebase/firestore';
 
 const replySchema = z.object({
   content: z.string().min(5, "Reply must be at least 5 characters long.").max(10000, "Reply content is too long."),
@@ -43,52 +43,72 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
   });
 
   if (!user || user.role === 'visitor' || user.role === 'guest') {
-    // This state should ideally be handled by the parent component hiding this form
     return null; 
   }
 
   const onSubmitHandler: SubmitHandler<ReplyFormData> = async (data) => {
     setIsSubmitting(true);
-    if (!user) { // Should be caught, but for TS safety
+    if (!user) { 
         toast({ title: "Error", description: "User not logged in.", variant: "destructive"});
         setIsSubmitting(false);
         return;
     }
 
-    const authorInfo = {
+    const authorInfo: Pick<KratiaUser, 'id' | 'username' | 'avatarUrl'> = {
       id: user.id,
       username: user.username,
       avatarUrl: user.avatarUrl || "",
     };
     
-    const now = Timestamp.fromDate(new Date()); // Use Firestore Timestamp
+    const now = Timestamp.fromDate(new Date());
 
     try {
       const batch = writeBatch(db);
 
-      // 1. Create New Post
-      const newPostRef = doc(collection(db, "posts")); // Auto-generate ID
-      const newPostData: Omit<PostType, 'id'> = { // Omit id as Firestore generates it
+      const newPostRef = doc(collection(db, "posts"));
+      const newPostData: Omit<PostType, 'id'> = { 
         threadId: threadId,
         author: authorInfo,
         content: data.content,
-        createdAt: now.toDate().toISOString(), // Store as ISO string for consistency with type
-        reactions: [],
+        createdAt: now.toDate().toISOString(), 
+        reactions: {},
       };
       batch.set(newPostRef, newPostData);
 
-      // 2. Update Thread (postCount, lastReplyAt)
       const threadRef = doc(db, "threads", threadId);
       batch.update(threadRef, {
         postCount: increment(1),
-        lastReplyAt: now // Firestore will convert this to its Timestamp type
+        lastReplyAt: now 
       });
 
-      // 3. Update Forum (postCount)
       const forumRef = doc(db, "forums", forumId);
       batch.update(forumRef, {
         postCount: increment(1)
       });
+
+      // Karma update for reply author
+      const replyAuthorUserRef = doc(db, "users", authorInfo.id);
+      batch.update(replyAuthorUserRef, {
+        karma: increment(1),
+        totalPostsByUser: increment(1),
+      });
+      
+      // Karma update for thread author
+      const threadDocSnap = await getDoc(threadRef); // Fetch thread to get its author
+      if (threadDocSnap.exists()) {
+        const threadData = threadDocSnap.data() as Thread;
+        const threadAuthorId = threadData.author.id;
+        if (threadAuthorId) {
+            const threadAuthorUserRef = doc(db, "users", threadAuthorId);
+            batch.update(threadAuthorUserRef, {
+                karma: increment(1),
+                totalPostsInThreadsStartedByUser: increment(1),
+            });
+        }
+      } else {
+        console.warn(`Thread ${threadId} not found when attempting to update thread author karma.`);
+      }
+
 
       await batch.commit();
       
@@ -97,9 +117,8 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
         description: "Your reply has been added to the thread.",
       });
       
-      // Pass the full new post data (with generated ID) to the callback
       onReplySuccess({ ...newPostData, id: newPostRef.id, createdAt: newPostData.createdAt });
-      reset(); // Clear the form
+      reset(); 
 
     } catch (error) {
       console.error("Error posting reply:", error);
