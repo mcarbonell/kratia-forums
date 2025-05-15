@@ -65,12 +65,15 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
   const formatContent = (content: string) => {
     let processedContent = content;
+    console.log("Original content:", content);
 
     // Image URLs
     processedContent = processedContent.replace(
       /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp)(\?[^\s]*)?)/gi,
       (match) => {
-        return `<div class="my-4"><img src="${match}" alt="User embedded image" class="max-w-full h-auto rounded-md shadow-md border" data-ai-hint="forum image" /></div>`;
+        const imgHtml = `<div class="my-4"><img src="${match}" alt="User embedded image" class="max-w-full h-auto rounded-md shadow-md border" data-ai-hint="forum image" /></div>`;
+        console.log("Replaced image URL:", match, "with HTML:", imgHtml);
+        return imgHtml;
       }
     );
 
@@ -78,31 +81,39 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
     processedContent = processedContent.replace(
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
-        console.log('Detected YouTube videoId:', videoId); // Diagnostic log
-        if (!videoId) return match;
-        return `
-          <div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">
-            <iframe
-              title="YouTube video player"
-              src="https://www.youtube.com/embed/${videoId}"
-              width="100%"
-              height="100%"
-              frameborder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowfullscreen
-              class="absolute top-0 left-0 w-full h-full">
-            </iframe>
-          </div>`;
+        console.log('Attempting to embed YouTube. Matched URL:', match, 'Extracted videoId:', videoId);
+        if (!videoId || videoId.length !== 11) {
+          console.warn('Invalid videoId detected or extraction failed. Original match returned:', match);
+          return match; 
+        }
+        
+        const embedUrl = `https://www.youtube.com/embed/${videoId}`;
+        console.log('Constructed YouTube embed URL:', embedUrl);
+
+        // Ensure the iframe tag is a clean, single string
+        const iframeTagHtml = `<iframe title="YouTube video player" src="${embedUrl}" width="100%" height="100%" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen class="absolute top-0 left-0 w-full h-full"></iframe>`;
+        console.log('Generated iframe tag HTML:', iframeTagHtml);
+        
+        const containerDivHtml = `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
+        console.log('Generated full YouTube container HTML:', containerDivHtml);
+        
+        return containerDivHtml;
       }
     );
 
     // Basic formatting (bold, italic, newlines)
-    processedContent = processedContent
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n/g, '<br />');
-
-    return processedContent;
+    // Apply these last to avoid interfering with HTML tags
+    let finalContent = processedContent;
+    // Only apply markdown-like replacements if not inside an HTML tag already
+    // This is a simplified check and might need a more robust HTML parser for complex cases
+    if (!finalContent.match(/<[^>]+>/)) { // Very basic check: if no html tags, apply markdown
+        finalContent = finalContent
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>');
+    }
+    finalContent = finalContent.replace(/\n/g, '<br />');
+    console.log("Final processed content for dangerouslySetInnerHTML:", finalContent);
+    return finalContent;
   };
 
   const handlePollVote = async () => {
@@ -136,7 +147,9 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
         }
 
         if (pollFromDb.voters && pollFromDb.voters[user.id]) {
-          return pollFromDb;
+          // This check should prevent re-voting even if UI state was somehow bypassed
+          // If already voted, return the poll as is to indicate no change was made due to prior vote.
+          return pollFromDb; 
         }
 
         const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
@@ -164,12 +177,18 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
       });
 
       if (updatedPollData) {
-        setCurrentPoll(updatedPollData);
+        setCurrentPoll(updatedPollData); // Update local state with data confirmed from transaction
         if (onPollUpdate) onPollUpdate(updatedPollData);
+
+        // Check if the vote was successfully recorded (user is now in voters map)
         if (updatedPollData.voters?.[user.id] === selectedOptionId) {
             toast({ title: "Vote Cast!", description: "Your vote has been recorded." });
         } else if (updatedPollData.voters?.[user.id]) {
-             toast({ title: "Already Voted", description: "It seems you've already cast your vote here.", variant: "default" });
+            // This case means the transaction returned existing poll data because user had already voted
+             toast({ title: "Already Voted", description: "You had already cast your vote in this poll.", variant: "default" });
+        } else {
+            // Should not happen if transaction logic is correct and user.id is valid
+            toast({ title: "Vote Not Recorded", description: "Could not confirm your vote. Please check and try again.", variant: "destructive"});
         }
       }
     } catch (error: any) {
@@ -209,17 +228,17 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
         const userHasReacted = emojiReactionData.userIds.includes(user.id);
 
         let newEmojiUserIds;
-        let karmaChange = 0;
-        let reactionChange = 0;
+        let karmaChangeForAuthor = 0;
+        let reactionChangeForAuthor = 0;
 
         if (userHasReacted) { // User is unliking
           newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
-          karmaChange = -1;
-          reactionChange = -1;
+          karmaChangeForAuthor = -1;
+          reactionChangeForAuthor = -1;
         } else { // User is liking
           newEmojiUserIds = [...emojiReactionData.userIds, user.id];
-          karmaChange = 1;
-          reactionChange = 1;
+          karmaChangeForAuthor = 1;
+          reactionChangeForAuthor = 1;
         }
 
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
@@ -233,17 +252,19 @@ export default function PostItem({ post, isFirstPost = false, threadPoll, onPoll
 
         transaction.update(postRef, { reactions: newReactionsField });
 
-        if (post.author.id !== 'unknown' && reactionChange !== 0 && post.author.id !== user.id) {
+        // Only update author's karma if the author is not 'unknown' and not the user themselves
+        if (post.author.id !== 'unknown' && post.author.id !== user.id) {
             transaction.update(postAuthorUserRef, {
-                karma: increment(karmaChange),
-                totalReactionsReceived: increment(reactionChange),
+                karma: increment(karmaChangeForAuthor),
+                totalReactionsReceived: increment(reactionChangeForAuthor),
             });
         }
-        setCurrentReactions(newReactionsField);
+        setCurrentReactions(newReactionsField); // Optimistic update for UI
       });
     } catch (error) {
       console.error("Error updating reaction:", error);
       toast({ title: "Error", description: "Could not update reaction.", variant: "destructive" });
+      // Optionally revert optimistic update here if needed, or rely on next data fetch
     } finally {
       setIsLiking(false);
     }
