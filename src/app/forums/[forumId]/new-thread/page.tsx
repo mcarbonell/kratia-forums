@@ -11,19 +11,55 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useMockAuth } from '@/hooks/use-mock-auth';
-import type { Forum, Thread, Post, User as KratiaUser } from '@/lib/types'; // Renamed User to KratiaUser to avoid conflict
+import type { Forum, Thread, Post, User as KratiaUser, Poll, PollOption } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, ShieldAlert, Edit3, Send, Frown } from 'lucide-react';
+import { Loader2, ShieldAlert, Edit3, Send, Frown, ListPlus, BarChartBig } from 'lucide-react';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
 
 
 const newThreadSchema = z.object({
   title: z.string().min(5, "Title must be at least 5 characters long.").max(150, "Title cannot exceed 150 characters."),
   content: z.string().min(10, "Your post content must be at least 10 characters long.").max(10000, "Post content is too long."),
+  addPoll: z.boolean().optional(),
+  pollQuestion: z.string().max(250, "Poll question cannot exceed 250 characters.").optional(),
+  pollOption1: z.string().max(100, "Poll option cannot exceed 100 characters.").optional(),
+  pollOption2: z.string().max(100, "Poll option cannot exceed 100 characters.").optional(),
+  pollOption3: z.string().max(100, "Poll option cannot exceed 100 characters.").optional(),
+  pollOption4: z.string().max(100, "Poll option cannot exceed 100 characters.").optional(),
+}).superRefine((data, ctx) => {
+  if (data.addPoll) {
+    if (!data.pollQuestion || data.pollQuestion.trim().length < 5) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Poll question must be at least 5 characters long.",
+        path: ["pollQuestion"],
+      });
+    }
+    const options = [data.pollOption1, data.pollOption2, data.pollOption3, data.pollOption4]
+      .map(opt => opt?.trim())
+      .filter(opt => opt && opt.length > 0);
+    if (options.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A poll must have at least 2 valid options.",
+        path: ["pollOption1"], // Generic path, or point to the first problematic option
+      });
+    }
+    options.forEach((opt, index) => {
+      if (opt && opt.length > 100) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Option ${index + 1} cannot exceed 100 characters.`,
+          path: [`pollOption${index + 1}` as keyof typeof data],
+        });
+      }
+    });
+  }
 });
 
 type NewThreadFormData = z.infer<typeof newThreadSchema>;
@@ -40,9 +76,19 @@ export default function NewThreadPage() {
   const [isLoadingForum, setIsLoadingForum] = useState(true);
   const [forumError, setForumError] = useState<string | null>(null);
 
-  const { register, handleSubmit, formState: { errors }, reset } = useForm<NewThreadFormData>({
+  const { register, handleSubmit, formState: { errors }, reset, watch } = useForm<NewThreadFormData>({
     resolver: zodResolver(newThreadSchema),
+    defaultValues: {
+      addPoll: false,
+      pollQuestion: "",
+      pollOption1: "",
+      pollOption2: "",
+      pollOption3: "",
+      pollOption4: "",
+    }
   });
+
+  const addPollWatched = watch("addPoll");
 
   useEffect(() => {
     if (!forumId) {
@@ -123,45 +169,69 @@ export default function NewThreadPage() {
     const authorInfo = {
       id: user.id,
       username: user.username,
-      avatarUrl: user.avatarUrl || "", // Ensure avatarUrl is a string
+      avatarUrl: user.avatarUrl || "", 
     };
 
-    const now = Timestamp.fromDate(new Date()); // Use Firestore Timestamp
+    const now = Timestamp.fromDate(new Date());
+
+    let pollToSave: Poll | undefined = undefined;
+    if (data.addPoll && data.pollQuestion) {
+      const pollOptions: PollOption[] = [
+        data.pollOption1,
+        data.pollOption2,
+        data.pollOption3,
+        data.pollOption4,
+      ]
+      .map((optText, index) => ({
+        id: `opt${index + 1}`,
+        text: optText?.trim() || '',
+        voteCount: 0,
+      }))
+      .filter(opt => opt.text.length > 0);
+
+      if (pollOptions.length >= 2) {
+        pollToSave = {
+          id: `poll_${Date.now()}`, // Simple unique ID for the poll
+          question: data.pollQuestion.trim(),
+          options: pollOptions,
+          totalVotes: 0,
+        };
+      }
+    }
+
 
     try {
       const batch = writeBatch(db);
 
-      // 1. Create New Thread
-      const newThreadRef = doc(collection(db, "threads")); // Auto-generate ID
-      const newThreadData: Omit<Thread, 'id'> = { // Omit 'id' as Firestore generates it
+      const newThreadRef = doc(collection(db, "threads"));
+      const newThreadData: Omit<Thread, 'id'> = { 
         forumId: forum.id,
         title: data.title,
         author: authorInfo,
-        createdAt: now.toDate().toISOString(), // Store as ISO string for consistency with type
+        createdAt: now.toDate().toISOString(), 
         lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
         isSticky: false,
         isLocked: false,
-        isPublic: forum.isPublic === undefined ? true : forum.isPublic, // Inherit public status from forum
+        isPublic: forum.isPublic === undefined ? true : forum.isPublic, 
       };
       batch.set(newThreadRef, newThreadData);
 
-      // 2. Create Initial Post
-      const newPostRef = doc(collection(db, "posts")); // Auto-generate ID
-      const initialPostData: Omit<Post, 'id'> = { // Omit 'id' as Firestore generates it
-        threadId: newThreadRef.id, // Use the auto-generated ID of the new thread
+      const newPostRef = doc(collection(db, "posts"));
+      const initialPostData: Omit<Post, 'id'> = { 
+        threadId: newThreadRef.id, 
         author: authorInfo,
         content: data.content,
         createdAt: now.toDate().toISOString(),
         reactions: [],
+        ...(pollToSave && { poll: pollToSave }), // Add poll if it exists
       };
       batch.set(newPostRef, initialPostData);
       
-      // 3. Update Forum Counts
       const forumRef = doc(db, "forums", forum.id);
       batch.update(forumRef, {
         threadCount: increment(1),
-        postCount: increment(1) // Initial post
+        postCount: increment(1) 
       });
 
       await batch.commit();
@@ -170,7 +240,7 @@ export default function NewThreadPage() {
         title: "Thread Created!",
         description: "Your new thread has been successfully posted.",
       });
-      reset(); // Reset form fields on successful submission
+      reset(); 
       router.push(`/forums/${forum.id}/threads/${newThreadRef.id}`);
 
     } catch (error) {
@@ -194,7 +264,7 @@ export default function NewThreadPage() {
             Create New Thread in {forum.name}
           </CardTitle>
           <CardDescription>
-            Share your thoughts and start a new discussion.
+            Share your thoughts and start a new discussion. You can optionally add a poll.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -224,6 +294,53 @@ export default function NewThreadPage() {
               />
               {errors.content && <p className="text-sm text-destructive">{errors.content.message}</p>}
             </div>
+
+            {/* Poll Section */}
+            <Card className="bg-muted/30">
+              <CardHeader className="p-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="addPoll"
+                    {...register("addPoll")}
+                    disabled={isSubmitting}
+                  />
+                  <Label htmlFor="addPoll" className="font-medium text-base flex items-center">
+                     <ListPlus className="mr-2 h-5 w-5 text-primary" /> Add a Poll to this Thread
+                  </Label>
+                </div>
+                <CardDescription className="pl-6 text-xs">Create a non-binding poll for your thread.</CardDescription>
+              </CardHeader>
+              {addPollWatched && (
+                <CardContent className="space-y-4 p-4 pt-0">
+                  <div className="space-y-2">
+                    <Label htmlFor="pollQuestion">Poll Question</Label>
+                    <Input
+                      id="pollQuestion"
+                      placeholder="What do you want to ask?"
+                      {...register("pollQuestion")}
+                      className={errors.pollQuestion ? "border-destructive" : ""}
+                      disabled={isSubmitting}
+                    />
+                    {errors.pollQuestion && <p className="text-sm text-destructive">{errors.pollQuestion.message}</p>}
+                  </div>
+                  
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={`pollOpt${i}`} className="space-y-1">
+                      <Label htmlFor={`pollOption${i}`}>{`Option ${i}`}{i > 2 ? " (Optional)" : ""}</Label>
+                      <Input
+                        id={`pollOption${i}`}
+                        placeholder={`Enter text for option ${i}`}
+                        {...register(`pollOption${i}` as keyof NewThreadFormData)}
+                        className={errors?.[`pollOption${i}` as keyof typeof errors] ? "border-destructive" : ""}
+                        disabled={isSubmitting}
+                      />
+                      {errors?.[`pollOption${i}` as keyof typeof errors] && <p className="text-sm text-destructive">{errors?.[`pollOption${i}` as keyof typeof errors]?.message}</p>}
+                    </div>
+                  ))}
+                   {errors.pollOption1 && errors.pollOption1.message?.includes("at least 2 valid options") && <p className="text-sm text-destructive">{errors.pollOption1.message}</p>}
+                </CardContent>
+              )}
+            </Card>
             
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
