@@ -15,16 +15,18 @@ import { useMockAuth } from '@/hooks/use-mock-auth';
 import type { User as KratiaUser } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, Save, UserCog, ShieldAlert, Frown, CornerUpLeft } from 'lucide-react';
+import { Loader2, Save, UserCog, ShieldAlert, Frown, CornerUpLeft, UploadCloud } from 'lucide-react';
 import Link from 'next/link';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import UserAvatar from '@/components/user/UserAvatar'; // To display current avatar
 
 const profileFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters.").max(50, "Username cannot exceed 50 characters."),
   location: z.string().max(100, "Location cannot exceed 100 characters.").optional().or(z.literal('')),
   aboutMe: z.string().max(500, "About me cannot exceed 500 characters.").optional().or(z.literal('')),
-  avatarUrl: z.string().url("Please enter a valid URL for your avatar.").or(z.literal('')).optional(),
+  // avatarUrl is no longer a direct form input
 });
 
 type ProfileFormData = z.infer<typeof profileFormSchema>;
@@ -35,6 +37,10 @@ export default function EditProfilePage() {
   const { toast } = useToast();
   
   const [profileUser, setProfileUser] = useState<KratiaUser | null>(null);
+  const [currentAvatarDisplayUrl, setCurrentAvatarDisplayUrl] = useState<string | undefined>(undefined);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+
   const [isLoadingUser, setIsLoadingUser] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +54,6 @@ export default function EditProfilePage() {
     if (!loggedInUser || loggedInUser.role === 'visitor') {
       setIsLoadingUser(false);
       setError("You must be logged in to edit your profile.");
-      // router.push('/auth/login'); // Or show an access denied message
       return;
     }
 
@@ -59,13 +64,13 @@ export default function EditProfilePage() {
         const userRef = doc(db, "users", loggedInUser.id);
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
-          const userData = userSnap.data() as KratiaUser;
+          const userData = {id: userSnap.id, ...userSnap.data()} as KratiaUser;
           setProfileUser(userData);
+          setCurrentAvatarDisplayUrl(userData.avatarUrl);
           // Pre-fill form
           setValue("username", userData.username);
           setValue("location", userData.location || "");
           setValue("aboutMe", userData.aboutMe || "");
-          setValue("avatarUrl", userData.avatarUrl || "");
         } else {
           setError("User profile not found. This should not happen if you are logged in.");
         }
@@ -78,7 +83,42 @@ export default function EditProfilePage() {
     };
 
     fetchUserProfile();
-  }, [loggedInUser, authLoading, router, setValue]);
+  }, [loggedInUser, authLoading, setValue]);
+
+  // Effect to clear object URL for preview
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) {
+        URL.revokeObjectURL(avatarPreview);
+      }
+    };
+  }, [avatarPreview]);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (avatarPreview) {
+      URL.revokeObjectURL(avatarPreview);
+      setAvatarPreview(null);
+    }
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        toast({ title: "File too large", description: "Please select an image smaller than 5MB.", variant: "destructive" });
+        event.target.value = ""; // Clear the input
+        setAvatarFile(null);
+        return;
+      }
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+        toast({ title: "Invalid file type", description: "Please select a JPG, PNG, GIF, or WEBP image.", variant: "destructive" });
+        event.target.value = ""; // Clear the input
+        setAvatarFile(null);
+        return;
+      }
+      setAvatarFile(file);
+      setAvatarPreview(URL.createObjectURL(file));
+    } else {
+      setAvatarFile(null);
+    }
+  };
 
   const onSubmit: SubmitHandler<ProfileFormData> = async (data) => {
     if (!profileUser || !loggedInUser) {
@@ -86,19 +126,30 @@ export default function EditProfilePage() {
       return;
     }
     setIsSubmitting(true);
+    let newAvatarUrl = profileUser.avatarUrl; // Start with existing avatar URL
+
     try {
+      if (avatarFile) {
+        toast({ title: "Uploading Avatar...", description: "Please wait."});
+        const storageRef = ref(storage, `avatars/${loggedInUser.id}/profileImage`); // Using a fixed name to overwrite
+        await uploadBytes(storageRef, avatarFile);
+        newAvatarUrl = await getDownloadURL(storageRef);
+        toast({ title: "Avatar Uploaded!", description: "Your new avatar is saved."});
+      }
+
       const userRef = doc(db, "users", loggedInUser.id);
       await updateDoc(userRef, {
         username: data.username,
-        location: data.location || null, // Store null if empty
-        aboutMe: data.aboutMe || null,   // Store null if empty
-        avatarUrl: data.avatarUrl || null, // Store null if empty
+        location: data.location || null,
+        aboutMe: data.aboutMe || null,
+        avatarUrl: newAvatarUrl || null, // Save new URL or existing, or null if cleared
       });
+      
+      // Update local state for avatar display if it changed
+      if (newAvatarUrl !== currentAvatarDisplayUrl) {
+        setCurrentAvatarDisplayUrl(newAvatarUrl);
+      }
 
-      // IMPORTANT: If username or avatarUrl are changed,
-      // denormalized instances in posts/threads are NOT updated by this simple update.
-      // A more complex solution (e.g., Cloud Functions) would be needed for that.
-      // For now, we will accept this limitation.
 
       toast({
         title: "Profile Updated!",
@@ -175,6 +226,27 @@ export default function EditProfilePage() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
+              <Label>Current Avatar</Label>
+              <div className="flex items-center gap-4">
+                <UserAvatar user={{username: profileUser.username, avatarUrl: avatarPreview || currentAvatarDisplayUrl}} size="lg" />
+                <div>
+                  <Label htmlFor="avatarFile" className="cursor-pointer inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2">
+                    <UploadCloud className="mr-2 h-4 w-4" /> Change Avatar
+                  </Label>
+                  <Input
+                    id="avatarFile"
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    onChange={handleFileChange}
+                    className="hidden" // Hide the default input, use the label as button
+                    disabled={isSubmitting}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Max 5MB. JPG, PNG, GIF, WEBP.</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
@@ -199,19 +271,6 @@ export default function EditProfilePage() {
                 className="bg-muted/50"
               />
                <p className="text-xs text-muted-foreground">Email address cannot be changed here.</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="avatarUrl">Avatar URL</Label>
-              <Input
-                id="avatarUrl"
-                type="url"
-                placeholder="https://example.com/your-avatar.png"
-                {...register("avatarUrl")}
-                className={errors.avatarUrl ? "border-destructive" : ""}
-                disabled={isSubmitting}
-              />
-              {errors.avatarUrl && <p className="text-sm text-destructive">{errors.avatarUrl.message}</p>}
             </div>
 
             <div className="space-y-2">
