@@ -1,6 +1,8 @@
+
 import type { ForumCategory } from '@/lib/types';
 import ForumListItem from './ForumListItem';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { FolderOpen } from 'lucide-react';
 
 interface ForumListProps {
   categories: ForumCategory[];
@@ -8,7 +10,19 @@ interface ForumListProps {
 
 export default function ForumList({ categories }: ForumListProps) {
   if (!categories || categories.length === 0) {
-    return <p>No forum categories available at the moment.</p>;
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="text-center py-10">
+            <FolderOpen className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-xl font-semibold text-muted-foreground">No forum categories available.</p>
+            <p className="text-muted-foreground">
+              It looks like no categories have been set up yet. Check back later or contact an administrator.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -32,7 +46,10 @@ export default function ForumList({ categories }: ForumListProps) {
                   ))}
                 </div>
               ) : (
-                <p className="p-6 text-muted-foreground">No forums in this category yet.</p>
+                 <div className="p-6 text-center text-muted-foreground">
+                  <FolderOpen className="mx-auto h-8 w-8 text-muted-foreground/70 mb-2" />
+                  <p>No forums in this category yet.</p>
+                </div>
               )}
             </CardContent>
           </Card>

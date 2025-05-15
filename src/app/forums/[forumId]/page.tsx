@@ -4,14 +4,15 @@
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardDescription as it's not used here
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import ThreadListItem from '@/components/forums/ThreadListItem';
-import { mockForums, mockThreads } from '@/lib/mockData';
 import { useMockAuth } from '@/hooks/use-mock-auth';
-import { MessageSquareText, PlusCircle, ListChecks, Frown } from 'lucide-react';
-import type { Thread } from '@/lib/types';
+import { MessageSquareText, PlusCircle, ListChecks, Frown, Loader2 } from 'lucide-react';
+import type { Forum, Thread } from '@/lib/types';
 import { useEffect, useState } from 'react';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs } from 'firebase/firestore';
 
 export default function ForumPage() {
   const params = useParams();
@@ -19,46 +20,97 @@ export default function ForumPage() {
   const { user, loading: authLoading } = useMockAuth();
   const forumId = params.forumId as string;
 
-  const [forum, setForum] = useState<typeof mockForums[0] | undefined>(undefined);
+  const [forum, setForum] = useState<Forum | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (forumId) {
-      const currentForum = mockForums.find((f) => f.id === forumId);
-      if (currentForum) {
-        setForum(currentForum);
-        const forumThreads = mockThreads.filter((t) => t.forumId === forumId).sort((a, b) => new Date(b.lastReplyAt || b.createdAt).getTime() - new Date(a.lastReplyAt || a.createdAt).getTime());
-        setThreads(forumThreads);
-      }
+    if (!forumId) {
+      setError("Forum ID is missing.");
+      setIsLoading(false);
+      return;
     }
-    setIsLoading(false);
+
+    const fetchForumAndThreads = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        // Fetch forum details
+        const forumRef = doc(db, "forums", forumId);
+        const forumSnap = await getDoc(forumRef);
+
+        if (!forumSnap.exists()) {
+          setError("Forum not found.");
+          setForum(null);
+          setIsLoading(false);
+          return;
+        }
+        const forumData = forumSnap.data();
+        setForum({ 
+            id: forumSnap.id, 
+            ...forumData,
+            threadCount: forumData.threadCount || 0,
+            postCount: forumData.postCount || 0,
+        } as Forum);
+
+        // Fetch threads for this forum
+        const threadsQuery = query(
+          collection(db, "threads"),
+          where("forumId", "==", forumId),
+          orderBy("lastReplyAt", "desc") // Assuming 'lastReplyAt' is a Timestamp or comparable value
+        );
+        const threadsSnapshot = await getDocs(threadsQuery);
+        const fetchedThreads = threadsSnapshot.docs.map(docSnap => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            ...data,
+            createdAt: (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+            lastReplyAt: (data.lastReplyAt as Timestamp)?.toDate().toISOString(),
+            author: data.author || { username: 'Unknown', id: '' }, // Ensure author is at least an empty object
+            postCount: data.postCount || 0,
+          } as Thread;
+        });
+        setThreads(fetchedThreads);
+
+      } catch (err) {
+        console.error(`Error fetching forum ${forumId} and its threads:`, err);
+        setError("Failed to load forum details or threads. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchForumAndThreads();
   }, [forumId]);
 
   const canCreateThread = user && user.role !== 'visitor' && user.role !== 'guest';
 
   if (authLoading || isLoading) {
     return (
-      <div className="space-y-8">
-        <div className="h-10 w-3/4 bg-muted rounded animate-pulse mb-4"></div>
-        <div className="h-8 w-1/4 bg-muted rounded animate-pulse mb-6"></div>
-        {[...Array(3)].map((_, i) => (
-          <Card key={i} className="mb-4">
-            <CardHeader>
-              <div className="h-6 w-1/2 bg-muted rounded animate-pulse"></div>
-              <div className="h-4 w-1/3 bg-muted rounded animate-pulse mt-2"></div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-4 w-1/4 bg-muted rounded animate-pulse"></div>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="space-y-8 py-10 text-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+        <p className="text-muted-foreground">Loading forum...</p>
       </div>
     );
   }
 
-  if (!forum) {
+  if (error) {
     return (
+      <Alert variant="destructive">
+        <Frown className="h-5 w-5" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+        <Button onClick={() => router.push('/forums')} className="mt-4">
+          Back to Forums List
+        </Button>
+      </Alert>
+    );
+  }
+  
+  if (!forum) {
+     return (
       <Alert variant="destructive">
         <Frown className="h-5 w-5" />
         <AlertTitle>Forum Not Found</AlertTitle>
@@ -71,6 +123,7 @@ export default function ForumPage() {
       </Alert>
     );
   }
+
 
   return (
     <div className="space-y-8">
@@ -125,27 +178,18 @@ export default function ForumPage() {
               {!canCreateThread && user && (user.role === 'visitor' || user.role === 'guest') && (
                  <p className="mt-2 text-sm text-amber-600">You need to be a registered member to create threads.</p>
               )}
+               {canCreateThread && (
+                 <Button asChild className="mt-6">
+                    <Link href={`/forums/${forumId}/new-thread`}>
+                        <PlusCircle className="mr-2 h-5 w-5" /> Create First Thread
+                    </Link>
+                 </Button>
+                )}
             </div>
           </CardContent>
         </Card>
       )}
-
-      {/* Subforums can be listed here if `forum.subForums` exists and is populated */}
-       {forum.subForums && forum.subForums.length > 0 && (
-        <Card className="mt-8">
-          <CardHeader>
-            <CardTitle>Sub-Forums</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {forum.subForums.map(subForum => (
-              <Link key={subForum.id} href={`/forums/${subForum.id}`} className="block p-3 rounded-md hover:bg-muted transition-colors">
-                <h3 className="font-semibold text-primary">{subForum.name}</h3>
-                <p className="text-sm text-muted-foreground">{subForum.description}</p>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      {/* Subforums are not handled in this Firestore version for simplicity */}
     </div>
   );
 }

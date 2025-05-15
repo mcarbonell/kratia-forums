@@ -1,12 +1,12 @@
 
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { MessageSquareText, CornerDownRight, Eye, Lock } from 'lucide-react';
+import { MessageSquareText, CornerDownRight, Eye, Lock, Vote as VoteIconLucide } from 'lucide-react'; // Renamed Vote to avoid conflict
 import type { Forum } from '@/lib/types';
 
 interface ForumListItemProps {
   forum: Forum;
-  isSubForum?: boolean;
+  isSubForum?: boolean; // This will be largely unused with flat Firestore structure for now
 }
 
 export default function ForumListItem({ forum, isSubForum = false }: ForumListItemProps) {
@@ -19,36 +19,31 @@ export default function ForumListItem({ forum, isSubForum = false }: ForumListIt
             {forum.name}
             {forum.isPublic === false && <Lock className="ml-2 h-4 w-4 text-amber-600" title="Private Forum (members only)" />}
             {forum.isPublic !== false && !forum.isAgora && <Eye className="ml-2 h-4 w-4 text-green-600" title="Public Forum" />}
-            {forum.isAgora && <Vote className="ml-2 h-4 w-4 text-blue-600" title="Agora - Votations Forum"/>}
+            {forum.isAgora && <VoteIconLucide className="ml-2 h-4 w-4 text-blue-600" title="Agora - Votations Forum"/>}
           </Link>
         </CardTitle>
         <CardDescription>{forum.description}</CardDescription>
       </CardHeader>
       <CardContent className="text-sm text-muted-foreground flex justify-between items-center">
         <div>
-          <span>Threads: {forum.threadCount}</span>
+          <span>Threads: {forum.threadCount || 0}</span>
           <span className="mx-2">|</span>
-          <span>Posts: {forum.postCount}</span>
+          <span>Posts: {forum.postCount || 0}</span>
         </div>
         {/* Last post info can be added here later */}
       </CardContent>
-      {forum.subForums && forum.subForums.length > 0 && (
-        <div className="p-4 border-t">
-          <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Sub-forums:</h4>
-          <div className="space-y-2">
-            {forum.subForums.map(sub => <ForumListItem key={sub.id} forum={sub} isSubForum />)}
+      {/* 
+        Subforum display logic is removed for now as Firestore fetching is flat.
+        This can be re-added if hierarchical fetching/structuring is implemented.
+        {forum.subForums && forum.subForums.length > 0 && (
+          <div className="p-4 border-t">
+            <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Sub-forums:</h4>
+            <div className="space-y-2">
+              {forum.subForums.map(sub => <ForumListItem key={sub.id} forum={sub} isSubForum />)}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      */}
     </Card>
   );
 }
-
-// Placeholder Vote icon, replace with actual if available or use a more generic one like ShieldCheck
-const Vote = ({ className, title }: { className?: string; title?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className || "w-6 h-6"} aria-label={title}>
-    {title && <title>{title}</title>}
-    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-5h2v2h-2v-2zm0-8h2v6h-2V7z"/>
-  </svg>
-);
-

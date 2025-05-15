@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,12 +12,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useMockAuth } from '@/hooks/use-mock-auth';
-import { mockThreads, mockPosts, mockForums } from '@/lib/mockData';
-import type { Thread, Post } from '@/lib/types';
+import type { Forum, Thread, Post, User as KratiaUser } from '@/lib/types'; // Renamed User to KratiaUser to avoid conflict
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, ShieldAlert, Edit3, Send } from 'lucide-react';
+import { Loader2, ShieldAlert, Edit3, Send, Frown } from 'lucide-react';
 import Link from 'next/link';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
+
 
 const newThreadSchema = z.object({
   title: z.string().min(5, "Title must be at least 5 characters long.").max(150, "Title cannot exceed 150 characters."),
@@ -34,17 +36,61 @@ export default function NewThreadPage() {
   const forumId = params.forumId as string;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [forum, setForum] = useState<Forum | null>(null);
+  const [isLoadingForum, setIsLoadingForum] = useState(true);
+  const [forumError, setForumError] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors } } = useForm<NewThreadFormData>({
     resolver: zodResolver(newThreadSchema),
   });
 
-  const forum = mockForums.find(f => f.id === forumId);
+  useEffect(() => {
+    if (!forumId) {
+      setForumError("Forum ID is missing.");
+      setIsLoadingForum(false);
+      return;
+    }
+    const fetchForum = async () => {
+      setIsLoadingForum(true);
+      setForumError(null);
+      try {
+        const forumRef = doc(db, "forums", forumId);
+        const forumSnap = await getDoc(forumRef);
+        if (forumSnap.exists()) {
+          setForum({ id: forumSnap.id, ...forumSnap.data() } as Forum);
+        } else {
+          setForumError("The forum you are trying to post in does not exist.");
+        }
+      } catch (err) {
+        console.error("Error fetching forum for new thread page:", err);
+        setForumError("Could not load forum details.");
+      } finally {
+        setIsLoadingForum(false);
+      }
+    };
+    fetchForum();
+  }, [forumId]);
 
-  if (authLoading) {
+
+  if (authLoading || isLoadingForum) {
     return <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
+  if (forumError || !forum) {
+     return (
+      <Alert variant="destructive" className="max-w-lg mx-auto">
+        <Frown className="h-5 w-5" />
+        <AlertTitle>{forumError ? "Error" : "Forum Not Found"}</AlertTitle>
+        <AlertDescription>
+          {forumError || "The forum you are trying to post in does not exist."}
+        </AlertDescription>
+         <Button asChild className="mt-4">
+            <Link href="/forums">Back to Forums List</Link>
+          </Button>
+      </Alert>
+    );
+  }
+  
   if (!user || user.role === 'visitor' || user.role === 'guest') {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
@@ -64,78 +110,66 @@ export default function NewThreadPage() {
       </Alert>
     );
   }
-  
-  if (!forum) {
-     return (
-      <Alert variant="destructive" className="max-w-lg mx-auto">
-        <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Forum Not Found</AlertTitle>
-        <AlertDescription>
-          The forum you are trying to post in does not exist.
-        </AlertDescription>
-         <Button asChild className="mt-4">
-            <Link href="/forums">Back to Forums List</Link>
-          </Button>
-      </Alert>
-    );
-  }
 
 
   const onSubmit: SubmitHandler<NewThreadFormData> = async (data) => {
     setIsSubmitting(true);
-    if (!user) { // Should be caught by the check above, but good for TS
-        toast({ title: "Error", description: "User not found.", variant: "destructive" });
+    if (!user || !forum) {
+        toast({ title: "Error", description: "User or Forum not found.", variant: "destructive" });
         setIsSubmitting(false);
         return;
     }
 
+    const authorInfo = {
+      id: user.id,
+      username: user.username,
+      avatarUrl: user.avatarUrl || "", // Ensure avatarUrl is a string
+    };
+
+    const now = Timestamp.fromDate(new Date()); // Use Firestore Timestamp
+
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const batch = writeBatch(db);
 
-      const newThreadId = `thread-${Date.now()}-${Math.random().toString(36).substring(2,7)}`;
-      const newPostId = `post-${Date.now()}-${Math.random().toString(36).substring(2,7)}`;
-      const now = new Date().toISOString();
-
-      const newThread: Thread = {
-        id: newThreadId,
-        forumId: forumId,
+      // 1. Create New Thread
+      const newThreadRef = doc(collection(db, "threads")); // Auto-generate ID
+      const newThreadData: Omit<Thread, 'id'> = { // Omit 'id' as Firestore generates it
+        forumId: forum.id,
         title: data.title,
-        author: user, 
-        createdAt: now,
-        lastReplyAt: now,
+        author: authorInfo,
+        createdAt: now.toDate().toISOString(), // Store as ISO string for consistency with type
+        lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
         isSticky: false,
         isLocked: false,
       };
+      batch.set(newThreadRef, newThreadData);
 
-      const initialPost: Post = {
-        id: newPostId,
-        threadId: newThreadId,
-        author: user,
+      // 2. Create Initial Post
+      const newPostRef = doc(collection(db, "posts")); // Auto-generate ID
+      const initialPostData: Omit<Post, 'id'> = { // Omit 'id' as Firestore generates it
+        threadId: newThreadRef.id, // Use the auto-generated ID of the new thread
+        author: authorInfo,
         content: data.content,
-        createdAt: now,
+        createdAt: now.toDate().toISOString(),
         reactions: [],
       };
-
-      // Add to mock data (this is client-side only for demo)
-      mockThreads.unshift(newThread); // Add to beginning to show up first
-      mockPosts.unshift(initialPost);
+      batch.set(newPostRef, initialPostData);
       
-      // Update forum thread/post counts (client-side only for demo)
-      const forumToUpdate = mockForums.find(f => f.id === forumId);
-      if (forumToUpdate) {
-          forumToUpdate.threadCount = (forumToUpdate.threadCount || 0) + 1;
-          forumToUpdate.postCount = (forumToUpdate.postCount || 0) + 1;
-          // Update category if it's part of one in mockCategories
-      }
+      // 3. Update Forum Counts
+      const forumRef = doc(db, "forums", forum.id);
+      batch.update(forumRef, {
+        threadCount: increment(1),
+        postCount: increment(1) // Initial post
+      });
 
+      await batch.commit();
 
       toast({
         title: "Thread Created!",
         description: "Your new thread has been successfully posted.",
       });
-      router.push(`/forums/${forumId}/threads/${newThreadId}`);
+      router.push(`/forums/${forum.id}/threads/${newThreadRef.id}`);
 
     } catch (error) {
       console.error("Error creating thread:", error);
@@ -144,6 +178,7 @@ export default function NewThreadPage() {
         description: "Failed to create thread. Please try again.",
         variant: "destructive",
       });
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -170,6 +205,7 @@ export default function NewThreadPage() {
                 placeholder="Enter a descriptive title for your thread"
                 {...register("title")}
                 className={errors.title ? "border-destructive" : ""}
+                disabled={isSubmitting}
               />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
@@ -182,6 +218,7 @@ export default function NewThreadPage() {
                 rows={10}
                 {...register("content")}
                 className={errors.content ? "border-destructive" : ""}
+                disabled={isSubmitting}
               />
               {errors.content && <p className="text-sm text-destructive">{errors.content.message}</p>}
             </div>
@@ -190,7 +227,7 @@ export default function NewThreadPage() {
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
                     Cancel
                 </Button>
-                <Button type="submit" disabled={isSubmitting} className="min-w-[120px]">
+                <Button type="submit" disabled={isSubmitting || !user || !forum} className="min-w-[120px]">
                 {isSubmitting ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

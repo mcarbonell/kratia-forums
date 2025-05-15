@@ -12,9 +12,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
-import { mockPosts, mockThreads, mockForums } from '@/lib/mockData';
-import type { Post as PostType } from '@/lib/types';
+import type { Post as PostType, User as KratiaUser } from '@/lib/types'; // Renamed User
 import { Loader2, Send, MessageSquare } from 'lucide-react';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, doc, Timestamp, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
 
 const replySchema = z.object({
   content: z.string().min(5, "Reply must be at least 5 characters long.").max(10000, "Reply content is too long."),
@@ -42,53 +43,62 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
   });
 
   if (!user || user.role === 'visitor' || user.role === 'guest') {
-    return <p className="text-sm text-destructive p-4">You must be logged in to reply.</p>;
+    // This state should ideally be handled by the parent component hiding this form
+    return null; 
   }
 
   const onSubmitHandler: SubmitHandler<ReplyFormData> = async (data) => {
     setIsSubmitting(true);
+    if (!user) { // Should be caught, but for TS safety
+        toast({ title: "Error", description: "User not logged in.", variant: "destructive"});
+        setIsSubmitting(false);
+        return;
+    }
+
+    const authorInfo = {
+      id: user.id,
+      username: user.username,
+      avatarUrl: user.avatarUrl || "",
+    };
+    
+    const now = Timestamp.fromDate(new Date()); // Use Firestore Timestamp
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 700));
+      const batch = writeBatch(db);
 
-      const newPostId = `post-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const now = new Date().toISOString();
-
-      const newPost: PostType = {
-        id: newPostId,
+      // 1. Create New Post
+      const newPostRef = doc(collection(db, "posts")); // Auto-generate ID
+      const newPostData: Omit<PostType, 'id'> = { // Omit id as Firestore generates it
         threadId: threadId,
-        author: user, // Full user object from useMockAuth
+        author: authorInfo,
         content: data.content,
-        createdAt: now,
+        createdAt: now.toDate().toISOString(), // Store as ISO string for consistency with type
         reactions: [],
       };
+      batch.set(newPostRef, newPostData);
 
-      // Add to mock data (client-side only for demo)
-      mockPosts.push(newPost); // Add to end, assuming chronological order in display
+      // 2. Update Thread (postCount, lastReplyAt)
+      const threadRef = doc(db, "threads", threadId);
+      batch.update(threadRef, {
+        postCount: increment(1),
+        lastReplyAt: now // Firestore will convert this to its Timestamp type
+      });
 
-      // Update thread details
-      const threadToUpdate = mockThreads.find(t => t.id === threadId);
-      if (threadToUpdate) {
-        threadToUpdate.postCount = (threadToUpdate.postCount || 0) + 1;
-        threadToUpdate.lastReplyAt = now;
-      }
+      // 3. Update Forum (postCount)
+      const forumRef = doc(db, "forums", forumId);
+      batch.update(forumRef, {
+        postCount: increment(1)
+      });
 
-      // Update forum details
-      const forumToUpdate = mockForums.find(f => f.id === forumId);
-      if (forumToUpdate) {
-        forumToUpdate.postCount = (forumToUpdate.postCount || 0) + 1;
-      }
+      await batch.commit();
       
-      // Update category if forum is part of one (more complex, simplified for now)
-      // This would involve finding the category and updating its aggregated post count if stored.
-
       toast({
         title: "Reply Posted!",
         description: "Your reply has been added to the thread.",
       });
-
-      onReplySuccess(newPost); // Callback to update parent component's state
+      
+      // Pass the full new post data (with generated ID) to the callback
+      onReplySuccess({ ...newPostData, id: newPostRef.id, createdAt: newPostData.createdAt });
       reset(); // Clear the form
 
     } catch (error) {

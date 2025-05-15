@@ -1,24 +1,69 @@
+
 "use client";
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import ForumList from '@/components/forums/ForumList';
 import OnboardingMessage from '@/components/onboarding/OnboardingMessage';
-import { mockCategories, mockUsers } from '@/lib/mockData'; // Assuming mockUsers for onboarding example
 import Link from 'next/link';
-import { ShieldCheck, LogIn, UserPlus, Vote, Sparkles } from 'lucide-react';
+import { ShieldCheck, LogIn, UserPlus, Vote, Sparkles, Loader2, AlertTriangle } from 'lucide-react';
 import { KRATIA_CONFIG } from '@/lib/config';
 import { useMockAuth } from '@/hooks/use-mock-auth';
+import { useEffect, useState } from 'react';
+import type { ForumCategory, Forum } from '@/lib/types';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, orderBy, where, Timestamp } from 'firebase/firestore';
 
 export default function HomePage() {
-  const { user, loading } = useMockAuth();
+  const { user, loading: authLoading } = useMockAuth();
+  const [categories, setCategories] = useState<ForumCategory[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
   
-  // For onboarding, we'd typically get the current user.
-  // If a new user just signed up, their details would be available.
-  // For this mock, let's show onboarding for a specific mock user if they are "new" or based on some condition.
-  // Or, if no user is logged in, we could show a generic welcome.
-  // Let's show onboarding for DianaNewbie (user4) if she's the current user.
   const showOnboarding = user?.id === 'user4' && user.isQuarantined;
+
+  useEffect(() => {
+    const fetchCategoriesAndForums = async () => {
+      setIsLoadingCategories(true);
+      setCategoriesError(null);
+      try {
+        const categoriesQuery = query(collection(db, "categories"), orderBy("name"));
+        const categoriesSnapshot = await getDocs(categoriesQuery);
+        const fetchedCategories: ForumCategory[] = [];
+
+        const forumsSnapshot = await getDocs(collection(db, "forums"));
+        const allForums: Forum[] = forumsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            // Ensure counts are numbers, default to 0 if not present
+            threadCount: data.threadCount || 0,
+            postCount: data.postCount || 0,
+          } as Forum;
+        });
+
+        for (const categoryDoc of categoriesSnapshot.docs) {
+          const categoryData = categoryDoc.data();
+          const categoryForums = allForums.filter(forum => forum.categoryId === categoryDoc.id);
+          fetchedCategories.push({
+            id: categoryDoc.id,
+            name: categoryData.name,
+            description: categoryData.description,
+            forums: categoryForums,
+          });
+        }
+        setCategories(fetchedCategories);
+      } catch (error) {
+        console.error("Error fetching categories for homepage:", error);
+        setCategoriesError("Could not load forum categories. Please try again later.");
+      } finally {
+        setIsLoadingCategories(false);
+      }
+    };
+
+    fetchCategoriesAndForums();
+  }, []);
 
   return (
     <div className="space-y-12">
@@ -35,7 +80,7 @@ export default function HomePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!loading && (!user || user.role === 'visitor') && (
+          {!authLoading && (!user || user.role === 'visitor') && (
              <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-4">
                 <Button size="lg" asChild>
                   <Link href="/auth/signup">
@@ -52,15 +97,13 @@ export default function HomePage() {
         </CardContent>
       </Card>
 
-      {/* Personalized Onboarding Message Section */}
-      {!loading && showOnboarding && user?.username && (
+      {!authLoading && showOnboarding && user?.username && (
         <section aria-labelledby="onboarding-title">
           <h2 id="onboarding-title" className="sr-only">Personalized Onboarding</h2>
           <OnboardingMessage username={user.username} />
         </section>
       )}
       
-      {/* Agora Highlight */}
       <Card className="shadow-lg border-accent/30">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-2xl font-bold flex items-center text-accent">
@@ -80,14 +123,32 @@ export default function HomePage() {
         </CardContent>
       </Card>
 
-      {/* Forum Listings */}
       <section aria-labelledby="forum-categories-title">
         <h2 id="forum-categories-title" className="text-3xl font-bold mb-6 text-center md:text-left">
           Explore Our Communities
         </h2>
-        <ForumList categories={mockCategories} />
+        {isLoadingCategories && (
+          <div className="flex justify-center items-center py-10">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="ml-4 text-muted-foreground">Loading forums...</p>
+          </div>
+        )}
+        {categoriesError && (
+          <Card className="border-destructive">
+            <CardHeader>
+              <CardTitle className="flex items-center text-destructive">
+                <AlertTriangle className="mr-2 h-5 w-5" /> Error Loading Forums
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-destructive">{categoriesError}</p>
+            </CardContent>
+          </Card>
+        )}
+        {!isLoadingCategories && !categoriesError && (
+          <ForumList categories={categories} />
+        )}
       </section>
-
     </div>
   );
 }

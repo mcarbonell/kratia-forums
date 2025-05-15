@@ -5,14 +5,15 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardDescription
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
-import ReplyForm from '@/components/forums/ReplyForm'; // Import ReplyForm
-import { mockThreads, mockPosts, mockForums } from '@/lib/mockData';
-import type { Thread, Post as PostType } from '@/lib/types';
+import ReplyForm from '@/components/forums/ReplyForm';
+import type { Thread, Post as PostType, Forum } from '@/lib/types';
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs } from 'firebase/firestore';
 
 export default function ThreadPage() {
   const params = useParams();
@@ -22,70 +23,129 @@ export default function ThreadPage() {
   const threadId = params.threadId as string;
   const forumId = params.forumId as string;
 
-  const [thread, setThread] = useState<Thread | undefined>(undefined);
+  const [thread, setThread] = useState<Thread | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
   const [forumName, setForumName] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
-  const [showReplyForm, setShowReplyForm] = useState(false); // State for reply form visibility
+  const [error, setError] = useState<string | null>(null);
+  const [showReplyForm, setShowReplyForm] = useState(false);
 
   useEffect(() => {
-    if (threadId && forumId) {
-      const currentThread = mockThreads.find((t) => t.id === threadId);
-      const currentForum = mockForums.find(f => f.id === forumId);
-      
-      setThread(currentThread);
-      setForumName(currentForum?.name);
-
-      if (currentThread) {
-        const threadPosts = mockPosts
-          .filter((p) => p.threadId === threadId)
-          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-        setPosts(threadPosts);
-      }
+    if (!threadId || !forumId) {
+      setError("Thread ID or Forum ID is missing.");
+      setIsLoading(false);
+      return;
     }
-    setIsLoading(false);
+
+    const fetchThreadData = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        // Fetch Thread
+        const threadRef = doc(db, "threads", threadId);
+        const threadSnap = await getDoc(threadRef);
+
+        if (!threadSnap.exists()) {
+          setError("Thread not found.");
+          setThread(null);
+          setIsLoading(false);
+          return;
+        }
+        const threadData = threadSnap.data();
+        const fetchedThread = {
+          id: threadSnap.id,
+          ...threadData,
+          createdAt: (threadData.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+          lastReplyAt: (threadData.lastReplyAt as Timestamp)?.toDate().toISOString(),
+          author: threadData.author || { username: 'Unknown', id: '' },
+          postCount: threadData.postCount || 0,
+        } as Thread;
+        setThread(fetchedThread);
+
+        // Fetch Forum Name (if forumId matches thread's forumId for consistency)
+        if (fetchedThread.forumId === forumId) {
+            const forumRef = doc(db, "forums", forumId);
+            const forumSnap = await getDoc(forumRef);
+            if (forumSnap.exists()) {
+                setForumName(forumSnap.data().name);
+            }
+        } else {
+             console.warn("Mismatch between URL forumId and thread's forumId");
+             // Optionally fetch forum based on threadData.forumId
+        }
+
+
+        // Fetch Posts
+        const postsQuery = query(
+          collection(db, "posts"),
+          where("threadId", "==", threadId),
+          orderBy("createdAt", "asc")
+        );
+        const postsSnapshot = await getDocs(postsQuery);
+        const fetchedPosts = postsSnapshot.docs.map(docSnap => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            ...data,
+            createdAt: (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+            updatedAt: (data.updatedAt as Timestamp)?.toDate().toISOString(),
+            author: data.author || { username: 'Unknown', id: '' },
+            reactions: data.reactions || [],
+          } as PostType;
+        });
+        setPosts(fetchedPosts);
+
+      } catch (err) {
+        console.error(`Error fetching thread ${threadId} data:`, err);
+        setError("Failed to load thread details or posts. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchThreadData();
   }, [threadId, forumId]);
 
   const canReply = user && user.role !== 'visitor' && user.role !== 'guest';
 
   const handleNewReply = (newPost: PostType) => {
-    setPosts(prevPosts => [...prevPosts, newPost]);
-    // Optionally update thread details in local state if displayed directly
+    // Convert Firestore Timestamp to ISO string if it's not already
+    const formattedNewPost = {
+        ...newPost,
+        createdAt: typeof newPost.createdAt === 'string' ? newPost.createdAt : (newPost.createdAt as unknown as Timestamp).toDate().toISOString(),
+        author: newPost.author || (user as User) || {username: 'Unknown', id: ''} // Ensure author object is complete
+    };
+    setPosts(prevPosts => [...prevPosts, formattedNewPost]);
+    
     if (thread) {
         setThread(prevThread => prevThread ? {
             ...prevThread,
-            postCount: prevThread.postCount + 1,
-            lastReplyAt: newPost.createdAt,
-        } : undefined);
+            postCount: (prevThread.postCount || 0) + 1,
+            lastReplyAt: formattedNewPost.createdAt,
+        } : null);
     }
-    setShowReplyForm(false); // Hide form after successful reply
+    setShowReplyForm(false);
   };
 
   if (isLoading || authLoading) {
     return (
-        <div className="space-y-8">
-            <div className="flex justify-between items-center">
-                <div className="h-8 w-1/4 bg-muted rounded animate-pulse"></div>
-                <div className="h-10 w-32 bg-muted rounded animate-pulse"></div>
-            </div>
-            <div className="h-10 w-3/4 bg-muted rounded animate-pulse mb-4"></div>
-            <div className="h-6 w-1/2 bg-muted rounded animate-pulse mb-6"></div>
-            {[...Array(2)].map((_, i) => (
-                <Card key={i} className="mb-4">
-                    <CardHeader className="flex flex-row items-center space-x-4 pb-2">
-                        <div className="h-10 w-10 bg-muted rounded-full animate-pulse"></div>
-                        <div className="space-y-1">
-                            <div className="h-4 w-24 bg-muted rounded animate-pulse"></div>
-                            <div className="h-3 w-32 bg-muted rounded animate-pulse"></div>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="h-4 w-full bg-muted rounded animate-pulse mb-2"></div>
-                        <div className="h-4 w-3/4 bg-muted rounded animate-pulse"></div>
-                    </CardContent>
-                </Card>
-            ))}
+        <div className="space-y-8 py-10 text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+            <p className="text-muted-foreground">Loading thread...</p>
         </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <Frown className="h-5 w-5" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+        <Button onClick={() => router.push(forumId ? `/forums/${forumId}` : '/forums')} className="mt-4">
+          Back to {forumName || 'Forum'}
+        </Button>
+      </Alert>
     );
   }
 
@@ -97,13 +157,13 @@ export default function ThreadPage() {
         <AlertDescription>
           The thread you are looking for does not exist or could not be loaded.
         </AlertDescription>
-        <Button onClick={() => router.push(`/forums/${forumId}`)} className="mt-4">
-          Back to Forum
+        <Button onClick={() => router.push(forumId ? `/forums/${forumId}` : '/forums')} className="mt-4">
+          Back to {forumName || 'Forum'}
         </Button>
       </Alert>
     );
   }
-
+  
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -128,7 +188,6 @@ export default function ThreadPage() {
         )}
       </div>
       
-
       {posts.length > 0 ? (
         <div className="space-y-6">
           {posts.map((post, index) => (
@@ -140,14 +199,17 @@ export default function ThreadPage() {
             <CardContent className="py-10 text-center">
                 <MessageCircle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-xl font-semibold text-muted-foreground">No posts in this thread yet.</p>
-                <p className="text-sm text-muted-foreground">
-                    This thread is empty. This might be an error.
-                </p>
+                 {canReply ? (
+                     <p className="text-sm text-muted-foreground">Be the first to reply!</p>
+                 ): (
+                    <p className="text-sm text-muted-foreground">
+                        This thread is empty. This might be an error.
+                    </p>
+                 )}
             </CardContent>
         </Card>
       )}
 
-      {/* Reply Form */}
       {canReply && showReplyForm && thread && (
         <ReplyForm 
             threadId={thread.id} 
@@ -166,7 +228,6 @@ export default function ThreadPage() {
             </AlertDescription>
         </Alert>
       )}
-
     </div>
   );
 }
