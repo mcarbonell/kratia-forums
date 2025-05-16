@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -18,35 +18,22 @@ import { format, formatDistanceToNow, isPast } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { KRATIA_CONFIG } from '@/lib/config';
 
-// Helper function for timestamp conversion
+// Helper function for timestamp conversion (ensure it's robust)
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
-  if (!timestamp) {
-    return undefined; 
-  }
+  if (!timestamp) return undefined;
   if (typeof timestamp === 'string') {
-    // Check if it's already a valid ISO string
     if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
-        const d = new Date(timestamp);
-        // Extra check: re-stringify and compare to catch invalid dates like "2023-02-30T..."
-        if (d.toISOString() === timestamp) return timestamp;
+      const d = new Date(timestamp);
+      if (d.toISOString() === timestamp) return timestamp;
     }
-    // If not a strict ISO string, try parsing
     const parsedDate = new Date(timestamp);
-    if (!isNaN(parsedDate.getTime())) { // Check if parsedDate is a valid date
-        return parsedDate.toISOString();
-    }
+    if (!isNaN(parsedDate.getTime())) return parsedDate.toISOString();
     console.warn('Unparseable string timestamp:', timestamp);
     return undefined;
   }
-  if (timestamp.toDate && typeof timestamp.toDate === 'function') { // Firestore Timestamp
-    return timestamp.toDate().toISOString();
-  }
-  if (timestamp instanceof Date) { // JavaScript Date
-    return timestamp.toISOString();
-  }
-  if (typeof timestamp === 'number') { // Milliseconds since epoch
-    return new Date(timestamp).toISOString();
-  }
+  if (timestamp.toDate && typeof timestamp.toDate === 'function') return timestamp.toDate().toISOString();
+  if (timestamp instanceof Date) return timestamp.toISOString();
+  if (typeof timestamp === 'number') return new Date(timestamp).toISOString();
   console.warn('Unknown timestamp format:', timestamp);
   return undefined;
 };
@@ -63,15 +50,16 @@ export default function ThreadPage() {
   const [thread, setThread] = useState<Thread | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
   const [forumName, setForumName] = useState<string | undefined>(undefined);
+  const [votation, setVotation] = useState<Votation | null>(null);
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showReplyForm, setShowReplyForm] = useState(false);
   
-  const [votation, setVotation] = useState<Votation | null>(null);
   const [isSubmittingVotationVote, setIsSubmittingVotationVote] = useState(false);
   const [userVotationChoice, setUserVotationChoice] = useState<string | null>(null);
 
-
+  // Effect 1: Fetch core thread and post data
   useEffect(() => {
     if (!threadId || !forumId) {
       setError("Thread ID or Forum ID is missing.");
@@ -79,11 +67,13 @@ export default function ThreadPage() {
       return;
     }
 
-    const fetchThreadData = async () => {
+    const fetchCoreData = async () => {
       setIsLoading(true);
       setError(null);
-      // Do not reset votation here if it's already loaded, to prevent UI flicker
-      // setVotation(null); 
+      // Reset votation if threadId changes to ensure fresh load for new thread context
+      setVotation(null); 
+      setUserVotationChoice(null);
+
       try {
         const threadRef = doc(db, "threads", threadId);
         const threadSnap = await getDoc(threadRef);
@@ -109,69 +99,14 @@ export default function ThreadPage() {
           const votationRef = doc(db, "votations", fetchedThread.relatedVotationId);
           const votationSnap = await getDoc(votationRef);
           if (votationSnap.exists()) {
-            let votationData = votationSnap.data() as Votation;
-            
-            if (votationData.status === 'active' && votationData.deadline && isPast(new Date(votationData.deadline))) {
-              let newStatus: VotationStatus;
-              let outcomeMessage: string;
-
-              const quorumMet = (votationData.totalVotesCast || 0) >= (votationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS);
-              const forVotes = votationData.options.for || 0;
-              const againstVotes = votationData.options.against || 0;
-              const passed = forVotes > againstVotes;
-
-              if (!quorumMet) {
-                newStatus = 'closed_failed_quorum';
-                outcomeMessage = `Failed - Quorum not met (${votationData.totalVotesCast} of ${votationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS} required).`;
-              } else if (passed) {
-                newStatus = 'closed_passed';
-                outcomeMessage = 'Passed.';
-              } else {
-                newStatus = 'closed_failed_vote';
-                outcomeMessage = 'Failed - Did not receive majority "For" votes.';
-              }
-              
-              try {
-                const batch = writeBatch(db);
-                batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
-                
-                if (newStatus === 'closed_passed' && votationData.type === 'sanction' && votationData.targetUserId) {
-                  const targetUserRef = doc(db, "users", votationData.targetUserId);
-                  const sanctionDurationDays = 1; // Hardcoded to 1 day for now
-                  const sanctionEndDate = new Date();
-                  sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
-
-                  batch.update(targetUserRef, {
-                    status: 'sanctioned',
-                    sanctionEndDate: sanctionEndDate.toISOString(),
-                  });
-                  toast({
-                    title: "Sanction Applied",
-                    description: `${votationData.targetUsername} has been sanctioned for ${sanctionDurationDays} day(s). Status updated.`,
-                  });
-                  // Removed router.replace here. SanctionCheckWrapper will handle redirect if loggedInUser is the target.
-                }
-                await batch.commit();
-
-                votationData.status = newStatus; // Update local copy for immediate UI feedback
-                votationData.outcome = outcomeMessage;
-                toast({ title: "Votation Closed", description: `Votation "${votationData.title}" has been automatically closed. Result: ${outcomeMessage}`});
-
-              } catch (updateError: any) {
-                console.error("Error updating votation status or applying sanction:", updateError);
-                toast({ title: "Votation Update Error", description: updateError.message || "Could not automatically close the votation or apply sanction. Please try refreshing.", variant: "destructive"});
-              }
-            }
-            
-            setVotation({ id: votationSnap.id, ...votationData } as Votation);
-            if (loggedInUser && votationData.voters && votationData.voters[loggedInUser.id]) {
-              setUserVotationChoice(votationData.voters[loggedInUser.id]);
-            }
+            setVotation({ id: votationSnap.id, ...votationSnap.data() } as Votation);
           } else {
             console.warn(`Votation document with ID ${fetchedThread.relatedVotationId} not found.`);
+            setVotation(null); // Ensure votation is null if not found
           }
+        } else {
+            setVotation(null); // Ensure votation is null if no relatedVotationId
         }
-
 
         if (fetchedThread.forumId === forumId) {
             const forumRefDoc = doc(db, "forums", forumId);
@@ -179,8 +114,6 @@ export default function ThreadPage() {
             if (forumSnap.exists()) {
                 setForumName(forumSnap.data().name);
             }
-        } else {
-             console.warn("Mismatch between URL forumId and thread's forumId");
         }
 
         const postsQuery = query(
@@ -204,15 +137,91 @@ export default function ThreadPage() {
         setPosts(fetchedPosts);
 
       } catch (err) {
-        console.error(`Error fetching thread ${threadId} data:`, err);
+        console.error(`Error fetching thread ${threadId} core data:`, err);
         setError("Failed to load thread details or posts. Please try again.");
+        setThread(null); // Reset thread on error
+        setPosts([]); // Reset posts on error
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchThreadData();
-  }, [threadId, forumId, loggedInUser, toast, router]); 
+    fetchCoreData();
+  }, [threadId, forumId]); // Dependencies only on IDs
+
+  // Effect 2: Process Votation (closing, setting user choice)
+  useEffect(() => {
+    if (!votation) {
+      setUserVotationChoice(null); // Clear user choice if no votation
+      return;
+    }
+
+    // Set userVotationChoice based on loaded votation and loggedInUser
+    if (loggedInUser && votation.voters && votation.voters[loggedInUser.id]) {
+      setUserVotationChoice(votation.voters[loggedInUser.id]);
+    } else {
+      setUserVotationChoice(null);
+    }
+
+    // Votation closing logic
+    const closeVotationIfNeeded = async () => {
+      if (votation.status === 'active' && votation.deadline && isPast(new Date(votation.deadline))) {
+        let newStatus: VotationStatus = 'closed_failed_vote'; // Default
+        let outcomeMessage = 'Outcome not yet determined.';
+
+        const quorumMet = (votation.totalVotesCast || 0) >= (votation.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS);
+        const forVotes = votation.options.for || 0;
+        const againstVotes = votation.options.against || 0;
+        const passed = forVotes > againstVotes;
+
+        if (!quorumMet) {
+          newStatus = 'closed_failed_quorum';
+          outcomeMessage = `Failed - Quorum not met (${votation.totalVotesCast} of ${votation.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS} required).`;
+        } else if (passed) {
+          newStatus = 'closed_passed';
+          outcomeMessage = 'Passed.';
+        } else { // Quorum met, but "for" did not win
+          newStatus = 'closed_failed_vote';
+          outcomeMessage = 'Failed - Did not receive majority "For" votes.';
+        }
+        
+        try {
+          const votationRef = doc(db, "votations", votation.id);
+          const batch = writeBatch(db);
+          batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
+          
+          if (newStatus === 'closed_passed' && votation.type === 'sanction' && votation.targetUserId) {
+            const targetUserRef = doc(db, "users", votation.targetUserId);
+            const sanctionDurationDays = 1; // Hardcoded for now
+            const sanctionEndDate = new Date();
+            sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
+
+            batch.update(targetUserRef, {
+              status: 'sanctioned',
+              sanctionEndDate: sanctionEndDate.toISOString(),
+            });
+            toast({
+              title: "Sanction Applied",
+              description: `${votation.targetUsername} has been sanctioned for ${sanctionDurationDays} day(s). Status updated.`,
+            });
+          }
+          await batch.commit();
+
+          // Update local votation state to reflect changes
+          setVotation(prevVotation => prevVotation ? {...prevVotation, status: newStatus, outcome: outcomeMessage} : null);
+          toast({ title: "Votation Closed", description: `Votation "${votation.title}" has been automatically closed. Result: ${outcomeMessage}`});
+
+        } catch (updateError: any) {
+          console.error("Error updating votation status or applying sanction:", updateError);
+          toast({ title: "Votation Update Error", description: updateError.message || "Could not automatically close the votation or apply sanction. Please try refreshing.", variant: "destructive"});
+        }
+      }
+    };
+
+    closeVotationIfNeeded();
+  // Only re-run if votation object itself changes, or loggedInUser.id (for choice) / status (for eligibility) changes.
+  // router & toast are stable.
+  }, [votation, loggedInUser?.id, loggedInUser?.status, toast, router]); 
 
 
   const isOwnActiveSanctionThread =
@@ -229,8 +238,9 @@ export default function ThreadPage() {
       userCanReply = true;
     } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
       userCanReply = true; 
+    } else if (loggedInUser.status === 'sanctioned'){
+      userCanReply = false;
     }
-    // 'sanctioned' users cannot reply
   }
   
   const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice;
@@ -255,7 +265,7 @@ export default function ThreadPage() {
   };
 
   const handlePollUpdate = (updatedPoll: Poll) => {
-    if (thread && thread.poll) { // Ensure thread and poll exist before updating
+    if (thread && thread.poll) { 
       setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
     }
   };
@@ -274,6 +284,7 @@ export default function ThreadPage() {
         if (!votationDoc.exists()) throw new Error("Votation not found.");
         
         const currentVotationData = votationDoc.data() as Votation;
+        if (currentVotationData.status !== 'active') throw new Error("This votation is no longer active.");
         if (currentVotationData.voters && currentVotationData.voters[loggedInUser.id]) {
           throw new Error("User has already voted.");
         }
@@ -297,8 +308,8 @@ export default function ThreadPage() {
         return { ...currentVotationData, ...dataToUpdate };
       });
 
-      setVotation(updatedVotationData);
-      setUserVotationChoice(choice);
+      setVotation(updatedVotationData); // This will update the local state
+      // setUserVotationChoice(choice); // This will be handled by the useEffect that watches `votation`
       toast({ title: "Vote Cast!", description: `Your vote for "${choice}" has been recorded.`});
 
     } catch (error: any) {
@@ -310,7 +321,7 @@ export default function ThreadPage() {
   };
 
 
-  if (isLoading || authLoading) {
+  if (authLoading || isLoading) { // isLoading is true until initial core data is fetched
     return (
         <div className="space-y-8 py-10 text-center">
             <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
@@ -397,11 +408,11 @@ export default function ThreadPage() {
             <div>
               <h4 className="font-semibold mb-1 text-md">Current Tally:</h4>
               <ul className="list-disc list-inside pl-1 space-y-1 text-sm">
-                <li>For: {votation.options.for}</li>
-                <li>Against: {votation.options.against}</li>
-                <li>Abstain: {votation.options.abstain}</li>
+                <li>For: {votation.options.for || 0}</li>
+                <li>Against: {votation.options.against || 0}</li>
+                <li>Abstain: {votation.options.abstain || 0}</li>
               </ul>
-              <p className="text-xs text-muted-foreground mt-1">Total votes cast: {votation.totalVotesCast}</p>
+              <p className="text-xs text-muted-foreground mt-1">Total votes cast: {votation.totalVotesCast || 0}</p>
             </div>
             
             {votation.status === 'active' && loggedInUser && (
@@ -413,7 +424,7 @@ export default function ThreadPage() {
                        <AlertTitle>Your Sanction Process</AlertTitle>
                        <AlertDescription>You cannot vote in your own sanction process. You can reply in this thread to present your defense.</AlertDescription>
                    </Alert>
-                ) : !canVoteInVotation && userVotationChoice ? ( 
+                ) : userVotationChoice ? ( 
                      <Alert variant="default" className="border-green-500 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 [&>svg]:text-green-600">
                         <ShieldCheck className="h-5 w-5" />
                         <AlertTitle>Vote Recorded</AlertTitle>
@@ -492,7 +503,7 @@ export default function ThreadPage() {
                 key={post.id}
                 post={post}
                 isFirstPost={index === 0}
-                threadPoll={index === 0 && thread.poll ? thread.poll : undefined}
+                threadPoll={index === 0 && thread?.poll ? thread.poll : undefined}
                 onPollUpdate={handlePollUpdate}
                 threadId={thread.id}
             />
