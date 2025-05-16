@@ -31,7 +31,7 @@ export const mockAuthUsers: Record<string, MockUser> = {
     aboutMe: 'Learning the ropes.', 
     registrationDate: '2023-03-20T14:30:00Z', 
     canVote: false, 
-    status: 'sanctioned',
+    status: 'sanctioned', // Ensuring Diana is sanctioned for testing
     sanctionEndDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
   },
   'user5': { id: 'user5', username: 'SanctionedSam', email: 'sam@example.com', avatarUrl: 'https://picsum.photos/seed/sam/100/100', role: 'user', karma: 5, location: 'Penalty Box', aboutMe: 'Currently sanctioned.', registrationDate: '2023-02-01T10:00:00Z', canVote: false, status: 'sanctioned', sanctionEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() },
@@ -59,7 +59,7 @@ const setInternalCurrentUser = (user: MockUser | null) => {
 
 
 export function useMockAuth() {
-  const [currentUser, setCurrentUserLocal] = useState<MockUser | null>(internalCurrentUser);
+  const [currentUserLocal, setCurrentUserLocal] = useState<MockUser | null>(internalCurrentUser);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -76,7 +76,9 @@ export function useMockAuth() {
       let userToSet: MockUser | null = null;
 
       if (storedUserKey && mockAuthUsers[storedUserKey]) {
-        userToSet = mockAuthUsers[storedUserKey];
+        const potentialUser = mockAuthUsers[storedUserKey];
+        // Load the user even if sanctioned; SanctionCheckWrapper will handle redirection
+        userToSet = potentialUser;
       } else {
         userToSet = mockAuthUsers['visitor0'];
         if (storedUserKey !== 'visitor0') {
@@ -108,14 +110,14 @@ export function useMockAuth() {
     );
     
     if (!userKeyToLogin || !mockAuthUsers[userKeyToLogin]) {
-        console.warn(\`Mock login attempt for "\${usernameOrEmail}" - user not found in mockAuthUsers.\`);
+        console.warn(`Mock login attempt for "${usernameOrEmail}" - user not found in mockAuthUsers.`);
         return { success: false, reason: 'not_found' };
     }
 
     const userToLogin = mockAuthUsers[userKeyToLogin];
 
     if (userToLogin.status === 'sanctioned') {
-      console.log(\`Login attempt for sanctioned user: \${userToLogin.username}\`);
+      console.log(`Login attempt for sanctioned user: ${userToLogin.username}`);
       return { 
         success: false, 
         user: userToLogin,
@@ -131,6 +133,7 @@ export function useMockAuth() {
   }, []);
   
   const signup = useCallback((username: string, email: string) => {
+    // For simplicity, signup logs in as 'user1' (Alice)
     const newUserKey = 'user1'; 
     setInternalCurrentUser(mockAuthUsers[newUserKey]);
     localStorage.setItem('mockUserKey', newUserKey);
@@ -148,11 +151,12 @@ export function useMockAuth() {
       setInternalCurrentUser(userToSwitchTo);
       localStorage.setItem('mockUserKey', userKey);
     } else {
-      console.warn(\`Mock user for key "\${userKey}" not found in switchToUser. Defaulting to visitor0.\`);
+      console.warn(`Mock user for key "${userKey}" not found in switchToUser. Defaulting to visitor0.`);
       setInternalCurrentUser(mockAuthUsers['visitor0']);
       localStorage.setItem('mockUserKey', 'visitor0');
     }
   }, []);
 
-  return { user: currentUser, loading, login, logout, signup, switchToUser };
+  return { user: currentUserLocal, loading, login, logout, signup, switchToUser };
 }
+
