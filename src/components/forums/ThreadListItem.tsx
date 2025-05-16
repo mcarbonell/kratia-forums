@@ -1,7 +1,7 @@
 
 import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { MessageSquare, UserCircle, Clock } from 'lucide-react';
+import { MessageSquare, UserCircle, Clock, Lock } from 'lucide-react';
 import type { Thread } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -27,7 +27,8 @@ export default function ThreadListItem({ thread, forumId }: ThreadListItemProps)
         </Link>
         <div className="flex-grow min-w-0">
           <Link href={`/forums/${forumId}/threads/${thread.id}`} className="block">
-            <h3 className="text-lg font-semibold text-primary hover:underline truncate" title={thread.title}>
+            <h3 className="text-lg font-semibold text-primary hover:underline truncate flex items-center" title={thread.title}>
+              {thread.isLocked && <Lock className="mr-2 h-4 w-4 text-destructive flex-shrink-0" />}
               {thread.title}
             </h3>
           </Link>
