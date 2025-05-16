@@ -5,21 +5,22 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
-import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation } from '@/lib/types'; // Renamed User
-import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck } from 'lucide-react';
+import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation } from '@/lib/types';
+import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
 
 // Helper function for timestamp conversion
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
   if (!timestamp) {
-    return undefined; // Field might be optional
+    return undefined; 
   }
   if (typeof timestamp === 'string') {
     if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
@@ -49,7 +50,8 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
 export default function ThreadPage() {
   const params = useParams();
   const router = useRouter();
-  const { user, loading: authLoading } = useMockAuth();
+  const { user: loggedInUser, loading: authLoading } = useMockAuth();
+  const { toast } = useToast();
 
   const threadId = params.threadId as string;
   const forumId = params.forumId as string;
@@ -60,7 +62,11 @@ export default function ThreadPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showReplyForm, setShowReplyForm] = useState(false);
-  const [votation, setVotation] = useState<Votation | null>(null); // State for fetched votation
+  
+  const [votation, setVotation] = useState<Votation | null>(null);
+  const [isSubmittingVotationVote, setIsSubmittingVotationVote] = useState(false);
+  const [userVotationChoice, setUserVotationChoice] = useState<string | null>(null);
+
 
   useEffect(() => {
     if (!threadId || !forumId) {
@@ -91,6 +97,7 @@ export default function ThreadPage() {
           lastReplyAt: formatFirestoreTimestamp(threadData.lastReplyAt),
           author: threadData.author || { username: 'Unknown', id: '' },
           postCount: threadData.postCount || 0,
+          relatedVotationId: threadData.relatedVotationId || null,
         } as Thread;
         setThread(fetchedThread);
         
@@ -98,7 +105,11 @@ export default function ThreadPage() {
           const votationRef = doc(db, "votations", fetchedThread.relatedVotationId);
           const votationSnap = await getDoc(votationRef);
           if (votationSnap.exists()) {
-            setVotation({ id: votationSnap.id, ...votationSnap.data() } as Votation);
+            const votationData = votationSnap.data() as Votation;
+            setVotation({ id: votationSnap.id, ...votationData });
+            if (loggedInUser && votationData.voters && votationData.voters[loggedInUser.id]) {
+              setUserVotationChoice(votationData.voters[loggedInUser.id]);
+            }
           } else {
             console.warn(`Votation document with ID ${fetchedThread.relatedVotationId} not found.`);
           }
@@ -129,7 +140,7 @@ export default function ThreadPage() {
             createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
             updatedAt: formatFirestoreTimestamp(data.updatedAt),
             author: data.author || { username: 'Unknown', id: '' },
-            reactions: data.reactions || {}, // Ensure reactions is an object
+            reactions: data.reactions || {}, 
           } as PostType;
         });
         setPosts(fetchedPosts);
@@ -143,15 +154,17 @@ export default function ThreadPage() {
     };
 
     fetchThreadData();
-  }, [threadId, forumId]);
+  }, [threadId, forumId, loggedInUser]);
 
-  const canReply = user && user.role !== 'visitor' && user.role !== 'guest';
+  const canReply = loggedInUser && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest';
+  const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice;
+
 
   const handleNewReply = (newPost: PostType) => {
     const formattedNewPost = {
         ...newPost,
         createdAt: formatFirestoreTimestamp(newPost.createdAt) || new Date(0).toISOString(),
-        author: newPost.author || (user as KratiaUser) || {username: 'Unknown', id: ''}
+        author: newPost.author || (loggedInUser as KratiaUser) || {username: 'Unknown', id: ''}
     };
     setPosts(prevPosts => [...prevPosts, formattedNewPost]);
 
@@ -168,6 +181,52 @@ export default function ThreadPage() {
   const handlePollUpdate = (updatedPoll: Poll) => {
     if (thread) {
       setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
+    }
+  };
+
+  const handleVotationVote = async (choice: 'for' | 'against' | 'abstain') => {
+    if (!loggedInUser || !votation || !canVoteInVotation) {
+      toast({ title: "Cannot Vote", description: "You are not eligible to vote or have already voted.", variant: "destructive"});
+      return;
+    }
+    setIsSubmittingVotationVote(true);
+    const votationRef = doc(db, "votations", votation.id);
+
+    try {
+      const updatedVotationData = await runTransaction(db, async (transaction) => {
+        const votationDoc = await transaction.get(votationRef);
+        if (!votationDoc.exists()) throw new Error("Votation not found.");
+        
+        const currentVotationData = votationDoc.data() as Votation;
+        if (currentVotationData.voters && currentVotationData.voters[loggedInUser.id]) {
+          // This should be caught by UI, but as a safeguard
+          throw new Error("User has already voted.");
+        }
+
+        const newOptions = { ...currentVotationData.options };
+        newOptions[choice] = (newOptions[choice] || 0) + 1;
+        
+        const newVoters = { ...(currentVotationData.voters || {}), [loggedInUser.id]: choice };
+        const newTotalVotesCast = (currentVotationData.totalVotesCast || 0) + 1;
+
+        const dataToUpdate: Partial<Votation> = {
+          options: newOptions,
+          voters: newVoters,
+          totalVotesCast: newTotalVotesCast,
+        };
+        transaction.update(votationRef, dataToUpdate);
+        return { ...currentVotationData, ...dataToUpdate } as Votation;
+      });
+
+      setVotation(updatedVotationData);
+      setUserVotationChoice(choice);
+      toast({ title: "Vote Cast!", description: `Your vote for "${choice}" has been recorded.`});
+
+    } catch (error: any) {
+      console.error("Error casting votation vote:", error);
+      toast({ title: "Error Voting", description: error.message || "Failed to cast your vote.", variant: "destructive"});
+    } finally {
+      setIsSubmittingVotationVote(false);
     }
   };
 
@@ -233,7 +292,6 @@ export default function ThreadPage() {
         )}
       </div>
       
-      {/* Votation Details Display */}
       {votation && (
         <Card className="mb-6 border-blue-500 shadow-lg">
           <CardHeader className="bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded-t-lg">
@@ -266,16 +324,66 @@ export default function ThreadPage() {
               </ul>
               <p className="text-xs text-muted-foreground mt-1">Total votes cast: {votation.totalVotesCast}</p>
             </div>
-            {/* Voting UI will be added here in the next step */}
-            {votation.status === 'active' && (
-                 <Alert variant="default" className="mt-3">
-                    <ShieldCheck className="h-5 w-5 text-primary" />
-                    <AlertTitle>Voting is Active</AlertTitle>
+            
+            {votation.status === 'active' && loggedInUser && (
+              <div className="mt-4 pt-4 border-t">
+                <h4 className="font-semibold mb-2 text-md">Cast Your Vote:</h4>
+                {!loggedInUser.canVote || loggedInUser.status !== 'active' ? (
+                  <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
+                    <ShieldCheck className="h-5 w-5" />
+                    <AlertTitle>Not Eligible to Vote</AlertTitle>
                     <AlertDescription>
-                        You can cast your vote on this proposal. Voting interface coming soon.
+                      {loggedInUser.status !== 'active' ? `Your account status is '${loggedInUser.status}'. You cannot vote.` : 'You do not have voting rights.'}
+                    </AlertDescription>
+                  </Alert>
+                ) : userVotationChoice ? (
+                  <Alert variant="default" className="border-green-500 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 [&>svg]:text-green-600">
+                    <ShieldCheck className="h-5 w-5" />
+                    <AlertTitle>Vote Recorded</AlertTitle>
+                    <AlertDescription>
+                      You voted: <span className="font-semibold capitalize">{userVotationChoice}</span>.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button 
+                      onClick={() => handleVotationVote('for')} 
+                      disabled={isSubmittingVotationVote} 
+                      variant="default" 
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsUp className="mr-2 h-4 w-4"/>} A Favor
+                    </Button>
+                    <Button 
+                      onClick={() => handleVotationVote('against')} 
+                      disabled={isSubmittingVotationVote} 
+                      variant="destructive" 
+                      className="flex-1"
+                    >
+                      {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsDown className="mr-2 h-4 w-4"/>} En Contra
+                    </Button>
+                    <Button 
+                      onClick={() => handleVotationVote('abstain')} 
+                      disabled={isSubmittingVotationVote} 
+                      variant="outline" 
+                      className="flex-1"
+                    >
+                      {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <MinusCircle className="mr-2 h-4 w-4"/>} Abstenerse
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            {votation.status === 'active' && !loggedInUser && (
+                <Alert variant="default" className="mt-3">
+                    <ShieldCheck className="h-5 w-5"/>
+                    <AlertTitle>Login to Vote</AlertTitle>
+                    <AlertDescription>
+                       <Link href="/auth/login" className="text-primary hover:underline font-semibold">Log in</Link> to cast your vote on this proposal.
                     </AlertDescription>
                 </Alert>
             )}
+
              {votation.status !== 'active' && (
                  <Alert variant="default" className="mt-3">
                     <ShieldCheck className="h-5 w-5"/>
@@ -328,7 +436,7 @@ export default function ThreadPage() {
         />
       )}
 
-       {!canReply && user && (user.role === 'visitor' || user.role === 'guest') && (
+       {!canReply && loggedInUser && (loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') && (
         <Alert variant="default" className="mt-6">
             <MessageCircle className="h-5 w-5"/>
             <AlertTitle>Want to join the conversation?</AlertTitle>
@@ -341,3 +449,5 @@ export default function ThreadPage() {
   );
 }
 
+
+    
