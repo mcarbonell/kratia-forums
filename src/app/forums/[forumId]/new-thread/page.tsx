@@ -122,21 +122,6 @@ export default function NewThreadPage() {
     return <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
   }
 
-  if (forumError || !forum) {
-     return (
-      <Alert variant="destructive" className="max-w-lg mx-auto">
-        <Frown className="h-5 w-5" />
-        <AlertTitle>{forumError ? "Error" : "Forum Not Found"}</AlertTitle>
-        <AlertDescription>
-          {forumError || "The forum you are trying to post in does not exist."}
-        </AlertDescription>
-         <Button asChild className="mt-4">
-            <Link href="/forums">Back to Forums List</Link>
-          </Button>
-      </Alert>
-    );
-  }
-
   if (!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
@@ -156,7 +141,8 @@ export default function NewThreadPage() {
       </Alert>
     );
   }
-
+  
+  // This check must happen *after* ensuring loggedInUser is loaded and not a visitor/guest
   if (loggedInUser.status === 'under_sanction_process') {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
@@ -185,11 +171,26 @@ export default function NewThreadPage() {
       </Alert>
     );
   }
+  
+  if (forumError || !forum) {
+     return (
+      <Alert variant="destructive" className="max-w-lg mx-auto">
+        <Frown className="h-5 w-5" />
+        <AlertTitle>{forumError ? "Error" : "Forum Not Found"}</AlertTitle>
+        <AlertDescription>
+          {forumError || "The forum you are trying to post in does not exist."}
+        </AlertDescription>
+         <Button asChild className="mt-4">
+            <Link href="/forums">Back to Forums List</Link>
+          </Button>
+      </Alert>
+    );
+  }
 
 
   const onSubmit: SubmitHandler<NewThreadFormData> = async (data) => {
     setIsSubmitting(true);
-    if (!loggedInUser || !forum) { // loggedInUser is already checked, but good for type safety
+    if (!loggedInUser || !forum) { 
         toast({ title: "Error", description: "User or Forum not found.", variant: "destructive" });
         setIsSubmitting(false);
         return;

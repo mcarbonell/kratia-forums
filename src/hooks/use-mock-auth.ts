@@ -21,7 +21,7 @@ export const mockAuthUsers: Record<string, MockUser> = {
   'user1': { id: 'user1', username: 'Alice', email: 'alice@example.com', avatarUrl: 'https://picsum.photos/seed/alice/100/100', role: 'user', isQuarantined: true, karma: 10, location: 'Wonderland', aboutMe: 'Curiouser and curiouser!', registrationDate: '2023-01-15T10:00:00Z', canVote: true, status: 'active' },
   'user2': { id: 'user2', username: 'BobTheBuilder', email: 'bob@example.com', avatarUrl: 'https://picsum.photos/seed/bob/100/100', role: 'normal_user', karma: 150, location: 'Construction Site', aboutMe: 'Can we fix it? Yes, we can!', registrationDate: '2023-03-20T14:30:00Z', canVote: true, status: 'active' },
   'user3': { id: 'user3', username: 'CharlieComm', email: 'charlie@example.com', avatarUrl: 'https://picsum.photos/seed/charlie/100/100', role: 'normal_user', karma: 75, location: 'The Internet', aboutMe: 'Loves to discuss and debate.', registrationDate: '2022-11-01T08:00:00Z', canVote: true, status: 'active' },
-  'user4': { id: 'user4', username: 'DianaNewbie', email: 'diana@example.com', avatarUrl: 'https://picsum.photos/seed/diana/100/100', role: 'user', isQuarantined: true, karma: 0, location: 'New York', aboutMe: 'Just joined, excited to learn!', registrationDate: '2023-03-20T14:30:00Z', canVote: false, status: 'active' },
+  'user4': { id: 'user4', username: 'DianaNewbie', email: 'diana@example.com', avatarUrl: 'https://picsum.photos/seed/diana/100/100', role: 'user', isQuarantined: true, karma: 0, location: 'New York', aboutMe: 'Just joined, excited to learn!', registrationDate: '2023-03-20T14:30:00Z', canVote: false, status: 'under_sanction_process' }, // Explicitly under sanction
   'admin1': { id: 'admin1', username: 'AdminAnna', email: 'adminana@example.com', avatarUrl: 'https://picsum.photos/seed/adminana/100/100', role: 'admin', karma: 500, location: 'Control Room', aboutMe: 'Ensuring order and progress.', registrationDate: '2022-10-01T08:00:00Z', canVote: true, status: 'active' },
   'founder1': { id: 'founder1', username: 'FoundingFather', email: 'founder@example.com', avatarUrl: 'https://picsum.photos/seed/founder/100/100', role: 'founder', karma: 1000, location: 'The Genesis Block', aboutMe: 'Laid the first stone.', registrationDate: '2022-09-01T08:00:00Z', canVote: true, status: 'active' },
 };
@@ -59,22 +59,21 @@ export function useMockAuth() {
     } else if (usernameOrEmail?.toLowerCase().includes('founder')) {
         userKeyToLogin = 'founder1';
     } else if (usernameOrEmail?.toLowerCase().includes('diana')) {
-        userKeyToLogin = 'user4';
+        userKeyToLogin = 'user4'; // This will now pick up Diana with status 'under_sanction_process'
     } else if (usernameOrEmail?.toLowerCase().includes('bob')) {
-        userKeyToLogin = 'user2'; // Explicitly Bob for 'bob'
+        userKeyToLogin = 'user2'; 
     } else if (usernameOrEmail?.toLowerCase().includes('charlie')) {
         userKeyToLogin = 'user3';
     }
-    // Otherwise, it defaults to user2 (Bob)
-
+    
     const userToLogin = mockAuthUsers[userKeyToLogin] || mockAuthUsers['guest1'];
     setCurrentUser(userToLogin);
     localStorage.setItem('mockUserKey', userKeyToLogin);
   };
   
   const signup = (username: string, email: string) => {
-    // For mock purposes, signup always 'creates' DianaNewbie (user4)
-    const newUserKey = 'user4'; 
+    // For mock purposes, signup always 'creates' Alice (user1) to have some rights
+    const newUserKey = 'user1'; 
     setCurrentUser(mockAuthUsers[newUserKey]);
     localStorage.setItem('mockUserKey', newUserKey);
   };
@@ -86,18 +85,17 @@ export function useMockAuth() {
   
   const switchToUser = (roleOrKey: UserRole | string) => {
     let userToSwitchTo: MockUser | undefined;
-    let keyToStore: string = 'visitor0'; // Default to visitor0
+    let keyToStore: string = 'visitor0'; 
 
-    if (mockAuthUsers[roleOrKey]) { // If roleOrKey is a direct key like 'user1', 'admin1'
+    if (mockAuthUsers[roleOrKey]) { 
         userToSwitchTo = mockAuthUsers[roleOrKey];
         keyToStore = roleOrKey; 
     } else {
-      // Fallback for role names if direct key not found (e.g., 'admin' maps to 'admin1')
       const roleMap: Partial<Record<UserRole, string>> = {
-        'user': 'user1', // Alice
-        'normal_user': 'user2', // Bob
-        'admin': 'admin1', // AdminAnna
-        'founder': 'founder1', // FoundingFather
+        'user': 'user1', 
+        'normal_user': 'user2',
+        'admin': 'admin1', 
+        'founder': 'founder1', 
         'guest': 'guest1',
         'visitor': 'visitor0',
       };
@@ -120,3 +118,5 @@ export function useMockAuth() {
 
   return { user: currentUser, loading, login, logout, signup, switchToUser };
 }
+
+    
