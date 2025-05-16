@@ -9,13 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
-import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation } from '@/lib/types';
+import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, VotationStatus } from '@/lib/types';
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment } from 'firebase/firestore';
-import { format, formatDistanceToNow } from 'date-fns';
+import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment, updateDoc } from 'firebase/firestore';
+import { format, formatDistanceToNow, isPast } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
+import { KRATIA_CONFIG } from '@/lib/config';
 
 // Helper function for timestamp conversion
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
@@ -105,7 +106,40 @@ export default function ThreadPage() {
           const votationRef = doc(db, "votations", fetchedThread.relatedVotationId);
           const votationSnap = await getDoc(votationRef);
           if (votationSnap.exists()) {
-            const votationData = votationSnap.data() as Votation;
+            let votationData = votationSnap.data() as Votation;
+            
+            // Check if votation needs to be closed
+            if (votationData.status === 'active' && isPast(new Date(votationData.deadline))) {
+              let newStatus: VotationStatus;
+              let outcomeMessage: string;
+
+              const quorumMet = (votationData.totalVotesCast || 0) >= (votationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS);
+              const forVotes = votationData.options.for || 0;
+              const againstVotes = votationData.options.against || 0;
+              const passed = forVotes > againstVotes;
+
+              if (!quorumMet) {
+                newStatus = 'closed_failed_quorum';
+                outcomeMessage = `Failed - Quorum not met (${votationData.totalVotesCast} of ${votationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS} required).`;
+              } else if (passed) {
+                newStatus = 'closed_passed';
+                outcomeMessage = 'Passed.';
+              } else {
+                newStatus = 'closed_failed_vote';
+                outcomeMessage = 'Failed - Did not receive majority "For" votes.';
+              }
+              
+              try {
+                await updateDoc(votationRef, { status: newStatus, outcome: outcomeMessage });
+                votationData.status = newStatus;
+                votationData.outcome = outcomeMessage;
+                toast({ title: "Votation Closed", description: `Votation "${votationData.title}" has been automatically closed. Result: ${outcomeMessage}`});
+              } catch (updateError) {
+                console.error("Error updating votation status:", updateError);
+                toast({ title: "Votation Update Error", description: "Could not automatically close the votation. Please try refreshing.", variant: "destructive"});
+              }
+            }
+            
             setVotation({ id: votationSnap.id, ...votationData });
             if (loggedInUser && votationData.voters && votationData.voters[loggedInUser.id]) {
               setUserVotationChoice(votationData.voters[loggedInUser.id]);
@@ -155,13 +189,14 @@ export default function ThreadPage() {
     };
 
     fetchThreadData();
-  }, [threadId, forumId, loggedInUser]);
+  }, [threadId, forumId, loggedInUser, toast]); // Added toast to dependency array
 
 
   const isOwnActiveSanctionThread =
     loggedInUser &&
     thread && thread.relatedVotationId && 
     votation && 
+    votation.type === 'sanction' && // Ensure it's a sanction votation
     votation.targetUserId === loggedInUser.id &&
     votation.status === 'active';
 
@@ -202,8 +237,8 @@ export default function ThreadPage() {
   };
 
   const handleVotationVote = async (choice: 'for' | 'against' | 'abstain') => {
-    if (!loggedInUser || !votation || !canVoteInVotation || loggedInUser.id === votation.targetUserId) {
-      toast({ title: "Cannot Vote", description: "You are not eligible to vote, have already voted, or cannot vote in your own sanction process.", variant: "destructive"});
+    if (!loggedInUser || !votation || !canVoteInVotation || (votation.type === 'sanction' && loggedInUser.id === votation.targetUserId) ) {
+      toast({ title: "Cannot Vote", description: "You are not eligible to vote, have already voted, or cannot vote in this votation.", variant: "destructive"});
       return;
     }
     setIsSubmittingVotationVote(true);
@@ -218,7 +253,7 @@ export default function ThreadPage() {
         if (currentVotationData.voters && currentVotationData.voters[loggedInUser.id]) {
           throw new Error("User has already voted.");
         }
-        if (currentVotationData.targetUserId === loggedInUser.id) {
+         if (currentVotationData.type === 'sanction' && currentVotationData.targetUserId === loggedInUser.id) {
            throw new Error("You cannot vote in your own sanction process.");
         }
 
@@ -332,7 +367,7 @@ export default function ThreadPage() {
             )}
             <div className="text-sm">
                 <p><strong className="font-medium">Proposer:</strong> {votation.proposerUsername}</p>
-                <p><strong className="font-medium">Status:</strong> <span className="font-semibold capitalize">{votation.status}</span></p>
+                <p><strong className="font-medium">Status:</strong> <span className="font-semibold capitalize">{votation.status.replace(/_/g, ' ')}</span></p>
                 <p><strong className="font-medium">Deadline:</strong> {format(new Date(votation.deadline), "PPPp")}</p>
             </div>
             <div>
@@ -348,13 +383,13 @@ export default function ThreadPage() {
             {votation.status === 'active' && loggedInUser && (
               <div className="mt-4 pt-4 border-t">
                 <h4 className="font-semibold mb-2 text-md">Cast Your Vote:</h4>
-                {loggedInUser.id === votation.targetUserId ? (
+                {votation.type === 'sanction' && loggedInUser.id === votation.targetUserId ? (
                    <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
                        <ShieldCheck className="h-5 w-5"/>
                        <AlertTitle>Your Sanction Process</AlertTitle>
                        <AlertDescription>You cannot vote in your own sanction process. You can reply in this thread to present your defense.</AlertDescription>
                    </Alert>
-                ) : !canVoteInVotation && userVotationChoice ? ( // Already voted
+                ) : !canVoteInVotation && userVotationChoice ? ( 
                      <Alert variant="default" className="border-green-500 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 [&>svg]:text-green-600">
                         <ShieldCheck className="h-5 w-5" />
                         <AlertTitle>Vote Recorded</AlertTitle>
@@ -362,7 +397,7 @@ export default function ThreadPage() {
                         You voted: <span className="font-semibold capitalize">{userVotationChoice}</span>.
                         </AlertDescription>
                     </Alert>
-                ) : !loggedInUser.canVote || loggedInUser.status !== 'active' ? ( // Not eligible for other reasons
+                ) : !loggedInUser.canVote || loggedInUser.status !== 'active' ? ( 
                   <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
                     <ShieldCheck className="h-5 w-5" />
                     <AlertTitle>Not Eligible to Vote</AlertTitle>
@@ -372,7 +407,7 @@ export default function ThreadPage() {
                        {loggedInUser.status === 'sanctioned' && ' Sanctioned users cannot vote.'}
                     </AlertDescription>
                   </Alert>
-                ) : ( // Eligible and hasn't voted
+                ) : ( 
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button 
                       onClick={() => handleVotationVote('for')} 
@@ -433,7 +468,7 @@ export default function ThreadPage() {
                 key={post.id}
                 post={post}
                 isFirstPost={index === 0}
-                threadPoll={index === 0 ? thread.poll : undefined}
+                threadPoll={index === 0 && thread.poll ? thread.poll : undefined}
                 onPollUpdate={handlePollUpdate}
                 threadId={thread.id}
             />
@@ -448,7 +483,7 @@ export default function ThreadPage() {
                      <p className="text-sm text-muted-foreground">Be the first to reply!</p>
                  ): (
                     <p className="text-sm text-muted-foreground">
-                       {loggedInUser && loggedInUser.status === 'under_sanction_process' && !isOwnActiveSanctionThread && "You cannot reply to this thread while under a sanction process."}
+                       {loggedInUser && loggedInUser.status === 'under_sanction_process' && !isOwnActiveSanctionThread && "You can only reply in your own sanction votation thread while your case is active."}
                        {loggedInUser && loggedInUser.status === 'sanctioned' && "You cannot reply to threads while sanctioned."}
                        {(!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') && "Login or sign up to reply."}
                     </p>
@@ -466,21 +501,25 @@ export default function ThreadPage() {
         />
       )}
 
-       {!userCanReply && loggedInUser && (
+       {!userCanReply && loggedInUser && (loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest') && (
         <Alert variant="default" className="mt-6">
             <Ban className="h-5 w-5"/>
             <AlertTitle>Cannot Reply</AlertTitle>
             <AlertDescription>
                 {loggedInUser.status === 'under_sanction_process' && !isOwnActiveSanctionThread && "You can only reply in your own sanction votation thread while your case is active."}
                 {loggedInUser.status === 'sanctioned' && "You are currently sanctioned and cannot reply."}
-                {(loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') && (
-                    <>Please <Link href="/auth/login" className="font-semibold text-primary hover:underline">Log in</Link> or <Link href="/auth/signup" className="font-semibold text-primary hover:underline">sign up</Link> to reply to this thread.</>
-                )}
             </AlertDescription>
         </Alert>
       )}
+       {!loggedInUser && (
+         <Alert variant="default" className="mt-6">
+            <LogIn className="h-5 w-5"/>
+            <AlertTitle>Login to Reply</AlertTitle>
+            <AlertDescription>
+                Please <Link href="/auth/login" className="font-semibold text-primary hover:underline">Log in</Link> or <Link href="/auth/signup" className="font-semibold text-primary hover:underline">sign up</Link> to reply to this thread.
+            </AlertDescription>
+        </Alert>
+       )}
     </div>
   );
 }
-
-    
