@@ -152,7 +152,7 @@ export default function ThreadPage() {
 
   // Effect 2: Process Votation (closing, setting user choice)
   useEffect(() => {
-    if (!votation || !thread) { // Ensure thread is also loaded
+    if (!votation || !thread) { 
       setUserVotationChoice(null);
       return;
     }
@@ -191,7 +191,7 @@ export default function ThreadPage() {
           
           if (newStatus === 'closed_passed' && votation.type === 'sanction' && votation.targetUserId) {
             const targetUserRef = doc(db, "users", votation.targetUserId);
-            const sanctionDurationDays = 1; // Defaulting to 1 day as per previous discussion
+            const sanctionDurationDays = 1; // Defaulting to 1 day 
             const sanctionEndDate = new Date();
             sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
 
@@ -205,19 +205,18 @@ export default function ThreadPage() {
             });
           }
 
-          // Automatically lock the thread if the votation is now closed and the thread isn't already locked
           if (newStatus !== 'active' && thread && !thread.isLocked) {
             const threadRef = doc(db, "threads", thread.id);
             batch.update(threadRef, { isLocked: true });
+             if (thread.id === threadId) { // Ensure we only update current thread's state
+                 setThread(prevThread => prevThread ? { ...prevThread, isLocked: true } : null);
+             }
+            toast({ title: "Thread Locked", description: "This Agora thread has been automatically locked as its votation has concluded."});
           }
 
           await batch.commit();
 
           setVotation(prevVotation => prevVotation ? {...prevVotation, status: newStatus, outcome: outcomeMessage} : null);
-          if (newStatus !== 'active' && thread && !thread.isLocked) {
-            setThread(prevThread => prevThread ? { ...prevThread, isLocked: true } : null);
-            toast({ title: "Thread Locked", description: "This Agora thread has been automatically locked as its votation has concluded."});
-          }
           toast({ title: "Votation Closed", description: `Votation "${votation.title}" has been automatically closed. Result: ${outcomeMessage}`});
 
 
@@ -229,8 +228,7 @@ export default function ThreadPage() {
     };
 
     closeVotationIfNeeded();
-  // Ensure thread is part of dependencies if we're checking thread.isLocked
-  }, [votation, loggedInUser?.id, loggedInUser?.status, toast, thread]); 
+  }, [votation, loggedInUser?.id, toast, thread, threadId]); 
 
 
   const isOwnActiveSanctionThread =
@@ -244,7 +242,7 @@ export default function ThreadPage() {
   let userCanReply = false;
   if (loggedInUser && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest') {
     if (thread && thread.isLocked) {
-        userCanReply = false; // No one can reply if thread is locked
+        userCanReply = false; 
     } else if (loggedInUser.status === 'active') {
       userCanReply = true;
     } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
@@ -277,7 +275,7 @@ export default function ThreadPage() {
   };
 
   const handlePollUpdate = (updatedPoll: Poll) => {
-    if (thread && thread.poll) { // Check if thread.poll exists before trying to spread it
+    if (thread) { 
       setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
     }
   };
@@ -369,8 +367,8 @@ export default function ThreadPage() {
         <Frown className="h-5 w-5" />
         <AlertTitle>Error</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
-        <Button onClick={() => router.push(forumId ? `/forums/${forumId}` : '/forums')} className="mt-4">
-          Back to {forumName || 'Forum'}
+        <Button onClick={() => router.push(forumId === 'agora' ? '/agora' : (forumId ? `/forums/${forumId}` : '/forums'))} className="mt-4">
+          Back to {forumId === 'agora' ? 'The Agora' : (forumName || 'Forum')}
         </Button>
       </Alert>
     );
@@ -384,20 +382,23 @@ export default function ThreadPage() {
         <AlertDescription>
           The thread you are looking for does not exist or could not be loaded.
         </AlertDescription>
-        <Button onClick={() => router.push(forumId ? `/forums/${forumId}` : '/forums')} className="mt-4">
-          Back to {forumName || 'Forum'}
+        <Button onClick={() => router.push(forumId === 'agora' ? '/agora' : (forumId ? `/forums/${forumId}` : '/forums'))} className="mt-4">
+           Back to {forumId === 'agora' ? 'The Agora' : (forumName || 'Forum')}
         </Button>
       </Alert>
     );
   }
+  
+  const backLinkHref = forumId === 'agora' ? '/agora' : `/forums/${forumId}`;
+  const backLinkText = forumName || (forumId === 'agora' ? 'The Agora' : 'Forum');
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-            <Link href={`/forums/${forumId}`} className="text-sm text-primary hover:underline flex items-center mb-2">
+            <Link href={backLinkHref} className="text-sm text-primary hover:underline flex items-center mb-2">
                 <ChevronLeft className="h-4 w-4 mr-1" />
-                Back to {forumName || 'Forum'}
+                Back to {backLinkText}
             </Link>
             <h1 className="text-2xl sm:text-3xl font-bold flex items-start">
                 <FileText className="mr-3 h-8 w-8 text-primary flex-shrink-0 mt-1" />
