@@ -152,7 +152,7 @@ export default function ThreadPage() {
 
   // Effect 2: Process Votation (closing, setting user choice)
   useEffect(() => {
-    if (!votation) {
+    if (!votation || !thread) { // Ensure thread is also loaded
       setUserVotationChoice(null);
       return;
     }
@@ -185,14 +185,13 @@ export default function ThreadPage() {
         }
         
         try {
-          const votationRef = doc(db, "votations", votation.id);
           const batch = writeBatch(db);
+          const votationRef = doc(db, "votations", votation.id);
           batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
           
           if (newStatus === 'closed_passed' && votation.type === 'sanction' && votation.targetUserId) {
             const targetUserRef = doc(db, "users", votation.targetUserId);
-            // For simplicity, assume sanctionDuration is a number of days for now
-            const sanctionDurationDays = parseInt(votation.sanctionDuration || "1") || 1; 
+            const sanctionDurationDays = 1; // Defaulting to 1 day as per previous discussion
             const sanctionEndDate = new Date();
             sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
 
@@ -205,20 +204,33 @@ export default function ThreadPage() {
               description: `${votation.targetUsername} has been sanctioned for ${sanctionDurationDays} day(s). Status updated.`,
             });
           }
+
+          // Automatically lock the thread if the votation is now closed and the thread isn't already locked
+          if (newStatus !== 'active' && thread && !thread.isLocked) {
+            const threadRef = doc(db, "threads", thread.id);
+            batch.update(threadRef, { isLocked: true });
+          }
+
           await batch.commit();
 
           setVotation(prevVotation => prevVotation ? {...prevVotation, status: newStatus, outcome: outcomeMessage} : null);
+          if (newStatus !== 'active' && thread && !thread.isLocked) {
+            setThread(prevThread => prevThread ? { ...prevThread, isLocked: true } : null);
+            toast({ title: "Thread Locked", description: "This Agora thread has been automatically locked as its votation has concluded."});
+          }
           toast({ title: "Votation Closed", description: `Votation "${votation.title}" has been automatically closed. Result: ${outcomeMessage}`});
 
+
         } catch (updateError: any) {
-          console.error("Error updating votation status or applying sanction:", updateError);
-          toast({ title: "Votation Update Error", description: updateError.message || "Could not automatically close the votation or apply sanction. Please try refreshing.", variant: "destructive"});
+          console.error("Error updating votation status, applying sanction, or locking thread:", updateError);
+          toast({ title: "Votation Update Error", description: updateError.message || "Could not automatically close the votation or apply sanction/lock thread. Please try refreshing.", variant: "destructive"});
         }
       }
     };
 
     closeVotationIfNeeded();
-  }, [votation, loggedInUser?.id, loggedInUser?.status, toast]); 
+  // Ensure thread is part of dependencies if we're checking thread.isLocked
+  }, [votation, loggedInUser?.id, loggedInUser?.status, toast, thread]); 
 
 
   const isOwnActiveSanctionThread =
@@ -265,7 +277,7 @@ export default function ThreadPage() {
   };
 
   const handlePollUpdate = (updatedPoll: Poll) => {
-    if (thread) { 
+    if (thread && thread.poll) { // Check if thread.poll exists before trying to spread it
       setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
     }
   };
@@ -396,7 +408,7 @@ export default function ThreadPage() {
                 Started by <Link href={`/profile/${thread.author.id}`} className="text-primary hover:underline font-medium">{thread.author.username}</Link> on {new Date(thread.createdAt).toLocaleDateString()}
             </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 items-end">
+        <div className="flex flex-col sm:flex-row gap-2 items-end self-start sm:self-center">
             {isAdminOrFounder && (
                 <Button 
                     variant={thread.isLocked ? "destructive" : "outline"} 
@@ -569,7 +581,7 @@ export default function ThreadPage() {
           <Lock className="h-5 w-5" />
           <AlertTitle>Thread Locked</AlertTitle>
           <AlertDescription>
-            This thread has been locked by an administrator. No new replies can be added.
+            This thread has been locked by an administrator or has concluded. No new replies can be added.
           </AlertDescription>
         </Alert>
       )}
@@ -605,3 +617,4 @@ export default function ThreadPage() {
     </div>
   );
 }
+
