@@ -2,7 +2,7 @@
 "use client";
 
 import type { User } from '@/lib/types';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // Added useCallback
 
 // Define more specific user types based on roles for Kratia
 export type UserRole = 'visitor' | 'guest' | 'user' | 'normal_user' | 'admin' | 'founder';
@@ -13,7 +13,6 @@ export interface MockUser extends User {
 }
 
 // This object defines the users available for quick switching in the mock auth hook.
-// The keys (e.g., 'visitor0', 'user1', 'admin1') are used by switchToUser.
 export const mockAuthUsers: Record<string, MockUser> = {
   'visitor0': { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor', status: 'active' },
   'guest1': { id: 'guest1', username: 'Guest User', email: 'guest@example.com', avatarUrl: 'https://picsum.photos/seed/guest/100/100', role: 'guest', status: 'active' },
@@ -26,14 +25,14 @@ export const mockAuthUsers: Record<string, MockUser> = {
     email: 'diana@example.com', 
     avatarUrl: 'https://picsum.photos/seed/diana/100/100', 
     role: 'user', 
-    isQuarantined: false,
+    isQuarantined: false, 
     karma: 0, 
     location: 'New York', 
     aboutMe: 'Learning the ropes.', 
     registrationDate: '2023-03-20T14:30:00Z', 
     canVote: false, 
-    status: 'sanctioned', // Explicitly sanctioned here for testing
-    sanctionEndDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString() // Sanctioned for 2 days from now
+    status: 'sanctioned',
+    sanctionEndDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
   },
   'user5': { id: 'user5', username: 'SanctionedSam', email: 'sam@example.com', avatarUrl: 'https://picsum.photos/seed/sam/100/100', role: 'user', karma: 5, location: 'Penalty Box', aboutMe: 'Currently sanctioned.', registrationDate: '2023-02-01T10:00:00Z', canVote: false, status: 'sanctioned', sanctionEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() },
   'admin1': { id: 'admin1', username: 'AdminAnna', email: 'adminana@example.com', avatarUrl: 'https://picsum.photos/seed/adminana/100/100', role: 'admin', karma: 500, location: 'Control Room', aboutMe: 'Ensuring order and progress.', registrationDate: '2022-10-01T08:00:00Z', canVote: true, status: 'active' },
@@ -48,100 +47,112 @@ export interface LoginResult {
   sanctionEndDate?: string;
 }
 
+// Store the state outside the hook, similar to how Zustand or Redux might manage global state.
+// This makes the state persist across hook re-initializations if React re-mounts components consuming it.
+let internalCurrentUser: MockUser | null = null;
+const listeners = new Set<(user: MockUser | null) => void>();
+
+const setInternalCurrentUser = (user: MockUser | null) => {
+  internalCurrentUser = user;
+  listeners.forEach(listener => listener(user));
+};
+
 
 export function useMockAuth() {
-  const [currentUser, setCurrentUser] = useState<MockUser | null>(null);
+  const [currentUser, setCurrentUserLocal] = useState<MockUser | null>(internalCurrentUser);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    const storedUserKey = localStorage.getItem('mockUserKey') as string | null;
-    let userToSet: MockUser | null = null;
+    // Listener for external state changes
+    const listener = (newUser: MockUser | null) => {
+      setCurrentUserLocal(newUser);
+    };
+    listeners.add(listener);
+    
+    // Initial load logic
+    if (internalCurrentUser === null && typeof window !== 'undefined') { // Check if already initialized
+      setLoading(true);
+      const storedUserKey = localStorage.getItem('mockUserKey') as string | null;
+      let userToSet: MockUser | null = null;
 
-    if (storedUserKey && mockAuthUsers[storedUserKey]) {
-      const potentialUser = mockAuthUsers[storedUserKey];
-      // Load the user as they are, even if sanctioned.
-      // The SanctionCheckWrapper will handle redirection if needed.
-      userToSet = potentialUser;
-    } else {
-      // Default to visitor if no valid key is found
-      userToSet = mockAuthUsers['visitor0'];
-      if (storedUserKey !== 'visitor0') { // Only reset localStorage if it wasn't already visitor0 or invalid
-        localStorage.setItem('mockUserKey', 'visitor0'); 
+      if (storedUserKey && mockAuthUsers[storedUserKey]) {
+        userToSet = mockAuthUsers[storedUserKey];
+      } else {
+        userToSet = mockAuthUsers['visitor0'];
+        if (storedUserKey !== 'visitor0') {
+          localStorage.setItem('mockUserKey', 'visitor0'); 
+        }
       }
+      setInternalCurrentUser(userToSet); // Update global state, which triggers listeners
     }
     
-    setCurrentUser(userToSet);
-    setLoading(false);
+    setLoading(false); // Set loading to false after initial check/setup
+
+    return () => {
+      listeners.delete(listener); // Cleanup listener
+    };
   }, []);
 
-  const login = (usernameOrEmail?: string, password?: string): LoginResult => {
+  const login = useCallback((usernameOrEmail?: string, password?: string): LoginResult => {
     let userKeyToLogin: string | undefined;
     
     if (!usernameOrEmail) { 
-        // This case might be considered an error or default to guest, but for now, let's treat it as not_found.
-        // If intending to allow guest login this way, need to handle it explicitly.
         return { success: false, reason: 'credentials_invalid' };
     }
     
     const lowerInput = usernameOrEmail.toLowerCase();
-    // Attempt to find user by username first, then by email part, then by key
     userKeyToLogin = Object.keys(mockAuthUsers).find(key => 
         mockAuthUsers[key].username.toLowerCase() === lowerInput || 
-        mockAuthUsers[key].email.toLowerCase().startsWith(lowerInput) || // to match "sam" for sam@example.com
-        key.toLowerCase() === lowerInput // to match "user4"
+        mockAuthUsers[key].email.toLowerCase().startsWith(lowerInput) ||
+        key.toLowerCase() === lowerInput
     );
     
     if (!userKeyToLogin || !mockAuthUsers[userKeyToLogin]) {
-        console.warn(`Mock login attempt for "${usernameOrEmail}" - user not found in mockAuthUsers.`);
+        console.warn(\`Mock login attempt for "\${usernameOrEmail}" - user not found in mockAuthUsers.\`);
         return { success: false, reason: 'not_found' };
     }
 
     const userToLogin = mockAuthUsers[userKeyToLogin];
 
     if (userToLogin.status === 'sanctioned') {
-      console.log(`Login attempt for sanctioned user: ${userToLogin.username}`);
-      // We still return the user object so the login page can display details
+      console.log(\`Login attempt for sanctioned user: \${userToLogin.username}\`);
       return { 
         success: false, 
-        user: userToLogin, // Include user details for the login page to use
+        user: userToLogin,
         reason: 'sanctioned', 
         username: userToLogin.username, 
         sanctionEndDate: userToLogin.sanctionEndDate 
       };
     }
     
-    setCurrentUser(userToLogin);
+    setInternalCurrentUser(userToLogin); // Update global state
     localStorage.setItem('mockUserKey', userKeyToLogin);
     return { success: true, user: userToLogin };
-  };
+  }, []);
   
-  const signup = (username: string, email: string) => {
-    // For simplicity, signup always logs in as 'user1' (Alice) in this mock.
-    // A real app would create a new user.
+  const signup = useCallback((username: string, email: string) => {
     const newUserKey = 'user1'; 
-    setCurrentUser(mockAuthUsers[newUserKey]);
+    setInternalCurrentUser(mockAuthUsers[newUserKey]);
     localStorage.setItem('mockUserKey', newUserKey);
-  };
+  }, []);
 
-  const logout = () => {
-    setCurrentUser(mockAuthUsers['visitor0']);
+  const logout = useCallback(() => {
+    setInternalCurrentUser(mockAuthUsers['visitor0']);
     localStorage.setItem('mockUserKey', 'visitor0');
-  };
+  }, []);
   
-  const switchToUser = (userKey: string) => { // userKey is now like 'user1', 'admin1'
+  const switchToUser = useCallback((userKey: string) => {
     let userToSwitchTo: MockUser | undefined = mockAuthUsers[userKey];
     
     if (userToSwitchTo) {
-      setCurrentUser(userToSwitchTo);
+      setInternalCurrentUser(userToSwitchTo);
       localStorage.setItem('mockUserKey', userKey);
     } else {
-      console.warn(`Mock user for key "${userKey}" not found in switchToUser. Defaulting to visitor0.`);
-      setCurrentUser(mockAuthUsers['visitor0']);
+      console.warn(\`Mock user for key "\${userKey}" not found in switchToUser. Defaulting to visitor0.\`);
+      setInternalCurrentUser(mockAuthUsers['visitor0']);
       localStorage.setItem('mockUserKey', 'visitor0');
     }
-  };
+  }, []);
 
   return { user: currentUser, loading, login, logout, signup, switchToUser };
 }
-
