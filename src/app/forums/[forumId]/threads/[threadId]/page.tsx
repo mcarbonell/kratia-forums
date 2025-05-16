@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
 import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, VotationStatus } from '@/lib/types';
-import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban } from 'lucide-react';
+import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban, LogIn } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment, updateDoc } from 'firebase/firestore';
@@ -90,7 +90,7 @@ export default function ThreadPage() {
           setIsLoading(false);
           return;
         }
-        const threadData = threadSnap.data();
+        const threadData = threadSnap.data() as Thread; // Cast to Thread
         const fetchedThread = {
           id: threadSnap.id,
           ...threadData,
@@ -98,8 +98,7 @@ export default function ThreadPage() {
           lastReplyAt: formatFirestoreTimestamp(threadData.lastReplyAt),
           author: threadData.author || { username: 'Unknown', id: '' },
           postCount: threadData.postCount || 0,
-          relatedVotationId: threadData.relatedVotationId || null,
-        } as Thread;
+        } as Thread; // Ensure final object is Thread
         setThread(fetchedThread);
         
         if (fetchedThread.relatedVotationId) {
@@ -129,44 +128,45 @@ export default function ThreadPage() {
               }
               
               try {
-                await updateDoc(votationRef, { status: newStatus, outcome: outcomeMessage });
+                const batch = writeBatch(db);
+                batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
+                
+                let sanctionAppliedAndRedirected = false;
+                if (newStatus === 'closed_passed' && votationData.type === 'sanction' && votationData.targetUserId) {
+                  const targetUserRef = doc(db, "users", votationData.targetUserId);
+                  const sanctionDurationDays = 1; // Hardcoded to 1 day for now
+                  const sanctionEndDate = new Date();
+                  sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
+
+                  batch.update(targetUserRef, {
+                    status: 'sanctioned',
+                    sanctionEndDate: sanctionEndDate.toISOString(),
+                  });
+                  toast({
+                    title: "Sanction Applied",
+                    description: `${votationData.targetUsername} has been sanctioned for ${sanctionDurationDays} day(s). Status updated.`,
+                  });
+                  if (loggedInUser && loggedInUser.id === votationData.targetUserId) {
+                    sanctionAppliedAndRedirected = true; // Flag that redirect will occur
+                  }
+                }
+                await batch.commit();
+
                 votationData.status = newStatus;
                 votationData.outcome = outcomeMessage;
                 toast({ title: "Votation Closed", description: `Votation "${votationData.title}" has been automatically closed. Result: ${outcomeMessage}`});
 
-                // Apply sanction if votation passed and it's a sanction type
-                if (newStatus === 'closed_passed' && votationData.type === 'sanction' && votationData.targetUserId) {
-                  const targetUserRef = doc(db, "users", votationData.targetUserId);
-                  const sanctionDurationDays = 1; // Hardcoded to 1 day for now, as agreed
-                  const sanctionEndDate = new Date();
-                  sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
-
-                  try {
-                    await updateDoc(targetUserRef, {
-                      status: 'sanctioned',
-                      sanctionEndDate: sanctionEndDate.toISOString(),
-                    });
-                    toast({
-                      title: "Sanction Applied",
-                      description: `${votationData.targetUsername} has been sanctioned for ${sanctionDurationDays} day(s). Status updated.`,
-                    });
-                  } catch (sanctionError) {
-                    console.error("Error applying sanction to user:", sanctionError);
-                    toast({
-                      title: "Error Applying Sanction",
-                      description: `Could not update ${votationData.targetUsername}'s status. Please check manually.`,
-                      variant: "destructive",
-                    });
-                  }
+                if (sanctionAppliedAndRedirected) {
+                  router.replace('/auth/sanctioned'); // Redirect user if they were just sanctioned
                 }
 
-              } catch (updateError) {
-                console.error("Error updating votation status:", updateError);
-                toast({ title: "Votation Update Error", description: "Could not automatically close the votation. Please try refreshing.", variant: "destructive"});
+              } catch (updateError: any) {
+                console.error("Error updating votation status or applying sanction:", updateError);
+                toast({ title: "Votation Update Error", description: updateError.message || "Could not automatically close the votation or apply sanction. Please try refreshing.", variant: "destructive"});
               }
             }
             
-            setVotation({ id: votationSnap.id, ...votationData });
+            setVotation({ id: votationSnap.id, ...votationData } as Votation);
             if (loggedInUser && votationData.voters && votationData.voters[loggedInUser.id]) {
               setUserVotationChoice(votationData.voters[loggedInUser.id]);
             }
@@ -215,7 +215,7 @@ export default function ThreadPage() {
     };
 
     fetchThreadData();
-  }, [threadId, forumId, loggedInUser, toast]); 
+  }, [threadId, forumId, loggedInUser, toast, router]); 
 
 
   const isOwnActiveSanctionThread =
@@ -233,6 +233,7 @@ export default function ThreadPage() {
     } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
       userCanReply = true; 
     }
+    // 'sanctioned' users cannot reply, handled by global redirect or implicit false here
   }
   
   const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice;
@@ -257,7 +258,7 @@ export default function ThreadPage() {
   };
 
   const handlePollUpdate = (updatedPoll: Poll) => {
-    if (thread) {
+    if (thread && thread.poll) { // Ensure thread and poll exist before updating
       setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
     }
   };
@@ -296,7 +297,7 @@ export default function ThreadPage() {
           totalVotesCast: newTotalVotesCast,
         };
         transaction.update(votationRef, dataToUpdate);
-        return { ...currentVotationData, ...dataToUpdate } as Votation;
+        return { ...currentVotationData, ...dataToUpdate };
       });
 
       setVotation(updatedVotationData);
@@ -428,9 +429,9 @@ export default function ThreadPage() {
                     <ShieldCheck className="h-5 w-5" />
                     <AlertTitle>Not Eligible to Vote</AlertTitle>
                     <AlertDescription>
-                      {loggedInUser.status !== 'active' ? `Your account status is '${loggedInUser.status}'. You cannot vote.` : 'You do not have voting rights.'}
-                       {loggedInUser.status === 'under_sanction_process' && ' Users under sanction process cannot vote.'}
-                       {loggedInUser.status === 'sanctioned' && ' Sanctioned users cannot vote.'}
+                      {loggedInUser.status === 'under_sanction_process' && 'Users under sanction process cannot vote.'}
+                      {loggedInUser.status === 'sanctioned' && 'Sanctioned users cannot vote.'}
+                      {loggedInUser.status === 'active' && !loggedInUser.canVote && 'You do not have voting rights.'}
                     </AlertDescription>
                   </Alert>
                 ) : ( 
@@ -510,7 +511,7 @@ export default function ThreadPage() {
                  ): (
                     <p className="text-sm text-muted-foreground">
                        {loggedInUser && loggedInUser.status === 'under_sanction_process' && !isOwnActiveSanctionThread && "You can only reply in your own sanction votation thread while your case is active."}
-                       {loggedInUser && loggedInUser.status === 'sanctioned' && "You cannot reply to threads while sanctioned."}
+                       {loggedInUser && loggedInUser.status === 'sanctioned' && "You are sanctioned and cannot reply."}
                        {(!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') && "Login or sign up to reply."}
                     </p>
                  )}
@@ -533,7 +534,7 @@ export default function ThreadPage() {
             <AlertTitle>Cannot Reply</AlertTitle>
             <AlertDescription>
                 {loggedInUser.status === 'under_sanction_process' && !isOwnActiveSanctionThread && "You can only reply in your own sanction votation thread while your case is active."}
-                {loggedInUser.status === 'sanctioned' && "You are currently sanctioned and cannot reply."}
+                {loggedInUser.status === 'sanctioned' && "You are sanctioned and cannot reply."}
             </AlertDescription>
         </Alert>
       )}

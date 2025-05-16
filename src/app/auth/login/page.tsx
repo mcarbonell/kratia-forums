@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LogIn, ShieldCheck, UserX } from "lucide-react";
+import { LogIn, ShieldCheck, UserX, Home } from "lucide-react";
 import { useMockAuth, type LoginResult } from "@/hooks/use-mock-auth"; 
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
@@ -14,7 +14,7 @@ import { format } from 'date-fns';
 
 
 export default function LoginPage() {
-  const { login } = useMockAuth(); 
+  const { login, logout } = useMockAuth(); 
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +29,7 @@ export default function LoginPage() {
     const result: LoginResult = login(email, password);
 
     if (result.success) {
-      router.push('/'); // Redirect to home page after successful login
+      router.push('/'); 
     } else {
       if (result.reason === 'sanctioned') {
         setSanctionError({username: result.username, endDate: result.sanctionEndDate});
@@ -42,6 +42,11 @@ export default function LoginPage() {
       }
       console.error("Login failed:", result.reason);
     }
+  };
+
+  const handleContinueAsVisitor = () => {
+    logout(); // Ensure user is logged out and mock auth state is visitor
+    router.push('/');
   };
 
   return (
@@ -72,7 +77,7 @@ export default function LoginPage() {
                 <Label htmlFor="email">Email or Username</Label>
                 <Input 
                   id="email" 
-                  type="text" // Changed to text to allow usernames like 'sam'
+                  type="text" 
                   placeholder="m@example.com or username" 
                   required 
                   value={email}
@@ -109,8 +114,8 @@ export default function LoginPage() {
         )}
         {sanctionError && (
             <CardContent className="text-center">
-                 <Button asChild className="mt-4">
-                    <Link href="/">Continue as Visitor</Link>
+                 <Button onClick={handleContinueAsVisitor} variant="outline" className="mt-4 w-full">
+                    <Home className="mr-2 h-5 w-5" /> Continue as Visitor
                 </Button>
             </CardContent>
         )}
