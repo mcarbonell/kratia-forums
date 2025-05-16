@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
 import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation } from '@/lib/types';
-import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle } from 'lucide-react';
+import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment } from 'firebase/firestore';
@@ -156,7 +156,22 @@ export default function ThreadPage() {
     fetchThreadData();
   }, [threadId, forumId, loggedInUser]);
 
-  const canReply = loggedInUser && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest';
+
+  const isOwnActiveSanctionThread =
+    loggedInUser &&
+    votation &&
+    votation.targetUserId === loggedInUser.id &&
+    votation.status === 'active';
+
+  let userCanReply = false;
+  if (loggedInUser) {
+    if (loggedInUser.status === 'active' && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest') {
+      userCanReply = true;
+    } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
+      userCanReply = true; // Can reply in their own active sanction thread
+    }
+  }
+  
   const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice;
 
 
@@ -199,9 +214,12 @@ export default function ThreadPage() {
         
         const currentVotationData = votationDoc.data() as Votation;
         if (currentVotationData.voters && currentVotationData.voters[loggedInUser.id]) {
-          // This should be caught by UI, but as a safeguard
           throw new Error("User has already voted.");
         }
+        if (currentVotationData.targetUserId === loggedInUser.id) {
+           throw new Error("You cannot vote in your own sanction process.");
+        }
+
 
         const newOptions = { ...currentVotationData.options };
         newOptions[choice] = (newOptions[choice] || 0) + 1;
@@ -284,7 +302,7 @@ export default function ThreadPage() {
                 Started by <Link href={`/profile/${thread.author.id}`} className="text-primary hover:underline font-medium">{thread.author.username}</Link> on {new Date(thread.createdAt).toLocaleDateString()}
             </p>
         </div>
-        {canReply && (
+        {userCanReply && (
           <Button onClick={() => setShowReplyForm(prev => !prev)}>
             {showReplyForm ? <Edit className="mr-2 h-5 w-5" />  : <Reply className="mr-2 h-5 w-5" /> }
             {showReplyForm ? 'Cancel Reply' : 'Reply to Thread'}
@@ -334,6 +352,7 @@ export default function ThreadPage() {
                     <AlertTitle>Not Eligible to Vote</AlertTitle>
                     <AlertDescription>
                       {loggedInUser.status !== 'active' ? `Your account status is '${loggedInUser.status}'. You cannot vote.` : 'You do not have voting rights.'}
+                       {loggedInUser.status === 'under_sanction_process' && ' Users under sanction process cannot vote.'}
                     </AlertDescription>
                   </Alert>
                 ) : userVotationChoice ? (
@@ -348,30 +367,40 @@ export default function ThreadPage() {
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button 
                       onClick={() => handleVotationVote('for')} 
-                      disabled={isSubmittingVotationVote} 
+                      disabled={isSubmittingVotationVote || loggedInUser.id === votation.targetUserId} 
                       variant="default" 
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      title={loggedInUser.id === votation.targetUserId ? "You cannot vote in your own sanction process" : ""}
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsUp className="mr-2 h-4 w-4"/>} A Favor
                     </Button>
                     <Button 
                       onClick={() => handleVotationVote('against')} 
-                      disabled={isSubmittingVotationVote} 
+                      disabled={isSubmittingVotationVote || loggedInUser.id === votation.targetUserId} 
                       variant="destructive" 
                       className="flex-1"
+                       title={loggedInUser.id === votation.targetUserId ? "You cannot vote in your own sanction process" : ""}
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsDown className="mr-2 h-4 w-4"/>} En Contra
                     </Button>
                     <Button 
                       onClick={() => handleVotationVote('abstain')} 
-                      disabled={isSubmittingVotationVote} 
+                      disabled={isSubmittingVotationVote || loggedInUser.id === votation.targetUserId} 
                       variant="outline" 
                       className="flex-1"
+                       title={loggedInUser.id === votation.targetUserId ? "You cannot vote in your own sanction process" : ""}
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <MinusCircle className="mr-2 h-4 w-4"/>} Abstenerse
                     </Button>
                   </div>
                 )}
+                 {loggedInUser.id === votation.targetUserId && votation.status === 'active' && (
+                     <Alert variant="default" className="mt-3">
+                         <ShieldCheck className="h-5 w-5"/>
+                         <AlertTitle>Your Sanction Process</AlertTitle>
+                         <AlertDescription>You cannot vote in your own sanction process. You can reply in this thread to present your defense.</AlertDescription>
+                     </Alert>
+                 )}
               </div>
             )}
             {votation.status === 'active' && !loggedInUser && (
@@ -416,18 +445,20 @@ export default function ThreadPage() {
             <CardContent className="py-10 text-center">
                 <MessageCircle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                 <p className="text-xl font-semibold text-muted-foreground">No posts in this thread yet.</p>
-                 {canReply ? (
+                 {userCanReply ? (
                      <p className="text-sm text-muted-foreground">Be the first to reply!</p>
                  ): (
                     <p className="text-sm text-muted-foreground">
-                        This thread is empty. This might be an error.
+                       {loggedInUser && loggedInUser.status === 'under_sanction_process' && !isOwnActiveSanctionThread && "You cannot reply to this thread while under a sanction process."}
+                       {loggedInUser && loggedInUser.status === 'sanctioned' && "You cannot reply to threads while sanctioned."}
+                       {(!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') && "Login or sign up to reply."}
                     </p>
                  )}
             </CardContent>
         </Card>
       )}
 
-      {canReply && showReplyForm && thread && (
+      {userCanReply && showReplyForm && thread && (
         <ReplyForm
             threadId={thread.id}
             forumId={forumId}
@@ -436,18 +467,19 @@ export default function ThreadPage() {
         />
       )}
 
-       {!canReply && loggedInUser && (loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') && (
+       {!userCanReply && loggedInUser && (
         <Alert variant="default" className="mt-6">
-            <MessageCircle className="h-5 w-5"/>
-            <AlertTitle>Want to join the conversation?</AlertTitle>
+            <Ban className="h-5 w-5"/>
+            <AlertTitle>Cannot Reply</AlertTitle>
             <AlertDescription>
-                <Link href="/auth/login" className="font-semibold text-primary hover:underline">Log in</Link> or <Link href="/auth/signup" className="font-semibold text-primary hover:underline">sign up</Link> to reply to this thread.
+                {loggedInUser.status === 'under_sanction_process' && !isOwnActiveSanctionThread && "You can only reply in your own sanction votation thread while your case is active."}
+                {loggedInUser.status === 'sanctioned' && "You are currently sanctioned and cannot reply."}
+                {(loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') && (
+                    <>Please <Link href="/auth/login" className="font-semibold text-primary hover:underline">Log in</Link> or <Link href="/auth/signup" className="font-semibold text-primary hover:underline">sign up</Link> to reply to this thread.</>
+                )}
             </AlertDescription>
         </Alert>
       )}
     </div>
   );
 }
-
-
-    

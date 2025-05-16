@@ -89,15 +89,25 @@ export default function ProposeSanctionPage() {
   }
 
   if (!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest' || !loggedInUser.canVote || loggedInUser.status !== 'active') {
+    let description = "You do not have permission to propose a sanction.";
+    if (loggedInUser && loggedInUser.status === 'under_sanction_process') {
+      description = "You cannot propose sanctions while under a sanction process.";
+    } else if (loggedInUser && loggedInUser.status === 'sanctioned') {
+      description = "You cannot propose sanctions while sanctioned.";
+    } else if (loggedInUser && !loggedInUser.canVote) {
+      description = "You do not have voting rights to propose sanctions.";
+    }
+
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
         <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to propose a sanction. You must be logged in, have voting rights, and not be under any sanction process.</AlertDescription>
+        <AlertDescription>{description}</AlertDescription>
         <Button asChild className="mt-4"><Link href={`/profile/${targetUserId}`}><CornerUpLeft className="mr-2 h-4 w-4" />Back to Profile</Link></Button>
       </Alert>
     );
   }
+
 
   if (loggedInUser.id === targetUser.id) {
     return (
@@ -139,10 +149,8 @@ export default function ProposeSanctionPage() {
     try {
       const batch = writeBatch(db);
       
-      // Create Votation Document first to get its ID
       const newVotationRef = doc(collection(db, "votations"));
 
-      // 1. Create Agora Thread
       const newAgoraThreadRef = doc(collection(db, "threads"));
       const agoraThreadData: Omit<Thread, 'id'> = {
         forumId: AGORA_FORUM_ID,
@@ -151,12 +159,11 @@ export default function ProposeSanctionPage() {
         createdAt: now.toDate().toISOString(),
         lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
-        isPublic: true, // Agora threads are public
-        relatedVotationId: newVotationRef.id, // Link thread to votation
+        isPublic: true, 
+        relatedVotationId: newVotationRef.id, 
       };
       batch.set(newAgoraThreadRef, agoraThreadData);
 
-      // 2. Create Initial Post in Agora Thread (Justification)
       const newPostRef = doc(collection(db, "posts"));
       const initialPostData: Omit<Post, 'id'> = {
         threadId: newAgoraThreadRef.id,
@@ -167,21 +174,17 @@ export default function ProposeSanctionPage() {
       };
       batch.set(newPostRef, initialPostData);
       
-      // Update Agora forum counts
       const agoraForumRef = doc(db, "forums", AGORA_FORUM_ID);
       batch.update(agoraForumRef, {
         threadCount: increment(1),
         postCount: increment(1),
       });
-      // Update proposer's post counts & karma
        batch.update(doc(db, "users", loggedInUser.id), {
-        karma: increment(2), // +1 for post, +1 for post in own thread (votation thread counts as own)
+        karma: increment(2), 
         totalPostsByUser: increment(1),
         totalPostsInThreadsStartedByUser: increment(1),
       });
 
-
-      // 3. Create Votation Document (now with newAgoraThreadRef.id)
       const votationData: Votation = {
         id: newVotationRef.id,
         title: votationTitle,
@@ -200,11 +203,10 @@ export default function ProposeSanctionPage() {
         voters: {},
         totalVotesCast: 0,
         quorumRequired: KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS,
-        relatedThreadId: newAgoraThreadRef.id, // Link votation to thread
+        relatedThreadId: newAgoraThreadRef.id, 
       };
       batch.set(newVotationRef, votationData);
       
-      // 4. Update Target User's Status
       const targetUserRef = doc(db, "users", targetUser.id);
       batch.update(targetUserRef, { status: 'under_sanction_process' });
 
@@ -296,4 +298,3 @@ export default function ProposeSanctionPage() {
     </div>
   );
 }
-

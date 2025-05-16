@@ -16,7 +16,7 @@ import { useMockAuth } from '@/hooks/use-mock-auth';
 import type { Forum, Thread, Post, User as KratiaUser, Poll, PollOption } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, ShieldAlert, Edit3, Send, Frown, ListPlus } from 'lucide-react';
+import { Loader2, ShieldAlert, Edit3, Send, Frown, ListPlus, Ban } from 'lucide-react';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
@@ -47,7 +47,7 @@ const newThreadSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "A poll must have at least 2 valid options.",
-        path: ["pollOption1"],
+        path: ["pollOption1"], // Report error on the first option for simplicity
       });
     }
     options.forEach((opt, index) => {
@@ -67,7 +67,7 @@ type NewThreadFormData = z.infer<typeof newThreadSchema>;
 export default function NewThreadPage() {
   const params = useParams();
   const router = useRouter();
-  const { user, loading: authLoading } = useMockAuth();
+  const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const { toast } = useToast();
   const forumId = params.forumId as string;
 
@@ -137,7 +137,7 @@ export default function NewThreadPage() {
     );
   }
 
-  if (!user || user.role === 'visitor' || user.role === 'guest') {
+  if (!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest') {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
@@ -157,19 +157,48 @@ export default function NewThreadPage() {
     );
   }
 
+  if (loggedInUser.status === 'under_sanction_process') {
+    return (
+      <Alert variant="destructive" className="max-w-lg mx-auto">
+        <Ban className="h-5 w-5" />
+        <AlertTitle>Action Restricted</AlertTitle>
+        <AlertDescription>
+          You cannot create new threads while under a sanction process. You can defend yourself in your sanction votation thread.
+        </AlertDescription>
+        <Button asChild className="mt-4">
+          <Link href={`/forums/${forumId}`}>Back to Forum</Link>
+        </Button>
+      </Alert>
+    );
+  }
+  if (loggedInUser.status === 'sanctioned') {
+    return (
+      <Alert variant="destructive" className="max-w-lg mx-auto">
+        <Ban className="h-5 w-5" />
+        <AlertTitle>Action Restricted</AlertTitle>
+        <AlertDescription>
+          You cannot create new threads while sanctioned.
+        </AlertDescription>
+        <Button asChild className="mt-4">
+          <Link href={`/forums/${forumId}`}>Back to Forum</Link>
+        </Button>
+      </Alert>
+    );
+  }
+
 
   const onSubmit: SubmitHandler<NewThreadFormData> = async (data) => {
     setIsSubmitting(true);
-    if (!user || !forum) {
+    if (!loggedInUser || !forum) { // loggedInUser is already checked, but good for type safety
         toast({ title: "Error", description: "User or Forum not found.", variant: "destructive" });
         setIsSubmitting(false);
         return;
     }
 
     const authorInfo: Pick<KratiaUser, 'id' | 'username' | 'avatarUrl'> = {
-      id: user.id,
-      username: user.username,
-      avatarUrl: user.avatarUrl || "",
+      id: loggedInUser.id,
+      username: loggedInUser.username,
+      avatarUrl: loggedInUser.avatarUrl || "",
     };
 
     const now = Timestamp.fromDate(new Date());
@@ -183,7 +212,7 @@ export default function NewThreadPage() {
         data.pollOption4,
       ]
       .map((optText, index) => ({
-        id: `opt${index + 1}_${Date.now()}`, // Ensure unique IDs for options
+        id: `opt${index + 1}_${Date.now()}`, 
         text: optText?.trim() || '',
         voteCount: 0,
       }))
@@ -195,7 +224,7 @@ export default function NewThreadPage() {
           question: data.pollQuestion.trim(),
           options: pollOptions,
           totalVotes: 0,
-          voters: {}, // Initialize voters map
+          voters: {}, 
         };
       }
     }
@@ -215,7 +244,7 @@ export default function NewThreadPage() {
         isSticky: false,
         isLocked: false,
         isPublic: forum.isPublic === undefined ? true : forum.isPublic,
-        ...(pollToSave && { poll: pollToSave }), // Add poll to thread data
+        ...(pollToSave && { poll: pollToSave }), 
       };
       batch.set(newThreadRef, newThreadData);
 
@@ -226,7 +255,6 @@ export default function NewThreadPage() {
         content: data.content,
         createdAt: now.toDate().toISOString(),
         reactions: {},
-        // Poll is no longer stored in the post
       };
       batch.set(newPostRef, initialPostData);
 
@@ -236,10 +264,9 @@ export default function NewThreadPage() {
         postCount: increment(1)
       });
 
-      // Karma update for the thread/post author
       const userRef = doc(db, "users", authorInfo.id);
       batch.update(userRef, {
-        karma: increment(2), // +1 for post, +1 for post in own thread
+        karma: increment(2),
         totalPostsByUser: increment(1),
         totalPostsInThreadsStartedByUser: increment(1),
       });
@@ -363,7 +390,7 @@ export default function NewThreadPage() {
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
                     Cancel
                 </Button>
-                <Button type="submit" disabled={isSubmitting || !user || !forum} className="min-w-[120px]">
+                <Button type="submit" disabled={isSubmitting || !loggedInUser || !forum} className="min-w-[120px]">
                 {isSubmitting ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
