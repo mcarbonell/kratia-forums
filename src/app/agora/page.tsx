@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import ThreadListItem from '@/components/forums/ThreadListItem';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { Vote, PlusCircle, ListChecks, Frown, Loader2 } from 'lucide-react';
-import type { Forum, Thread } from '@/lib/types';
+import type { Forum, Thread, Votation, VotationStatus } from '@/lib/types';
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, getDocs } from 'firebase/firestore';
@@ -44,6 +44,9 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
   return undefined;
 };
 
+interface ThreadWithVotationStatus extends Thread {
+  votationStatus?: VotationStatus;
+}
 
 export default function AgoraPage() {
   const router = useRouter();
@@ -51,7 +54,7 @@ export default function AgoraPage() {
   const agoraForumId = 'agora'; // Hardcoded forumId for Agora
 
   const [forum, setForum] = useState<Forum | null>(null);
-  const [threads, setThreads] = useState<Thread[]>([]);
+  const [threads, setThreads] = useState<ThreadWithVotationStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,11 +84,11 @@ export default function AgoraPage() {
         // Fetch votation threads for Agora
         const threadsQuery = query(
           collection(db, "threads"),
-          where("forumId", "==", agoraForumId),
-          orderBy("lastReplyAt", "desc")
+          where("forumId", "==", agoraForumId)
+          // We will sort client-side after fetching votation statuses
         );
         const threadsSnapshot = await getDocs(threadsQuery);
-        const fetchedThreads = threadsSnapshot.docs.map(docSnap => {
+        let fetchedThreads: ThreadWithVotationStatus[] = threadsSnapshot.docs.map(docSnap => {
           const data = docSnap.data();
           return {
             id: docSnap.id,
@@ -94,8 +97,47 @@ export default function AgoraPage() {
             lastReplyAt: formatFirestoreTimestamp(data.lastReplyAt),
             author: data.author || { username: 'Unknown', id: '' },
             postCount: data.postCount || 0,
-          } as Thread;
+            isLocked: data.isLocked || false,
+          } as ThreadWithVotationStatus;
         });
+
+        // Fetch votation statuses for threads that have a relatedVotationId
+        const votationPromises = fetchedThreads
+          .filter(thread => thread.relatedVotationId)
+          .map(async (thread) => {
+            const votationRef = doc(db, "votations", thread.relatedVotationId!);
+            const votationSnap = await getDoc(votationRef);
+            if (votationSnap.exists()) {
+              return { threadId: thread.id, status: votationSnap.data().status as VotationStatus };
+            }
+            return { threadId: thread.id, status: undefined };
+          });
+
+        const votationStatusesResults = await Promise.all(votationPromises);
+        const votationStatusMap = new Map<string, VotationStatus | undefined>();
+        votationStatusesResults.forEach(result => {
+          votationStatusMap.set(result.threadId, result.status);
+        });
+
+        fetchedThreads = fetchedThreads.map(thread => ({
+          ...thread,
+          votationStatus: thread.relatedVotationId ? votationStatusMap.get(thread.id) : undefined,
+        }));
+
+        // Sort threads: active votations first, then by lastReplyAt
+        fetchedThreads.sort((a, b) => {
+          const aIsActive = a.votationStatus === 'active';
+          const bIsActive = b.votationStatus === 'active';
+
+          if (aIsActive && !bIsActive) return -1; // a comes first
+          if (!aIsActive && bIsActive) return 1;  // b comes first
+
+          // If both are active or both are not (or one/both don't have votation status), sort by lastReplyAt
+          const dateA = a.lastReplyAt ? new Date(a.lastReplyAt).getTime() : 0;
+          const dateB = b.lastReplyAt ? new Date(b.lastReplyAt).getTime() : 0;
+          return dateB - dateA; // Descending
+        });
+        
         setThreads(fetchedThreads);
 
       } catch (err) {
@@ -109,7 +151,7 @@ export default function AgoraPage() {
     fetchAgoraData();
   }, []); // agoraForumId is constant
 
-  const canProposeVotation = user && user.role !== 'visitor' && user.role !== 'guest'; // Simplified, can be refined with karma/voting rights
+  const canProposeVotation = user && user.role !== 'visitor' && user.role !== 'guest' && user.status === 'active';
 
   if (authLoading || isLoading) {
     return (
@@ -166,6 +208,17 @@ export default function AgoraPage() {
             </Link>
           </Button>
         )}
+         {!canProposeVotation && user && (user.role !== 'visitor' && user.role !== 'guest') && (
+            <Alert variant="default" className="mt-2 text-sm">
+                <Vote className="h-4 w-4" />
+                <AlertTitle>Voting Rights Required</AlertTitle>
+                <AlertDescription>
+                {user.status === 'under_sanction_process' && "You cannot propose votations while under a sanction process."}
+                {user.status === 'sanctioned' && "You cannot propose votations while sanctioned."}
+                {user.status === 'active' && (!user.canVote) && "You need voting rights to propose new votations. Continue participating to earn them!"}
+                </AlertDescription>
+            </Alert>
+        )}
       </div>
 
       {threads.length > 0 ? (
@@ -217,4 +270,3 @@ export default function AgoraPage() {
   );
 }
 
-    
