@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert } from 'lucide-react';
+import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle } from 'lucide-react';
 import UserAvatar from '@/components/user/UserAvatar';
 import { formatDistanceToNow } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -153,7 +153,7 @@ export default function AdminPage() {
                     <TableCell className="text-right">{user.karma || 0}</TableCell>
                     <TableCell>{formatRegistrationDate(user.registrationDate)}</TableCell>
                     <TableCell className="text-center">
-                      <Button variant="outline" size="sm" disabled>Edit</Button> {/* Edit functionality for later */}
+                      <Button variant="outline" size="sm" disabled>Edit</Button> {/* Edit user functionality for later */}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -166,10 +166,15 @@ export default function AdminPage() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center text-xl">
             <LayoutList className="mr-2 h-6 w-6" /> Forum Management ({forums.length})
           </CardTitle>
+          <Button asChild>
+            <Link href="/admin/forums/create">
+              <PlusCircle className="mr-2 h-5 w-5" /> Create New Forum
+            </Link>
+          </Button>
         </CardHeader>
         <CardContent>
           {forums.length > 0 ? (
@@ -198,7 +203,9 @@ export default function AdminPage() {
                     <TableCell className="text-right">{forum.threadCount || 0}</TableCell>
                     <TableCell className="text-right">{forum.postCount || 0}</TableCell>
                     <TableCell className="text-center">
-                      <Button variant="outline" size="sm" disabled>Edit</Button> {/* Edit functionality for later */}
+                        <Button asChild variant="outline" size="sm">
+                            <Link href={`/admin/forums/edit/${forum.id}`}>Edit</Link>
+                        </Button>
                     </TableCell>
                   </TableRow>
                 ))}
