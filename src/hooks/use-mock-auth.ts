@@ -3,8 +3,9 @@
 
 import type { User } from '@/lib/types';
 import { useState, useEffect, useCallback } from 'react';
-import { db } from '@/lib/firebase'; // Import db
-import { doc, getDoc, updateDoc } from 'firebase/firestore'; // Import Firestore functions
+import { db } from '@/lib/firebase'; 
+import { doc, getDoc, updateDoc } from 'firebase/firestore'; 
+import { mockUsers as initialMockAuthUsersData } from '@/lib/mockData'; // Import initial mock user data
 
 export type UserRole = 'visitor' | 'guest' | 'user' | 'normal_user' | 'admin' | 'founder';
 
@@ -13,39 +14,18 @@ export interface MockUser extends User {
   isQuarantined?: boolean;
 }
 
-export const mockAuthUsers: Record<string, MockUser> = {
-  'visitor0': { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor', status: 'active' },
-  'guest1': { id: 'guest1', username: 'Guest User', email: 'guest@example.com', avatarUrl: 'https://picsum.photos/seed/guest/100/100', role: 'guest', status: 'active' },
-  'user1': { id: 'user1', username: 'Alice', email: 'alice@example.com', avatarUrl: 'https://picsum.photos/seed/alice/100/100', role: 'user', karma: 10, location: 'Wonderland', aboutMe: 'Curiouser and curiouser!', registrationDate: '2023-01-15T10:00:00Z', canVote: true, status: 'active' },
-  'user2': { id: 'user2', username: 'BobTheBuilder', email: 'bob@example.com', avatarUrl: 'https://picsum.photos/seed/bob/100/100', role: 'normal_user', karma: 150, location: 'Construction Site', aboutMe: 'Can we fix it? Yes, we can!', registrationDate: '2023-03-20T14:30:00Z', canVote: true, status: 'active' },
-  'user3': { id: 'user3', username: 'CharlieComm', email: 'charlie@example.com', avatarUrl: 'https://picsum.photos/seed/charlie/100/100', role: 'normal_user', karma: 75, location: 'The Internet', aboutMe: 'Loves to discuss and debate.', registrationDate: '2022-11-01T08:00:00Z', canVote: true, status: 'active' },
-  'user4': { 
-    id: 'user4', 
-    username: 'DianaNewbie', 
-    email: 'diana@example.com', 
-    avatarUrl: 'https://picsum.photos/seed/diana/100/100', 
-    role: 'user', 
-    isQuarantined: false, 
-    karma: 0, 
-    location: 'New York', 
-    aboutMe: 'Learning the ropes.', 
-    registrationDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // Registered 5 days ago
-    canVote: false, 
-    status: 'sanctioned',
-    sanctionEndDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString() // Sanction ends in 1 day
-  },
-  'user5': { id: 'user5', username: 'SanctionedSam', email: 'sam@example.com', avatarUrl: 'https://picsum.photos/seed/sam/100/100', role: 'user', karma: 5, location: 'Penalty Box', aboutMe: 'Currently sanctioned.', registrationDate: '2023-02-01T10:00:00Z', canVote: false, status: 'sanctioned', sanctionEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() },
-  'admin1': { id: 'admin1', username: 'AdminAnna', email: 'adminana@example.com', avatarUrl: 'https://picsum.photos/seed/adminana/100/100', role: 'admin', karma: 500, location: 'Control Room', aboutMe: 'Ensuring order and progress.', registrationDate: '2022-10-01T08:00:00Z', canVote: true, status: 'active' },
-  'founder1': { id: 'founder1', username: 'FoundingFather', email: 'founder@example.com', avatarUrl: 'https://picsum.photos/seed/founder/100/100', role: 'founder', karma: 1000, location: 'The Genesis Block', aboutMe: 'Laid the first stone.', registrationDate: '2022-09-01T08:00:00Z', canVote: true, status: 'active' },
-};
+// Prepare mockAuthUsers from initialMockAuthUsersData
+// This object will be used internally by the hook
+const mockAuthUsers: Record<string, MockUser> = {};
+initialMockAuthUsersData.forEach(user => {
+    // Ensure role and status are always defined, falling back to defaults if necessary
+    mockAuthUsers[user.id] = {
+        ...user,
+        role: user.role || 'user', // Default to 'user' if role is undefined
+        status: user.status || 'active', // Default to 'active' if status is undefined
+    };
+});
 
-export interface LoginResult {
-  success: boolean;
-  user?: MockUser;
-  reason?: 'sanctioned' | 'not_found' | 'credentials_invalid';
-  username?: string;
-  sanctionEndDate?: string;
-}
 
 let internalCurrentUser: MockUser | null = null;
 const listeners = new Set<(user: MockUser | null) => void>();
@@ -61,25 +41,37 @@ export function useMockAuth() {
   const [loading, setLoading] = useState(true);
 
   const syncUserWithFirestore = useCallback(async (baseUser: MockUser): Promise<MockUser> => {
+    if (!baseUser || baseUser.id === 'visitor0' || baseUser.id === 'guest1') {
+        // console.log(`[syncUserWithFirestore] Skipping Firestore sync for special user: ${baseUser?.id}`);
+        return baseUser; // No need to sync visitor or guest
+    }
+    // console.log(`[syncUserWithFirestore] Attempting to sync user: ${baseUser.id}`);
     const userRef = doc(db, "users", baseUser.id);
     try {
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         const firestoreData = userSnap.data() as User;
-        const updatedUser = { ...baseUser, ...firestoreData }; // Merge, Firestore data takes precedence for synced fields
+        // console.log(`[syncUserWithFirestore] Firestore data for ${baseUser.id}:`, firestoreData);
+        const updatedUser = { ...baseUser, ...firestoreData }; 
 
-        // Check for expired sanction
         if (updatedUser.status === 'sanctioned' && updatedUser.sanctionEndDate && new Date() > new Date(updatedUser.sanctionEndDate)) {
+          // console.log(`[syncUserWithFirestore] Sanction expired for ${updatedUser.username}. Updating status.`);
           await updateDoc(userRef, { status: 'active', sanctionEndDate: null });
           updatedUser.status = 'active';
           updatedUser.sanctionEndDate = undefined;
         }
+        // console.log(`[syncUserWithFirestore] Synced user ${updatedUser.username}:`, updatedUser);
         return updatedUser as MockUser;
+      } else {
+        // console.warn(`[syncUserWithFirestore] User ${baseUser.id} not found in Firestore. Returning base mock data.`);
+        // This can happen if seed was not run or user was deleted from FS.
+        // For mock auth, we still want to provide the base mock user.
+        return baseUser;
       }
     } catch (error) {
-      console.error(`Error syncing user ${baseUser.id} with Firestore:`, error);
+      console.error(`[syncUserWithFirestore] Error syncing user ${baseUser.id} with Firestore:`, error);
     }
-    return baseUser; // Return base user if Firestore fetch fails or user not found in FS
+    return baseUser; 
   }, []);
 
 
@@ -91,37 +83,38 @@ export function useMockAuth() {
     
     if (internalCurrentUser === null && typeof window !== 'undefined') {
       setLoading(true);
-      const storedUserKey = localStorage.getItem('mockUserKey') as string | null;
+      const storedUserKey = localStorage.getItem('mockUserKey');
+      // console.log(`[useMockAuth useEffect] Initial load. Stored key: ${storedUserKey}`);
       
-      if (storedUserKey && mockAuthUsers[storedUserKey]) {
-        const baseUser = { ...mockAuthUsers[storedUserKey] };
-        syncUserWithFirestore(baseUser).then(syncedUser => {
-          setInternalCurrentUser(syncedUser);
-          setLoading(false);
-        });
-      } else {
-        setInternalCurrentUser(mockAuthUsers['visitor0']);
-        if (storedUserKey !== 'visitor0') {
-          localStorage.setItem('mockUserKey', 'visitor0'); 
+      const baseUserToSync = storedUserKey && mockAuthUsers[storedUserKey] 
+                             ? { ...mockAuthUsers[storedUserKey] } 
+                             : { ...mockAuthUsers['visitor0'] }; // Fallback to visitor0
+
+      syncUserWithFirestore(baseUserToSync).then(syncedUser => {
+        // console.log(`[useMockAuth useEffect] Initial sync complete. User set to:`, syncedUser.username);
+        setInternalCurrentUser(syncedUser);
+        if (!storedUserKey || !mockAuthUsers[storedUserKey]) {
+            localStorage.setItem('mockUserKey', 'visitor0');
         }
         setLoading(false);
-      }
+      });
     } else if (internalCurrentUser) {
-      // Re-sync current user on mount if already set, to catch changes made in other tabs/sessions
+      // console.log(`[useMockAuth useEffect] internalCurrentUser exists. Re-syncing:`, internalCurrentUser.username);
       setLoading(true);
       syncUserWithFirestore(internalCurrentUser).then(syncedUser => {
-        setInternalCurrentUser(syncedUser);
+        // console.log(`[useMockAuth useEffect] Re-sync complete. User state for ${syncedUser.username} is:`, syncedUser);
+        setInternalCurrentUser(syncedUser); // Ensure listeners are notified of potentially changed status
         setLoading(false);
       });
-    }
-     else {
+    } else {
+      // console.log("[useMockAuth useEffect] No internalCurrentUser, no stored key (or not in browser). Setting loading false.");
       setLoading(false); 
     }
 
     return () => {
       listeners.delete(listener);
     };
-  }, [syncUserWithFirestore]);
+  }, [syncUserWithFirestore]); // syncUserWithFirestore is stable due to useCallback
 
   const login = useCallback(async (usernameOrEmail?: string, password?: string): Promise<LoginResult> => {
     let userKeyToLogin: string | undefined;
@@ -133,7 +126,7 @@ export function useMockAuth() {
     const lowerInput = usernameOrEmail.toLowerCase();
     userKeyToLogin = Object.keys(mockAuthUsers).find(key => 
         mockAuthUsers[key].username.toLowerCase() === lowerInput || 
-        mockAuthUsers[key].email.toLowerCase().startsWith(lowerInput) ||
+        mockAuthUsers[key].email?.toLowerCase().startsWith(lowerInput) || // email can be undefined
         key.toLowerCase() === lowerInput
     );
     
@@ -143,10 +136,11 @@ export function useMockAuth() {
     }
 
     let userToLogin = { ...mockAuthUsers[userKeyToLogin] };
-    userToLogin = await syncUserWithFirestore(userToLogin); // Sync with Firestore
+    userToLogin = await syncUserWithFirestore(userToLogin); 
 
     if (userToLogin.status === 'sanctioned') {
       // Sanction check already handled by syncUserWithFirestore if expired
+      // So if status is still 'sanctioned' here, it's an active sanction.
       return { 
         success: false, 
         user: userToLogin,
@@ -162,14 +156,16 @@ export function useMockAuth() {
   }, [syncUserWithFirestore]);
   
   const signup = useCallback((username: string, email: string) => {
+    // For mock purposes, sign up as 'user1' (Alice)
     const newUserKey = 'user1'; 
-    const userToSignup = { ...mockAuthUsers[newUserKey] };
+    const userToSignup = { ...mockAuthUsers[newUserKey] }; // Use a copy
+    userToSignup.username = username; // Set the provided username
+    userToSignup.email = email;       // Set the provided email
     userToSignup.status = 'active'; 
     userToSignup.sanctionEndDate = undefined;
-    // In a real app, you'd create this user in Firestore here.
-    // For mock, just set it.
+    
     setInternalCurrentUser(userToSignup);
-    localStorage.setItem('mockUserKey', newUserKey);
+    localStorage.setItem('mockUserKey', newUserKey); // Still logs in as 'user1' effectively
   }, []);
 
   const logout = useCallback(() => {
@@ -186,7 +182,8 @@ export function useMockAuth() {
       localStorage.setItem('mockUserKey', userKey);
     } else {
       console.warn(`Mock user for key "${userKey}" not found in switchToUser. Defaulting to visitor0.`);
-      setInternalCurrentUser(mockAuthUsers['visitor0']);
+      const visitorUser = await syncUserWithFirestore({ ...mockAuthUsers['visitor0'] });
+      setInternalCurrentUser(visitorUser);
       localStorage.setItem('mockUserKey', 'visitor0');
     }
   }, [syncUserWithFirestore]);
@@ -194,25 +191,32 @@ export function useMockAuth() {
   const checkAndLiftSanction = useCallback(async (userId: string): Promise<boolean> => {
     if (!userId || userId === 'visitor0' || userId === 'guest1') return false;
     
+    // console.log(`[checkAndLiftSanction] Checking user ${userId}`);
     const userRef = doc(db, "users", userId);
     try {
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         const userData = userSnap.data() as User;
+        // console.log(`[checkAndLiftSanction] Firestore data for ${userId}: status=${userData.status}, endDate=${userData.sanctionEndDate}`);
         if (userData.status === 'sanctioned' && userData.sanctionEndDate && new Date() > new Date(userData.sanctionEndDate)) {
+          // console.log(`[checkAndLiftSanction] Sanction expired for ${userId}. Lifting.`);
           await updateDoc(userRef, {
             status: 'active',
             sanctionEndDate: null 
           });
           if (internalCurrentUser && internalCurrentUser.id === userId) {
+            // console.log(`[checkAndLiftSanction] Updating internalCurrentUser ${userId} to active.`);
             const updatedUser = { ...internalCurrentUser, status: 'active', sanctionEndDate: undefined } as MockUser;
-            setInternalCurrentUser(updatedUser);
+            setInternalCurrentUser(updatedUser); // This will notify listeners
           }
           return true; 
         }
+        // console.log(`[checkAndLiftSanction] Sanction for ${userId} not expired or user not sanctioned.`);
+      } else {
+        // console.warn(`[checkAndLiftSanction] User ${userId} not found in Firestore for sanction check.`);
       }
     } catch (error) {
-      console.error(`Error checking/lifting sanction for user ${userId}:`, error);
+      console.error(`[checkAndLiftSanction] Error checking/lifting sanction for user ${userId}:`, error);
     }
     return false;
   }, []);
@@ -220,4 +224,6 @@ export function useMockAuth() {
 
   return { user: currentUserLocal, loading, login, logout, signup, switchToUser, checkAndLiftSanction };
 }
+    
+
     

@@ -3,12 +3,13 @@
 
 import { db } from '@/lib/firebase';
 import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll } from '@/lib/types';
-import { mockUsers as mockUsersData } from '@/lib/mockData'; // mockUsersData will now include admin1 and founder1
+import { mockUsers as mockUsersData } from '@/lib/mockData';
 import { collection, doc, writeBatch, increment, getDoc } from 'firebase/firestore';
+import type { UserRole } from '@/hooks/use-mock-auth';
 
 // Helper to get author info in the denormalized structure
 const getAuthorInfo = (user: KratiaUser | undefined) => {
-  if (!user || user.id === 'unknown') { // Check for the fallback 'unknown' user
+  if (!user || user.id === 'unknown') {
     console.warn("Attempted to get author info for undefined or 'unknown' user. Returning 'Unknown User'.");
     return { id: 'unknown', username: 'Unknown User', avatarUrl: '' };
   }
@@ -26,8 +27,16 @@ export async function seedDatabase() {
   // --- USERS (from mockData, now also seeding to 'users' collection) ---
   console.log(`Processing ${mockUsersData.length} users from mockData for seeding...`);
   mockUsersData.forEach(user => {
-    console.log(`Preparing user for seed: ${user.id} - ${user.username} with status: ${user.status}`);
+    // Skip 'visitor0' and 'guest1' from being written to the users collection
+    // as they are special mock auth states, not actual forum users.
+    if (user.id === 'visitor0' || user.id === 'guest1') {
+        console.log(`Skipping seed for special mock user: ${user.id}`);
+        return; 
+    }
+
+    console.log(`Preparing user for seed: ${user.id} - ${user.username} with role: ${user.role}, status: ${user.status}`);
     const userRef = doc(db, "users", user.id);
+    // Ensure all fields from User type are present, defaulting if necessary
     const userData: KratiaUser = {
         id: user.id,
         username: user.username,
@@ -35,28 +44,27 @@ export async function seedDatabase() {
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username[0]}`,
         registrationDate: user.registrationDate || new Date().toISOString(),
         karma: user.karma || 0,
-        location: user.location,
-        aboutMe: user.aboutMe,
-        canVote: user.canVote || false,
-        isQuarantined: user.isQuarantined === undefined ? true : user.isQuarantined,
+        location: user.location || null, // Default to null if undefined
+        aboutMe: user.aboutMe || null, // Default to null if undefined
+        canVote: user.canVote === undefined ? false : user.canVote,
+        isQuarantined: user.isQuarantined === undefined ? false : user.isQuarantined, // Default to false
         totalPostsByUser: user.totalPostsByUser || 0,
         totalReactionsReceived: user.totalReactionsReceived || 0,
         totalPostsInThreadsStartedByUser: user.totalPostsInThreadsStartedByUser || 0,
-        status: user.status || 'active', // Ensure status is set, defaulting to 'active'
+        role: user.role || 'user', // Default role to 'user' if not specified
+        status: user.status || 'active', // Default status to 'active' if not specified
+        sanctionEndDate: user.sanctionEndDate || null, // Default to null if undefined
     };
     batch.set(userRef, userData);
   });
   console.log("User data prepared for batch.");
 
-  // Ensure core users are correctly retrieved for posts/threads after they are defined in mockUsersData
-  const alice = mockUsersData.find(u => u.id === 'user1');
-  const bob = mockUsersData.find(u => u.id === 'user2');
-  const charlie = mockUsersData.find(u => u.id === 'user3');
+  // Ensure core users are correctly retrieved for posts/threads after they are defined in mockUsersData.
+  // Using ! to assert they exist, as the findUser helper throws if not found.
+  const alice = mockUsersData.find(u => u.id === 'user1')!;
+  const bob = mockUsersData.find(u => u.id === 'user2')!;
+  const charlie = mockUsersData.find(u => u.id === 'user3')!;
 
-  if (!alice || !bob || !charlie) {
-    console.error("Critical error: Could not find core mock users (Alice, Bob, Charlie) from mockUsersData for seeding. Aborting seed.");
-    throw new Error("Core mock users not found. Seeding cannot proceed.");
-  }
 
   const aliceAuthorInfo = getAuthorInfo(alice);
   const bobAuthorInfo = getAuthorInfo(bob);
@@ -87,7 +95,7 @@ export async function seedDatabase() {
 
   forums.forEach(forum => {
     const forumRef = doc(db, "forums", forum.id);
-    batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 });
+    batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 }); // Ensure counts are initialized
   });
   console.log("Forums prepared for batch.");
 
@@ -98,7 +106,7 @@ export async function seedDatabase() {
 
   // Reset karma components for mock users before calculating from seeded posts
   mockUsersData.forEach(user => {
-    if (user.id !== 'unknown') { // Don't try to update the fallback 'unknown' user
+    if (user.id !== 'unknown' && user.id !== 'visitor0' && user.id !== 'guest1') {
         batch.update(doc(db, "users", user.id), {
             karma: 0,
             totalPostsByUser: 0,
@@ -116,7 +124,7 @@ export async function seedDatabase() {
   let thread1LastReplyAt = thread1CreatedAt;
 
   const thread1PollData: Poll = {
-      id: 'poll_thread1_favseason', // Unique ID for the poll
+      id: 'poll_thread1_favseason',
       question: 'What is your favorite season?',
       options: [
         { id: 'opt1_spring', text: 'Spring', voteCount: 10 },
@@ -171,7 +179,7 @@ export async function seedDatabase() {
       totalReactionsReceived: increment(Object.values(post1_2_Reactions).reduce((sum, r) => sum + r.userIds.length, 0))
     });
   }
-  if (aliceAuthorInfo.id !== 'unknown') { // Alice is the thread author
+  if (aliceAuthorInfo.id !== 'unknown') { 
     batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
   }
 
@@ -199,7 +207,7 @@ export async function seedDatabase() {
 
   if (charlieAuthorInfo.id !== 'unknown') {
     batch.update(doc(db, "users", charlieAuthorInfo.id), {
-      karma: increment(2), // +1 for post, +1 for post in own thread
+      karma: increment(2), 
       totalPostsByUser: increment(1),
       totalPostsInThreadsStartedByUser: increment(1)
     });
@@ -228,7 +236,7 @@ export async function seedDatabase() {
 
    if (bobAuthorInfo.id !== 'unknown') {
      batch.update(doc(db, "users", bobAuthorInfo.id), {
-      karma: increment(2), // +1 for post, +1 for post in own thread
+      karma: increment(2), 
       totalPostsByUser: increment(1),
       totalPostsInThreadsStartedByUser: increment(1)
     });
@@ -237,7 +245,7 @@ export async function seedDatabase() {
   batch.set(doc(db, "threads", thread3Id), {
     forumId: 'forum1', title: 'Favorite Books of 2024', author: bobAuthorInfo, createdAt: thread3CreatedAt, lastReplyAt: thread3LastReplyAt, postCount: thread3PostCount, isSticky: false, isLocked: false, isPublic: true
   });
-  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); // Increment thread count for forum1
+  batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
   console.log("Thread 3 and its posts prepared.");
 
   // Thread 4 (Agora): [VOTATION] Make "Introductions" thread sticky (in agora)
@@ -257,7 +265,7 @@ export async function seedDatabase() {
 
   if (aliceAuthorInfo.id !== 'unknown') {
     batch.update(doc(db, "users", aliceAuthorInfo.id), {
-      karma: increment(2), // +1 for post, +1 for post in own thread
+      karma: increment(2), 
       totalPostsByUser: increment(1),
       totalPostsInThreadsStartedByUser: increment(1)
     });
@@ -275,7 +283,7 @@ export async function seedDatabase() {
   if (charlieAuthorInfo.id !== 'unknown') {
     batch.update(doc(db, "users", charlieAuthorInfo.id), { karma: increment(1), totalPostsByUser: increment(1) });
   }
-  if (aliceAuthorInfo.id !== 'unknown') { // Alice is the thread author
+  if (aliceAuthorInfo.id !== 'unknown') { 
     batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
   }
 
@@ -299,6 +307,8 @@ export async function seedDatabase() {
     console.log("Database seeded successfully with mock data, including all users, categories, forums, threads, posts, and initial karma components!");
   } catch (error) {
     console.error("Error committing seed batch to Firestore:", error);
-    throw error; // Re-throw to be caught by the calling page
+    throw error;
   }
 }
+
+    
