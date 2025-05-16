@@ -13,7 +13,7 @@ import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, Vota
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban, LogIn } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment, updateDoc, writeBatch } from 'firebase/firestore';
 import { format, formatDistanceToNow, isPast } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { KRATIA_CONFIG } from '@/lib/config';
@@ -24,24 +24,27 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
     return undefined; 
   }
   if (typeof timestamp === 'string') {
+    // Check if it's already a valid ISO string
     if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
         const d = new Date(timestamp);
+        // Extra check: re-stringify and compare to catch invalid dates like "2023-02-30T..."
         if (d.toISOString() === timestamp) return timestamp;
     }
+    // If not a strict ISO string, try parsing
     const parsedDate = new Date(timestamp);
-    if (!isNaN(parsedDate.getTime())) {
+    if (!isNaN(parsedDate.getTime())) { // Check if parsedDate is a valid date
         return parsedDate.toISOString();
     }
     console.warn('Unparseable string timestamp:', timestamp);
     return undefined;
   }
-  if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+  if (timestamp.toDate && typeof timestamp.toDate === 'function') { // Firestore Timestamp
     return timestamp.toDate().toISOString();
   }
-  if (timestamp instanceof Date) {
+  if (timestamp instanceof Date) { // JavaScript Date
     return timestamp.toISOString();
   }
-  if (typeof timestamp === 'number') {
+  if (typeof timestamp === 'number') { // Milliseconds since epoch
     return new Date(timestamp).toISOString();
   }
   console.warn('Unknown timestamp format:', timestamp);
@@ -79,7 +82,8 @@ export default function ThreadPage() {
     const fetchThreadData = async () => {
       setIsLoading(true);
       setError(null);
-      setVotation(null); 
+      // Do not reset votation here if it's already loaded, to prevent UI flicker
+      // setVotation(null); 
       try {
         const threadRef = doc(db, "threads", threadId);
         const threadSnap = await getDoc(threadRef);
@@ -90,7 +94,7 @@ export default function ThreadPage() {
           setIsLoading(false);
           return;
         }
-        const threadData = threadSnap.data() as Thread; // Cast to Thread
+        const threadData = threadSnap.data() as Thread; 
         const fetchedThread = {
           id: threadSnap.id,
           ...threadData,
@@ -98,7 +102,7 @@ export default function ThreadPage() {
           lastReplyAt: formatFirestoreTimestamp(threadData.lastReplyAt),
           author: threadData.author || { username: 'Unknown', id: '' },
           postCount: threadData.postCount || 0,
-        } as Thread; // Ensure final object is Thread
+        } as Thread; 
         setThread(fetchedThread);
         
         if (fetchedThread.relatedVotationId) {
@@ -107,7 +111,7 @@ export default function ThreadPage() {
           if (votationSnap.exists()) {
             let votationData = votationSnap.data() as Votation;
             
-            if (votationData.status === 'active' && isPast(new Date(votationData.deadline))) {
+            if (votationData.status === 'active' && votationData.deadline && isPast(new Date(votationData.deadline))) {
               let newStatus: VotationStatus;
               let outcomeMessage: string;
 
@@ -131,7 +135,6 @@ export default function ThreadPage() {
                 const batch = writeBatch(db);
                 batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
                 
-                let sanctionAppliedAndRedirected = false;
                 if (newStatus === 'closed_passed' && votationData.type === 'sanction' && votationData.targetUserId) {
                   const targetUserRef = doc(db, "users", votationData.targetUserId);
                   const sanctionDurationDays = 1; // Hardcoded to 1 day for now
@@ -146,19 +149,13 @@ export default function ThreadPage() {
                     title: "Sanction Applied",
                     description: `${votationData.targetUsername} has been sanctioned for ${sanctionDurationDays} day(s). Status updated.`,
                   });
-                  if (loggedInUser && loggedInUser.id === votationData.targetUserId) {
-                    sanctionAppliedAndRedirected = true; // Flag that redirect will occur
-                  }
+                  // Removed router.replace here. SanctionCheckWrapper will handle redirect if loggedInUser is the target.
                 }
                 await batch.commit();
 
-                votationData.status = newStatus;
+                votationData.status = newStatus; // Update local copy for immediate UI feedback
                 votationData.outcome = outcomeMessage;
                 toast({ title: "Votation Closed", description: `Votation "${votationData.title}" has been automatically closed. Result: ${outcomeMessage}`});
-
-                if (sanctionAppliedAndRedirected) {
-                  router.replace('/auth/sanctioned'); // Redirect user if they were just sanctioned
-                }
 
               } catch (updateError: any) {
                 console.error("Error updating votation status or applying sanction:", updateError);
@@ -233,7 +230,7 @@ export default function ThreadPage() {
     } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
       userCanReply = true; 
     }
-    // 'sanctioned' users cannot reply, handled by global redirect or implicit false here
+    // 'sanctioned' users cannot reply
   }
   
   const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice;
@@ -395,7 +392,7 @@ export default function ThreadPage() {
             <div className="text-sm">
                 <p><strong className="font-medium">Proposer:</strong> {votation.proposerUsername}</p>
                 <p><strong className="font-medium">Status:</strong> <span className="font-semibold capitalize">{votation.status.replace(/_/g, ' ')}</span></p>
-                <p><strong className="font-medium">Deadline:</strong> {format(new Date(votation.deadline), "PPPp")}</p>
+                {votation.deadline && <p><strong className="font-medium">Deadline:</strong> {format(new Date(votation.deadline), "PPPp")}</p>}
             </div>
             <div>
               <h4 className="font-semibold mb-1 text-md">Current Tally:</h4>
@@ -550,3 +547,5 @@ export default function ThreadPage() {
     </div>
   );
 }
+
+    
