@@ -153,7 +153,9 @@ export default function AdminPage() {
                     <TableCell className="text-right">{user.karma || 0}</TableCell>
                     <TableCell>{formatRegistrationDate(user.registrationDate)}</TableCell>
                     <TableCell className="text-center">
-                      <Button variant="outline" size="sm" disabled>Edit</Button> {/* Edit user functionality for later */}
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/admin/users/edit/${user.id}`}>Edit</Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
