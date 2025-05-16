@@ -6,12 +6,12 @@ import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, Sh
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user/UserAvatar';
-import { useMockAuth, mockAuthUsers } from '@/hooks/use-mock-auth'; // Import mockAuthUsers
+import { useMockAuth } from '@/hooks/use-mock-auth'; // Only import useMockAuth
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from 'react';
 
 export default function Header() {
-  const { user, loading, logout, switchToUser } = useMockAuth();
+  const { user, loading, logout, switchToUser, mockAuthUsers } = useMockAuth(); // Destructure mockAuthUsers here
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -20,12 +20,15 @@ export default function Header() {
     { href: '/agora', label: 'Agora', icon: <Vote /> },
   ];
 
-  // UserRoleSwitcher now uses the imported mockAuthUsers and switchToUser from the Header's scope
+  // UserRoleSwitcher now uses the mockAuthUsers from the hook's scope
   const UserRoleSwitcher = () => (
     <div className="mt-4 p-2 border-t">
       <p className="text-sm font-semibold mb-2">Switch User Role (Dev):</p>
-      {Object.keys(mockAuthUsers).map(userKey => {
+      {/* Ensure mockAuthUsers is defined before trying to get its keys */}
+      {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
         const userObject = mockAuthUsers[userKey];
+        // Ensure userObject is defined before trying to access its properties
+        if (!userObject) return null;
         const displayName = userObject.username || userKey;
         return (
             <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start mb-1 text-xs h-7" onClick={() => { switchToUser(userKey); if(isMobile()) setMobileMenuOpen(false); }}>
@@ -35,7 +38,7 @@ export default function Header() {
     })}
     </div>
   );
-  
+
   const isMobile = () => mobileMenuOpen; // Helper to check if mobile menu is open for closing logic
 
   const renderNavLinks = (isMobileLink: boolean = false) => navLinks.map((link) => (
@@ -92,8 +95,10 @@ export default function Header() {
                 <DropdownMenuSeparator />
                  <div className="p-2"> {/* UserRoleSwitcher for desktop dropdown */}
                     <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
-                    {Object.keys(mockAuthUsers).map(userKey => {
+                    {/* Ensure mockAuthUsers is defined */}
+                    {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
                         const userObject = mockAuthUsers[userKey];
+                        if (!userObject) return null; // Safety check
                         const displayName = userObject.username || userKey;
                         return (
                             <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
