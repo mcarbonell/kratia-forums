@@ -159,17 +159,19 @@ export default function ThreadPage() {
 
   const isOwnActiveSanctionThread =
     loggedInUser &&
-    votation &&
+    thread && thread.relatedVotationId && // Ensure thread is linked to a votation
+    votation && // Ensure votation data is loaded
     votation.targetUserId === loggedInUser.id &&
     votation.status === 'active';
 
   let userCanReply = false;
-  if (loggedInUser) {
-    if (loggedInUser.status === 'active' && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest') {
+  if (loggedInUser && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest') {
+    if (loggedInUser.status === 'active') {
       userCanReply = true;
     } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
-      userCanReply = true; // Can reply in their own active sanction thread
+      userCanReply = true; // Can reply ONLY in their own active sanction thread
     }
+    // If status is 'sanctioned', userCanReply remains false.
   }
   
   const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice;
@@ -200,8 +202,8 @@ export default function ThreadPage() {
   };
 
   const handleVotationVote = async (choice: 'for' | 'against' | 'abstain') => {
-    if (!loggedInUser || !votation || !canVoteInVotation) {
-      toast({ title: "Cannot Vote", description: "You are not eligible to vote or have already voted.", variant: "destructive"});
+    if (!loggedInUser || !votation || !canVoteInVotation || loggedInUser.id === votation.targetUserId) {
+      toast({ title: "Cannot Vote", description: "You are not eligible to vote, have already voted, or cannot vote in your own sanction process.", variant: "destructive"});
       return;
     }
     setIsSubmittingVotationVote(true);
@@ -216,6 +218,7 @@ export default function ThreadPage() {
         if (currentVotationData.voters && currentVotationData.voters[loggedInUser.id]) {
           throw new Error("User has already voted.");
         }
+        // This check is now also handled in canVoteInVotation and UI, but good to have server-side
         if (currentVotationData.targetUserId === loggedInUser.id) {
            throw new Error("You cannot vote in your own sanction process.");
         }
@@ -346,7 +349,13 @@ export default function ThreadPage() {
             {votation.status === 'active' && loggedInUser && (
               <div className="mt-4 pt-4 border-t">
                 <h4 className="font-semibold mb-2 text-md">Cast Your Vote:</h4>
-                {!loggedInUser.canVote || loggedInUser.status !== 'active' ? (
+                {loggedInUser.id === votation.targetUserId ? (
+                   <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
+                       <ShieldCheck className="h-5 w-5"/>
+                       <AlertTitle>Your Sanction Process</AlertTitle>
+                       <AlertDescription>You cannot vote in your own sanction process. You can reply in this thread to present your defense.</AlertDescription>
+                   </Alert>
+                ) : !loggedInUser.canVote || loggedInUser.status !== 'active' ? (
                   <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
                     <ShieldCheck className="h-5 w-5" />
                     <AlertTitle>Not Eligible to Vote</AlertTitle>
@@ -367,40 +376,30 @@ export default function ThreadPage() {
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button 
                       onClick={() => handleVotationVote('for')} 
-                      disabled={isSubmittingVotationVote || loggedInUser.id === votation.targetUserId} 
+                      disabled={isSubmittingVotationVote} 
                       variant="default" 
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      title={loggedInUser.id === votation.targetUserId ? "You cannot vote in your own sanction process" : ""}
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsUp className="mr-2 h-4 w-4"/>} A Favor
                     </Button>
                     <Button 
                       onClick={() => handleVotationVote('against')} 
-                      disabled={isSubmittingVotationVote || loggedInUser.id === votation.targetUserId} 
+                      disabled={isSubmittingVotationVote} 
                       variant="destructive" 
                       className="flex-1"
-                       title={loggedInUser.id === votation.targetUserId ? "You cannot vote in your own sanction process" : ""}
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsDown className="mr-2 h-4 w-4"/>} En Contra
                     </Button>
                     <Button 
                       onClick={() => handleVotationVote('abstain')} 
-                      disabled={isSubmittingVotationVote || loggedInUser.id === votation.targetUserId} 
+                      disabled={isSubmittingVotationVote} 
                       variant="outline" 
                       className="flex-1"
-                       title={loggedInUser.id === votation.targetUserId ? "You cannot vote in your own sanction process" : ""}
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <MinusCircle className="mr-2 h-4 w-4"/>} Abstenerse
                     </Button>
                   </div>
                 )}
-                 {loggedInUser.id === votation.targetUserId && votation.status === 'active' && (
-                     <Alert variant="default" className="mt-3">
-                         <ShieldCheck className="h-5 w-5"/>
-                         <AlertTitle>Your Sanction Process</AlertTitle>
-                         <AlertDescription>You cannot vote in your own sanction process. You can reply in this thread to present your defense.</AlertDescription>
-                     </Alert>
-                 )}
               </div>
             )}
             {votation.status === 'active' && !loggedInUser && (
@@ -483,3 +482,5 @@ export default function ThreadPage() {
     </div>
   );
 }
+
+    
