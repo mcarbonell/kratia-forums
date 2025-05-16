@@ -16,27 +16,43 @@ export default function SanctionCheckWrapper({ children }: SanctionCheckWrapperP
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && user && user.status === 'sanctioned') {
+    // For debugging:
+    // console.log('[SanctionCheckWrapper] useEffect triggered. Loading:', loading, 'User:', user?.username, 'Status:', user?.status, 'Path:', pathname);
+
+    if (loading) {
+      // console.log('[SanctionCheckWrapper] Still loading auth state, returning.');
+      return;
+    }
+
+    if (user && user.status === 'sanctioned') {
       if (pathname !== '/auth/sanctioned') {
+        // console.log(`[SanctionCheckWrapper] User ${user.username} (${user.id}) is sanctioned. Redirecting from ${pathname} to /auth/sanctioned.`);
         router.replace('/auth/sanctioned');
+      } else {
+        // console.log(`[SanctionCheckWrapper] User ${user.username} (${user.id}) is sanctioned and already on /auth/sanctioned.`);
       }
     }
+    // Optional: Handle if user is NOT sanctioned but IS on /auth/sanctioned page (e.g., navigated via history)
+    else if (user && user.status !== 'sanctioned' && pathname === '/auth/sanctioned') {
+    //   console.log(`[SanctionCheckWrapper] User ${user.username} (${user.id}) is NOT sanctioned. Redirecting from /auth/sanctioned to /.`);
+      router.replace('/');
+    }
+    // Optional: Handle if no user (visitor) is on /auth/sanctioned page
+    else if (!user && pathname === '/auth/sanctioned') {
+    //   console.log(`[SanctionCheckWrapper] No user (visitor) on /auth/sanctioned. Redirecting to /.`);
+      router.replace('/');
+    }
+
   }, [user, loading, pathname, router]);
 
-  // While loading, or if user is sanctioned and redirecting,
-  // you might want to show a loader or nothing to prevent layout shifts.
-  // For now, just render children, as redirect will handle it.
   if (loading) {
-     // Optional: return a global loader if preferred
-     // return <div className="flex justify-center items-center min-h-screen">Loading auth status...</div>;
-  }
-  
-  // If user is sanctioned and not on the sanctioned page, the redirect will happen.
-  // To prevent content flash, you could also conditionally render children here.
-  if (user && user.status === 'sanctioned' && pathname !== '/auth/sanctioned') {
-    return <div className="flex justify-center items-center min-h-screen">Redirecting...</div>; // Or a loader
+     return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]"><p>Loading user status...</p></div>;
   }
 
+  // This prevents content flash while useEffect triggers redirect for a sanctioned user.
+  if (user && user.status === 'sanctioned' && pathname !== '/auth/sanctioned') {
+    return <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]"><p>Redirecting to sanctioned page...</p></div>;
+  }
 
   return <>{children}</>;
 }

@@ -20,7 +20,21 @@ export const mockAuthUsers: Record<string, MockUser> = {
   'user1': { id: 'user1', username: 'Alice', email: 'alice@example.com', avatarUrl: 'https://picsum.photos/seed/alice/100/100', role: 'user', isQuarantined: true, karma: 10, location: 'Wonderland', aboutMe: 'Curiouser and curiouser!', registrationDate: '2023-01-15T10:00:00Z', canVote: true, status: 'active' },
   'user2': { id: 'user2', username: 'BobTheBuilder', email: 'bob@example.com', avatarUrl: 'https://picsum.photos/seed/bob/100/100', role: 'normal_user', karma: 150, location: 'Construction Site', aboutMe: 'Can we fix it? Yes, we can!', registrationDate: '2023-03-20T14:30:00Z', canVote: true, status: 'active' },
   'user3': { id: 'user3', username: 'CharlieComm', email: 'charlie@example.com', avatarUrl: 'https://picsum.photos/seed/charlie/100/100', role: 'normal_user', karma: 75, location: 'The Internet', aboutMe: 'Loves to discuss and debate.', registrationDate: '2022-11-01T08:00:00Z', canVote: true, status: 'active' },
-  'user4': { id: 'user4', username: 'DianaNewbie', email: 'diana@example.com', avatarUrl: 'https://picsum.photos/seed/diana/100/100', role: 'user', isQuarantined: true, karma: 0, location: 'New York', aboutMe: 'Just joined, excited to learn!', registrationDate: '2023-03-20T14:30:00Z', canVote: false, status: 'under_sanction_process' },
+  'user4': { // DianaNewbie - Set as sanctioned for testing the redirect
+    id: 'user4', 
+    username: 'DianaNewbie', 
+    email: 'diana@example.com', 
+    avatarUrl: 'https://picsum.photos/seed/diana/100/100', 
+    role: 'user', 
+    isQuarantined: false, // No longer relevant if sanctioned
+    karma: 0, 
+    location: 'New York', 
+    aboutMe: 'Was learning, now sanctioned.', 
+    registrationDate: '2023-03-20T14:30:00Z', 
+    canVote: false, 
+    status: 'sanctioned', // Explicitly sanctioned here
+    sanctionEndDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString() // Sanctioned for 1 day from now
+  },
   'user5': { id: 'user5', username: 'SanctionedSam', email: 'sam@example.com', avatarUrl: 'https://picsum.photos/seed/sam/100/100', role: 'user', karma: 5, location: 'Penalty Box', aboutMe: 'Currently sanctioned.', registrationDate: '2023-02-01T10:00:00Z', canVote: false, status: 'sanctioned', sanctionEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() },
   'admin1': { id: 'admin1', username: 'AdminAnna', email: 'adminana@example.com', avatarUrl: 'https://picsum.photos/seed/adminana/100/100', role: 'admin', karma: 500, location: 'Control Room', aboutMe: 'Ensuring order and progress.', registrationDate: '2022-10-01T08:00:00Z', canVote: true, status: 'active' },
   'founder1': { id: 'founder1', username: 'FoundingFather', email: 'founder@example.com', avatarUrl: 'https://picsum.photos/seed/founder/100/100', role: 'founder', karma: 1000, location: 'The Genesis Block', aboutMe: 'Laid the first stone.', registrationDate: '2022-09-01T08:00:00Z', canVote: true, status: 'active' },
@@ -46,18 +60,20 @@ export function useMockAuth() {
 
     if (storedUserKey && mockAuthUsers[storedUserKey]) {
       const potentialUser = mockAuthUsers[storedUserKey];
-      // If stored user is sanctioned, don't auto-login them, default to visitor
+      // If storedUserKey points to a user defined as sanctioned in mockAuthUsers,
+      // they should not be auto-logged in normally. The login function handles this block.
+      // For auto-login via localStorage, if they were 'sanctioned' at the time of last session,
+      // they effectively become a visitor until they try to log in again.
       if (potentialUser.status === 'sanctioned') {
-         console.warn(`Attempted to auto-login sanctioned user: ${potentialUser.username}. Defaulting to visitor.`);
+         console.warn(`Attempted to auto-login sanctioned user via localStorage: ${potentialUser.username}. Defaulting to visitor.`);
          userToSet = mockAuthUsers['visitor0'];
-         localStorage.setItem('mockUserKey', 'visitor0'); // Correct visitor key
+         localStorage.setItem('mockUserKey', 'visitor0'); 
       } else {
         userToSet = potentialUser;
       }
     } else {
-      // Default to visitor if no key or invalid key
       userToSet = mockAuthUsers['visitor0'];
-      localStorage.setItem('mockUserKey', 'visitor0'); // Correct visitor key
+      localStorage.setItem('mockUserKey', 'visitor0'); 
     }
     
     setCurrentUser(userToSet);
@@ -70,19 +86,16 @@ export function useMockAuth() {
     if (!usernameOrEmail) { 
         userKeyToLogin = 'guest1'; 
     } else {
-        const lowerEmail = usernameOrEmail.toLowerCase();
-        if (lowerEmail.includes('admin')) userKeyToLogin = 'admin1';
-        else if (lowerEmail.includes('alice')) userKeyToLogin = 'user1';
-        else if (lowerEmail.includes('founder')) userKeyToLogin = 'founder1';
-        else if (lowerEmail.includes('diana')) userKeyToLogin = 'user4';
-        else if (lowerEmail.includes('bob')) userKeyToLogin = 'user2';
-        else if (lowerEmail.includes('charlie')) userKeyToLogin = 'user3';
-        else if (lowerEmail.includes('sam')) userKeyToLogin = 'user5'; // Sanctioned Sam
-        else userKeyToLogin = undefined; // User not found by simple email check
+        const lowerInput = usernameOrEmail.toLowerCase();
+        // Attempt to find user by username first, then by email part
+        userKeyToLogin = Object.keys(mockAuthUsers).find(key => 
+            mockAuthUsers[key].username.toLowerCase() === lowerInput || 
+            mockAuthUsers[key].email.toLowerCase().startsWith(lowerInput) || // to match "sam" for sam@example.com
+            key.toLowerCase() === lowerInput // to match "user4"
+        );
     }
     
     if (!userKeyToLogin || !mockAuthUsers[userKeyToLogin]) {
-        // Default to a generic "user not found" or "credentials invalid" if more complex logic were here
         console.warn(`Mock login attempt for "${usernameOrEmail}" - user not found in mockAuthUsers.`);
         return { success: false, reason: 'not_found' };
     }
@@ -105,57 +118,26 @@ export function useMockAuth() {
   };
   
   const signup = (username: string, email: string) => {
-    // For mock purposes, signup always 'creates' Alice (user1)
     const newUserKey = 'user1'; 
     setCurrentUser(mockAuthUsers[newUserKey]);
     localStorage.setItem('mockUserKey', newUserKey);
-     // In a real app, this would return success/failure
   };
 
   const logout = () => {
     setCurrentUser(mockAuthUsers['visitor0']);
-    localStorage.setItem('mockUserKey', 'visitor0'); // Store visitor key on logout
+    localStorage.setItem('mockUserKey', 'visitor0');
   };
   
-  const switchToUser = (roleOrKey: UserRole | string) => {
-    let userToSwitchTo: MockUser | undefined;
-    let keyToStore: string = 'visitor0'; 
-
-    if (mockAuthUsers[roleOrKey]) { 
-        userToSwitchTo = mockAuthUsers[roleOrKey];
-        keyToStore = roleOrKey; 
-    } else {
-      // Fallback for generic role strings, mapping to specific users
-      const roleMap: Partial<Record<UserRole, string>> = {
-        'user': 'user1', 
-        'normal_user': 'user2',
-        'admin': 'admin1', 
-        'founder': 'founder1', 
-        'guest': 'guest1',
-        'visitor': 'visitor0',
-      };
-      const mappedKey = roleMap[roleOrKey as UserRole];
-      if (mappedKey && mockAuthUsers[mappedKey]) {
-        userToSwitchTo = mockAuthUsers[mappedKey];
-        keyToStore = mappedKey;
-      }
-    }
-
+  const switchToUser = (userKey: string) => { // userKey is now like 'user1', 'admin1'
+    let userToSwitchTo: MockUser | undefined = mockAuthUsers[userKey];
+    
     if (userToSwitchTo) {
-      if (userToSwitchTo.status === 'sanctioned') {
-        console.warn(`Attempted to switch to sanctioned user: ${userToSwitchTo.username} via role switcher. This action is typically for testing UI states but login would block this user.`);
-        // For testing UI as a sanctioned user, we might allow the switch here,
-        // but a real login attempt would be blocked.
-        // Or, we could prevent the switch entirely:
-        // console.warn("Switch to sanctioned user blocked by switchToUser. Defaulting to visitor.");
-        // setCurrentUser(mockAuthUsers['visitor0']);
-        // localStorage.setItem('mockUserKey', 'visitor0');
-        // return; 
-      }
+      // If switching to a user defined as sanctioned in mockAuthUsers, allow it for testing purposes
+      // The SanctionCheckWrapper should then handle the redirect.
       setCurrentUser(userToSwitchTo);
-      localStorage.setItem('mockUserKey', keyToStore);
+      localStorage.setItem('mockUserKey', userKey);
     } else {
-      console.warn(`Mock user for role/key "${roleOrKey}" not found. Defaulting to visitor.`);
+      console.warn(`Mock user for key "${userKey}" not found in switchToUser. Defaulting to visitor.`);
       setCurrentUser(mockAuthUsers['visitor0']);
       localStorage.setItem('mockUserKey', 'visitor0');
     }
@@ -163,5 +145,3 @@ export function useMockAuth() {
 
   return { user: currentUser, loading, login, logout, signup, switchToUser };
 }
-
-    
