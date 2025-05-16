@@ -108,7 +108,6 @@ export default function ThreadPage() {
           if (votationSnap.exists()) {
             let votationData = votationSnap.data() as Votation;
             
-            // Check if votation needs to be closed
             if (votationData.status === 'active' && isPast(new Date(votationData.deadline))) {
               let newStatus: VotationStatus;
               let outcomeMessage: string;
@@ -134,6 +133,33 @@ export default function ThreadPage() {
                 votationData.status = newStatus;
                 votationData.outcome = outcomeMessage;
                 toast({ title: "Votation Closed", description: `Votation "${votationData.title}" has been automatically closed. Result: ${outcomeMessage}`});
+
+                // Apply sanction if votation passed and it's a sanction type
+                if (newStatus === 'closed_passed' && votationData.type === 'sanction' && votationData.targetUserId) {
+                  const targetUserRef = doc(db, "users", votationData.targetUserId);
+                  const sanctionDurationDays = 1; // Hardcoded to 1 day for now, as agreed
+                  const sanctionEndDate = new Date();
+                  sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
+
+                  try {
+                    await updateDoc(targetUserRef, {
+                      status: 'sanctioned',
+                      sanctionEndDate: sanctionEndDate.toISOString(),
+                    });
+                    toast({
+                      title: "Sanction Applied",
+                      description: `${votationData.targetUsername} has been sanctioned for ${sanctionDurationDays} day(s). Status updated.`,
+                    });
+                  } catch (sanctionError) {
+                    console.error("Error applying sanction to user:", sanctionError);
+                    toast({
+                      title: "Error Applying Sanction",
+                      description: `Could not update ${votationData.targetUsername}'s status. Please check manually.`,
+                      variant: "destructive",
+                    });
+                  }
+                }
+
               } catch (updateError) {
                 console.error("Error updating votation status:", updateError);
                 toast({ title: "Votation Update Error", description: "Could not automatically close the votation. Please try refreshing.", variant: "destructive"});
@@ -189,14 +215,14 @@ export default function ThreadPage() {
     };
 
     fetchThreadData();
-  }, [threadId, forumId, loggedInUser, toast]); // Added toast to dependency array
+  }, [threadId, forumId, loggedInUser, toast]); 
 
 
   const isOwnActiveSanctionThread =
     loggedInUser &&
     thread && thread.relatedVotationId && 
     votation && 
-    votation.type === 'sanction' && // Ensure it's a sanction votation
+    votation.type === 'sanction' && 
     votation.targetUserId === loggedInUser.id &&
     votation.status === 'active';
 
