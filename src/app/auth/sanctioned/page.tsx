@@ -12,25 +12,21 @@ import { Ban, LogOut, Home } from "lucide-react";
 import { format } from 'date-fns';
 
 export default function SanctionedPage() {
-  const { user: loggedInUser, logout } = useMockAuth();
+  const { user: loggedInUser, logout, loading: authLoading } = useMockAuth();
   const router = useRouter();
   const [username, setUsername] = useState<string | undefined>(undefined);
   const [sanctionEndDate, setSanctionEndDate] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (loggedInUser) {
-      if (loggedInUser.status !== 'sanctioned') {
-        // If user is somehow not sanctioned, redirect away
-        router.replace('/');
-      } else {
-        setUsername(loggedInUser.username);
-        setSanctionEndDate(loggedInUser.sanctionEndDate);
-      }
-    } else {
-      // If no user is logged in, they shouldn't be here
-      router.replace('/auth/login');
+    if (loggedInUser && loggedInUser.status === 'sanctioned') {
+      setUsername(loggedInUser.username);
+      setSanctionEndDate(loggedInUser.sanctionEndDate);
     }
-  }, [loggedInUser, router]);
+    // If SanctionCheckWrapper does its job, we should only have sanctioned users here.
+    // If a non-sanctioned user or no user (after loading) lands here,
+    // SanctionCheckWrapper should have already redirected them.
+    // So, complex redirect logic here is removed to avoid conflicts.
+  }, [loggedInUser]);
 
   const handleLogout = () => {
     logout();
@@ -38,13 +34,20 @@ export default function SanctionedPage() {
   };
 
   const handleContinueAsVisitor = () => {
-    logout(); // Effectively logs out to visitor state
+    logout(); // Effectively logs out to visitor state by setting user to visitor0
     router.push('/');
   };
 
-  if (!loggedInUser || loggedInUser.status !== 'sanctioned') {
-    // Still loading or redirecting
+  if (authLoading) {
     return <div className="flex justify-center items-center min-h-screen"><Ban className="h-12 w-12 animate-pulse text-destructive" /></div>;
+  }
+
+  // If SanctionCheckWrapper has done its job, loggedInUser should be present and sanctioned.
+  // If not, it implies a routing issue or transient state, let SanctionCheckWrapper handle.
+  if (!loggedInUser || loggedInUser.status !== 'sanctioned') {
+    // This should ideally not be hit if SanctionCheckWrapper is working correctly.
+    // Showing a generic message as the wrapper should redirect away.
+    return <div className="flex justify-center items-center min-h-screen"><p>Verifying user status...</p></div>;
   }
 
   return (
