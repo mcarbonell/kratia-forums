@@ -24,6 +24,15 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
       return;
     }
 
+    const cacheKey = `onboardingMessage_${username}`;
+    const cachedMessage = typeof window !== 'undefined' ? sessionStorage.getItem(cacheKey) : null;
+
+    if (cachedMessage) {
+      setMessage(cachedMessage);
+      setIsLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
     const signal = controller.signal;
     let timeoutId: NodeJS.Timeout;
@@ -54,6 +63,9 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
 
         clearTimeout(timeoutId);
         setMessage(output.message);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem(cacheKey, output.message);
+        }
       } catch (e: any) {
         if (signal.aborted) return; 
         clearTimeout(timeoutId);
@@ -62,6 +74,8 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
         let displayError = "Could not generate your personalized welcome message at this time. Please explore the forum!";
         if (e.message?.toLowerCase().includes('api key') || e.message?.toLowerCase().includes('permission denied') || e.message?.toLowerCase().includes('quota')) {
           displayError = "Could not generate the welcome message due to an AI service configuration issue. The site administrator has been notified.";
+        } else if (e.message?.toLowerCase().includes('aborted')) {
+          displayError = "Welcome message generation timed out. Please explore the forum!";
         }
         setError(displayError);
       } finally {
