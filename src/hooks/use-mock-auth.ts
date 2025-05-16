@@ -2,9 +2,10 @@
 "use client";
 
 import type { User } from '@/lib/types';
-import { useState, useEffect, useCallback } from 'react'; // Added useCallback
+import { useState, useEffect, useCallback } from 'react';
+import { db } from '@/lib/firebase'; // Import db
+import { doc, getDoc, updateDoc } from 'firebase/firestore'; // Import Firestore functions
 
-// Define more specific user types based on roles for Kratia
 export type UserRole = 'visitor' | 'guest' | 'user' | 'normal_user' | 'admin' | 'founder';
 
 export interface MockUser extends User {
@@ -12,7 +13,6 @@ export interface MockUser extends User {
   isQuarantined?: boolean;
 }
 
-// This object defines the users available for quick switching in the mock auth hook.
 export const mockAuthUsers: Record<string, MockUser> = {
   'visitor0': { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor', status: 'active' },
   'guest1': { id: 'guest1', username: 'Guest User', email: 'guest@example.com', avatarUrl: 'https://picsum.photos/seed/guest/100/100', role: 'guest', status: 'active' },
@@ -29,10 +29,10 @@ export const mockAuthUsers: Record<string, MockUser> = {
     karma: 0, 
     location: 'New York', 
     aboutMe: 'Learning the ropes.', 
-    registrationDate: '2023-03-20T14:30:00Z', 
+    registrationDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // Registered 5 days ago
     canVote: false, 
-    status: 'sanctioned', // Ensuring Diana is sanctioned for testing
-    sanctionEndDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()
+    status: 'sanctioned',
+    sanctionEndDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString() // Sanction ends in 1 day
   },
   'user5': { id: 'user5', username: 'SanctionedSam', email: 'sam@example.com', avatarUrl: 'https://picsum.photos/seed/sam/100/100', role: 'user', karma: 5, location: 'Penalty Box', aboutMe: 'Currently sanctioned.', registrationDate: '2023-02-01T10:00:00Z', canVote: false, status: 'sanctioned', sanctionEndDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() },
   'admin1': { id: 'admin1', username: 'AdminAnna', email: 'adminana@example.com', avatarUrl: 'https://picsum.photos/seed/adminana/100/100', role: 'admin', karma: 500, location: 'Control Room', aboutMe: 'Ensuring order and progress.', registrationDate: '2022-10-01T08:00:00Z', canVote: true, status: 'active' },
@@ -47,8 +47,6 @@ export interface LoginResult {
   sanctionEndDate?: string;
 }
 
-// Store the state outside the hook, similar to how Zustand or Redux might manage global state.
-// This makes the state persist across hook re-initializations if React re-mounts components consuming it.
 let internalCurrentUser: MockUser | null = null;
 const listeners = new Set<(user: MockUser | null) => void>();
 
@@ -62,40 +60,70 @@ export function useMockAuth() {
   const [currentUserLocal, setCurrentUserLocal] = useState<MockUser | null>(internalCurrentUser);
   const [loading, setLoading] = useState(true);
 
+  const syncUserWithFirestore = useCallback(async (baseUser: MockUser): Promise<MockUser> => {
+    const userRef = doc(db, "users", baseUser.id);
+    try {
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const firestoreData = userSnap.data() as User;
+        const updatedUser = { ...baseUser, ...firestoreData }; // Merge, Firestore data takes precedence for synced fields
+
+        // Check for expired sanction
+        if (updatedUser.status === 'sanctioned' && updatedUser.sanctionEndDate && new Date() > new Date(updatedUser.sanctionEndDate)) {
+          await updateDoc(userRef, { status: 'active', sanctionEndDate: null });
+          updatedUser.status = 'active';
+          updatedUser.sanctionEndDate = undefined;
+        }
+        return updatedUser as MockUser;
+      }
+    } catch (error) {
+      console.error(`Error syncing user ${baseUser.id} with Firestore:`, error);
+    }
+    return baseUser; // Return base user if Firestore fetch fails or user not found in FS
+  }, []);
+
+
   useEffect(() => {
-    // Listener for external state changes
     const listener = (newUser: MockUser | null) => {
       setCurrentUserLocal(newUser);
     };
     listeners.add(listener);
     
-    // Initial load logic
-    if (internalCurrentUser === null && typeof window !== 'undefined') { // Check if already initialized
+    if (internalCurrentUser === null && typeof window !== 'undefined') {
       setLoading(true);
       const storedUserKey = localStorage.getItem('mockUserKey') as string | null;
-      let userToSet: MockUser | null = null;
-
+      
       if (storedUserKey && mockAuthUsers[storedUserKey]) {
-        const potentialUser = mockAuthUsers[storedUserKey];
-        // Load the user even if sanctioned; SanctionCheckWrapper will handle redirection
-        userToSet = potentialUser;
+        const baseUser = { ...mockAuthUsers[storedUserKey] };
+        syncUserWithFirestore(baseUser).then(syncedUser => {
+          setInternalCurrentUser(syncedUser);
+          setLoading(false);
+        });
       } else {
-        userToSet = mockAuthUsers['visitor0'];
+        setInternalCurrentUser(mockAuthUsers['visitor0']);
         if (storedUserKey !== 'visitor0') {
           localStorage.setItem('mockUserKey', 'visitor0'); 
         }
+        setLoading(false);
       }
-      setInternalCurrentUser(userToSet); // Update global state, which triggers listeners
+    } else if (internalCurrentUser) {
+      // Re-sync current user on mount if already set, to catch changes made in other tabs/sessions
+      setLoading(true);
+      syncUserWithFirestore(internalCurrentUser).then(syncedUser => {
+        setInternalCurrentUser(syncedUser);
+        setLoading(false);
+      });
     }
-    
-    setLoading(false); // Set loading to false after initial check/setup
+     else {
+      setLoading(false); 
+    }
 
     return () => {
-      listeners.delete(listener); // Cleanup listener
+      listeners.delete(listener);
     };
-  }, []);
+  }, [syncUserWithFirestore]);
 
-  const login = useCallback((usernameOrEmail?: string, password?: string): LoginResult => {
+  const login = useCallback(async (usernameOrEmail?: string, password?: string): Promise<LoginResult> => {
     let userKeyToLogin: string | undefined;
     
     if (!usernameOrEmail) { 
@@ -114,10 +142,11 @@ export function useMockAuth() {
         return { success: false, reason: 'not_found' };
     }
 
-    const userToLogin = mockAuthUsers[userKeyToLogin];
+    let userToLogin = { ...mockAuthUsers[userKeyToLogin] };
+    userToLogin = await syncUserWithFirestore(userToLogin); // Sync with Firestore
 
     if (userToLogin.status === 'sanctioned') {
-      console.log(`Login attempt for sanctioned user: ${userToLogin.username}`);
+      // Sanction check already handled by syncUserWithFirestore if expired
       return { 
         success: false, 
         user: userToLogin,
@@ -126,16 +155,20 @@ export function useMockAuth() {
         sanctionEndDate: userToLogin.sanctionEndDate 
       };
     }
-    
-    setInternalCurrentUser(userToLogin); // Update global state
+      
+    setInternalCurrentUser(userToLogin);
     localStorage.setItem('mockUserKey', userKeyToLogin);
     return { success: true, user: userToLogin };
-  }, []);
+  }, [syncUserWithFirestore]);
   
   const signup = useCallback((username: string, email: string) => {
-    // For simplicity, signup logs in as 'user1' (Alice)
     const newUserKey = 'user1'; 
-    setInternalCurrentUser(mockAuthUsers[newUserKey]);
+    const userToSignup = { ...mockAuthUsers[newUserKey] };
+    userToSignup.status = 'active'; 
+    userToSignup.sanctionEndDate = undefined;
+    // In a real app, you'd create this user in Firestore here.
+    // For mock, just set it.
+    setInternalCurrentUser(userToSignup);
     localStorage.setItem('mockUserKey', newUserKey);
   }, []);
 
@@ -144,10 +177,11 @@ export function useMockAuth() {
     localStorage.setItem('mockUserKey', 'visitor0');
   }, []);
   
-  const switchToUser = useCallback((userKey: string) => {
-    let userToSwitchTo: MockUser | undefined = mockAuthUsers[userKey];
+  const switchToUser = useCallback(async (userKey: string) => {
+    let userToSwitchTo: MockUser | undefined = mockAuthUsers[userKey] ? { ...mockAuthUsers[userKey] } : undefined;
     
     if (userToSwitchTo) {
+      userToSwitchTo = await syncUserWithFirestore(userToSwitchTo);
       setInternalCurrentUser(userToSwitchTo);
       localStorage.setItem('mockUserKey', userKey);
     } else {
@@ -155,8 +189,35 @@ export function useMockAuth() {
       setInternalCurrentUser(mockAuthUsers['visitor0']);
       localStorage.setItem('mockUserKey', 'visitor0');
     }
+  }, [syncUserWithFirestore]);
+
+  const checkAndLiftSanction = useCallback(async (userId: string): Promise<boolean> => {
+    if (!userId || userId === 'visitor0' || userId === 'guest1') return false;
+    
+    const userRef = doc(db, "users", userId);
+    try {
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const userData = userSnap.data() as User;
+        if (userData.status === 'sanctioned' && userData.sanctionEndDate && new Date() > new Date(userData.sanctionEndDate)) {
+          await updateDoc(userRef, {
+            status: 'active',
+            sanctionEndDate: null 
+          });
+          if (internalCurrentUser && internalCurrentUser.id === userId) {
+            const updatedUser = { ...internalCurrentUser, status: 'active', sanctionEndDate: undefined } as MockUser;
+            setInternalCurrentUser(updatedUser);
+          }
+          return true; 
+        }
+      }
+    } catch (error) {
+      console.error(`Error checking/lifting sanction for user ${userId}:`, error);
+    }
+    return false;
   }, []);
 
-  return { user: currentUserLocal, loading, login, logout, signup, switchToUser };
-}
 
+  return { user: currentUserLocal, loading, login, logout, signup, switchToUser, checkAndLiftSanction };
+}
+    
