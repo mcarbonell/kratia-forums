@@ -88,15 +88,18 @@ export default function ProposeSanctionPage() {
     );
   }
 
-  if (!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest' || !loggedInUser.canVote || loggedInUser.status !== 'active') {
+  if (!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest' || !loggedInUser.canVote || (loggedInUser.status !== 'active')) {
     let description = "You do not have permission to propose a sanction.";
-    if (loggedInUser && loggedInUser.status === 'under_sanction_process') {
-      description = "You cannot propose sanctions while under a sanction process.";
-    } else if (loggedInUser && loggedInUser.status === 'sanctioned') {
-      description = "You cannot propose sanctions while sanctioned.";
-    } else if (loggedInUser && !loggedInUser.canVote) {
-      description = "You do not have voting rights to propose sanctions.";
+    if (loggedInUser) {
+        if (loggedInUser.status === 'under_sanction_process') {
+        description = "You cannot propose sanctions while under a sanction process.";
+        } else if (loggedInUser.status === 'sanctioned') {
+        description = "You cannot propose sanctions while sanctioned.";
+        } else if (!loggedInUser.canVote) {
+        description = "You do not have voting rights to propose sanctions.";
+        }
     }
+
 
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
@@ -152,7 +155,7 @@ export default function ProposeSanctionPage() {
       const newVotationRef = doc(collection(db, "votations"));
 
       const newAgoraThreadRef = doc(collection(db, "threads"));
-      const agoraThreadData: Omit<Thread, 'id'> = {
+      const agoraThreadData: Omit<Thread, 'id'> & { relatedVotationId: string } = {
         forumId: AGORA_FORUM_ID,
         title: votationTitle,
         author: proposerAuthorInfo,
@@ -298,3 +301,4 @@ export default function ProposeSanctionPage() {
     </div>
   );
 }
+

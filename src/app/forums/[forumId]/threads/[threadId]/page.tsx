@@ -14,7 +14,7 @@ import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment } from 'firebase/firestore';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 
 // Helper function for timestamp conversion
@@ -141,6 +141,7 @@ export default function ThreadPage() {
             updatedAt: formatFirestoreTimestamp(data.updatedAt),
             author: data.author || { username: 'Unknown', id: '' },
             reactions: data.reactions || {}, 
+            lastEditedBy: data.lastEditedBy
           } as PostType;
         });
         setPosts(fetchedPosts);
@@ -159,8 +160,8 @@ export default function ThreadPage() {
 
   const isOwnActiveSanctionThread =
     loggedInUser &&
-    thread && thread.relatedVotationId && // Ensure thread is linked to a votation
-    votation && // Ensure votation data is loaded
+    thread && thread.relatedVotationId && 
+    votation && 
     votation.targetUserId === loggedInUser.id &&
     votation.status === 'active';
 
@@ -169,9 +170,8 @@ export default function ThreadPage() {
     if (loggedInUser.status === 'active') {
       userCanReply = true;
     } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
-      userCanReply = true; // Can reply ONLY in their own active sanction thread
+      userCanReply = true; 
     }
-    // If status is 'sanctioned', userCanReply remains false.
   }
   
   const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice;
@@ -218,7 +218,6 @@ export default function ThreadPage() {
         if (currentVotationData.voters && currentVotationData.voters[loggedInUser.id]) {
           throw new Error("User has already voted.");
         }
-        // This check is now also handled in canVoteInVotation and UI, but good to have server-side
         if (currentVotationData.targetUserId === loggedInUser.id) {
            throw new Error("You cannot vote in your own sanction process.");
         }
@@ -334,7 +333,7 @@ export default function ThreadPage() {
             <div className="text-sm">
                 <p><strong className="font-medium">Proposer:</strong> {votation.proposerUsername}</p>
                 <p><strong className="font-medium">Status:</strong> <span className="font-semibold capitalize">{votation.status}</span></p>
-                <p><strong className="font-medium">Deadline:</strong> {new Date(votation.deadline).toLocaleString()}</p>
+                <p><strong className="font-medium">Deadline:</strong> {format(new Date(votation.deadline), "PPPp")}</p>
             </div>
             <div>
               <h4 className="font-semibold mb-1 text-md">Current Tally:</h4>
@@ -355,24 +354,25 @@ export default function ThreadPage() {
                        <AlertTitle>Your Sanction Process</AlertTitle>
                        <AlertDescription>You cannot vote in your own sanction process. You can reply in this thread to present your defense.</AlertDescription>
                    </Alert>
-                ) : !loggedInUser.canVote || loggedInUser.status !== 'active' ? (
+                ) : !canVoteInVotation && userVotationChoice ? ( // Already voted
+                     <Alert variant="default" className="border-green-500 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 [&>svg]:text-green-600">
+                        <ShieldCheck className="h-5 w-5" />
+                        <AlertTitle>Vote Recorded</AlertTitle>
+                        <AlertDescription>
+                        You voted: <span className="font-semibold capitalize">{userVotationChoice}</span>.
+                        </AlertDescription>
+                    </Alert>
+                ) : !loggedInUser.canVote || loggedInUser.status !== 'active' ? ( // Not eligible for other reasons
                   <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
                     <ShieldCheck className="h-5 w-5" />
                     <AlertTitle>Not Eligible to Vote</AlertTitle>
                     <AlertDescription>
                       {loggedInUser.status !== 'active' ? `Your account status is '${loggedInUser.status}'. You cannot vote.` : 'You do not have voting rights.'}
                        {loggedInUser.status === 'under_sanction_process' && ' Users under sanction process cannot vote.'}
+                       {loggedInUser.status === 'sanctioned' && ' Sanctioned users cannot vote.'}
                     </AlertDescription>
                   </Alert>
-                ) : userVotationChoice ? (
-                  <Alert variant="default" className="border-green-500 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 [&>svg]:text-green-600">
-                    <ShieldCheck className="h-5 w-5" />
-                    <AlertTitle>Vote Recorded</AlertTitle>
-                    <AlertDescription>
-                      You voted: <span className="font-semibold capitalize">{userVotationChoice}</span>.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
+                ) : ( // Eligible and hasn't voted
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button 
                       onClick={() => handleVotationVote('for')} 

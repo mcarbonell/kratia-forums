@@ -142,28 +142,13 @@ export default function NewThreadPage() {
     );
   }
   
-  // This check must happen *after* ensuring loggedInUser is loaded and not a visitor/guest
-  if (loggedInUser.status === 'under_sanction_process') {
+  if (loggedInUser.status === 'under_sanction_process' || loggedInUser.status === 'sanctioned') {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Ban className="h-5 w-5" />
         <AlertTitle>Action Restricted</AlertTitle>
         <AlertDescription>
-          You cannot create new threads while under a sanction process. You can defend yourself in your sanction votation thread.
-        </AlertDescription>
-        <Button asChild className="mt-4">
-          <Link href={`/forums/${forumId}`}>Back to Forum</Link>
-        </Button>
-      </Alert>
-    );
-  }
-  if (loggedInUser.status === 'sanctioned') {
-    return (
-      <Alert variant="destructive" className="max-w-lg mx-auto">
-        <Ban className="h-5 w-5" />
-        <AlertTitle>Action Restricted</AlertTitle>
-        <AlertDescription>
-          You cannot create new threads while sanctioned.
+          You cannot create new threads while {loggedInUser.status === 'under_sanction_process' ? 'under a sanction process. You can defend yourself in your sanction votation thread.' : 'sanctioned.'}
         </AlertDescription>
         <Button asChild className="mt-4">
           <Link href={`/forums/${forumId}`}>Back to Forum</Link>

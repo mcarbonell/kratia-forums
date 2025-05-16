@@ -6,12 +6,12 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert } from "lucide-react";
+import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert, Ban } from "lucide-react";
 import UserAvatar from "@/components/user/UserAvatar";
 import type { User as KratiaUser } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { KRATIA_CONFIG } from '@/lib/config';
@@ -91,8 +91,10 @@ export default function UserProfilePage() {
   const canProposeSanction = loggedInUser && 
                             loggedInUser.id !== profileUser.id &&
                             loggedInUser.canVote &&
-                            loggedInUser.status === 'active' &&
-                            profileUser.status !== 'sanctioned'; // Don't allow sanctioning an already sanctioned user via this button.
+                            loggedInUser.status === 'active' && // Proposer must be active
+                            profileUser.status !== 'sanctioned' && // Cannot propose for already sanctioned user
+                            profileUser.status !== 'under_sanction_process'; // Cannot propose if already under process
+
 
   return (
     <div className="space-y-8">
@@ -130,11 +132,11 @@ export default function UserProfilePage() {
       )}
        {profileUser.status === 'sanctioned' && (
         <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
-          <ShieldAlert className="h-5 w-5" />
+          <Ban className="h-5 w-5" />
           <AlertTitle>User Sanctioned</AlertTitle>
           <AlertDescription>
-            This user is currently sanctioned.
-            {profileUser.sanctionEndDate && ` Sanction ends: ${new Date(profileUser.sanctionEndDate).toLocaleDateString()}`}
+            This user is currently sanctioned. 
+            {profileUser.sanctionEndDate && ` Sanction ends: ${format(new Date(profileUser.sanctionEndDate), "PPPp")}`}
           </AlertDescription>
         </Alert>
       )}
@@ -213,3 +215,4 @@ export default function UserProfilePage() {
     </div>
   );
 }
+
