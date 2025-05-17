@@ -6,26 +6,59 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert, Ban } from "lucide-react";
+import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert, Ban, MessageSquare, ListChecks, ExternalLink } from "lucide-react";
 import UserAvatar from "@/components/user/UserAvatar";
-import type { User as KratiaUser } from '@/lib/types';
+import type { User as KratiaUser, Thread, Post } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { KRATIA_CONFIG } from '@/lib/config';
 
+// Helper function for timestamp conversion
+const formatFirestoreTimestampToReadable = (timestamp: any): string | undefined => {
+  if (!timestamp) return undefined;
+  if (typeof timestamp === 'string') {
+    const d = new Date(timestamp);
+    if (!isNaN(d.getTime())) return format(d, "PPPp"); // e.g., May 18th, 2025 at 9:11 PM
+    return undefined;
+  }
+  if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+    return format(timestamp.toDate(), "PPPp");
+  }
+  if (timestamp instanceof Date) {
+    return format(timestamp, "PPPp");
+  }
+  return undefined;
+};
+
+interface RecentActivityItem {
+  id: string;
+  type: 'thread' | 'post';
+  title: string; // Thread title or post snippet
+  link: string;
+  createdAt: string; // ISO string
+  forumId?: string; // For threads, to link back to forum
+  threadId?: string; // For posts, to link back to thread
+  forumName?: string; // Optional, for display
+}
 
 export default function UserProfilePage() {
   const params = useParams();
   const router = useRouter();
-  const { user: loggedInUser } = useMockAuth();
+  const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const userId = params.userId as string;
 
   const [profileUser, setProfileUser] = useState<KratiaUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [recentThreads, setRecentThreads] = useState<Thread[]>([]);
+  const [isLoadingThreads, setIsLoadingThreads] = useState(false);
+  const [recentPosts, setRecentPosts] = useState<Post[]>([]);
+  const [isLoadingPosts, setIsLoadingPosts] = useState(false);
+
 
   useEffect(() => {
     if (!userId) {
@@ -37,19 +70,46 @@ export default function UserProfilePage() {
     const fetchUserProfile = async () => {
       setIsLoading(true);
       setError(null);
+      setRecentThreads([]);
+      setRecentPosts([]);
       try {
         const userRef = doc(db, "users", userId);
         const userSnap = await getDoc(userRef);
 
         if (userSnap.exists()) {
-          setProfileUser({ id: userSnap.id, ...userSnap.data(), status: userSnap.data().status || 'active' } as KratiaUser);
+          const userData = { id: userSnap.id, ...userSnap.data(), status: userSnap.data().status || 'active' } as KratiaUser;
+          setProfileUser(userData);
+
+          // Fetch recent activity after user profile is loaded
+          setIsLoadingThreads(true);
+          const threadsQuery = query(
+            collection(db, "threads"),
+            where("author.id", "==", userId),
+            orderBy("createdAt", "desc"),
+            limit(5)
+          );
+          const threadsSnapshot = await getDocs(threadsQuery);
+          setRecentThreads(threadsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Thread)));
+          setIsLoadingThreads(false);
+
+          setIsLoadingPosts(true);
+          const postsQuery = query(
+            collection(db, "posts"),
+            where("author.id", "==", userId),
+            orderBy("createdAt", "desc"),
+            limit(5)
+          );
+          const postsSnapshot = await getDocs(postsQuery);
+          setRecentPosts(postsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Post)));
+          setIsLoadingPosts(false);
+
         } else {
           setError("User not found. This profile does not exist or could not be loaded.");
           setProfileUser(null);
         }
       } catch (err) {
-        console.error("Error fetching user profile:", err);
-        setError("Failed to load user profile. Please try again later.");
+        console.error("Error fetching user profile or activity:", err);
+        setError("Failed to load user profile or activity. Please try again later.");
         setProfileUser(null);
       } finally {
         setIsLoading(false);
@@ -83,17 +143,21 @@ export default function UserProfilePage() {
     );
   }
   
-  const registrationDate = profileUser.registrationDate 
+  const registrationDateFormatted = profileUser.registrationDate 
     ? formatDistanceToNow(new Date(profileUser.registrationDate), { addSuffix: true }) 
     : 'Unknown';
+
+  const sanctionEndDateFormatted = profileUser.sanctionEndDate
+    ? formatFirestoreTimestampToReadable(profileUser.sanctionEndDate)
+    : 'N/A';
 
   const isOwnProfile = loggedInUser?.id === profileUser.id;
   const canProposeSanction = loggedInUser && 
                             loggedInUser.id !== profileUser.id &&
                             loggedInUser.canVote &&
-                            loggedInUser.status === 'active' && // Proposer must be active
-                            profileUser.status !== 'sanctioned' && // Cannot propose for already sanctioned user
-                            profileUser.status !== 'under_sanction_process'; // Cannot propose if already under process
+                            loggedInUser.status === 'active' &&
+                            profileUser.status !== 'sanctioned' &&
+                            profileUser.status !== 'under_sanction_process';
 
 
   return (
@@ -136,7 +200,7 @@ export default function UserProfilePage() {
           <AlertTitle>User Sanctioned</AlertTitle>
           <AlertDescription>
             This user is currently sanctioned. 
-            {profileUser.sanctionEndDate && ` Sanction ends: ${format(new Date(profileUser.sanctionEndDate), "PPPp")}`}
+            {profileUser.sanctionEndDate && ` Sanction ends: ${sanctionEndDateFormatted}`}
           </AlertDescription>
         </Alert>
       )}
@@ -148,12 +212,12 @@ export default function UserProfilePage() {
           <div className="flex-grow">
             <CardTitle className="text-3xl font-semibold">{profileUser.username}</CardTitle>
             <CardDescription className="text-md mt-1">
-              {profileUser.email}
+              {profileUser.email} {profileUser.role && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full ml-2 capitalize">{profileUser.role.replace('_', ' ')}</span>}
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card className="bg-background/50">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center">
@@ -161,7 +225,7 @@ export default function UserProfilePage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">{registrationDate}</p>
+                <p className="text-muted-foreground">{registrationDateFormatted}</p>
               </CardContent>
             </Card>
 
@@ -188,9 +252,22 @@ export default function UserProfilePage() {
                 </CardContent>
               </Card>
             )}
+
+            <Card className="bg-background/50">
+                <CardHeader><CardTitle className="text-lg flex items-center"><MessageSquare className="mr-2 h-5 w-5 text-primary" />Total Posts</CardTitle></CardHeader>
+                <CardContent><p className="font-semibold text-lg">{profileUser.totalPostsByUser || 0}</p></CardContent>
+            </Card>
+            <Card className="bg-background/50">
+                <CardHeader><CardTitle className="text-lg flex items-center"><ListChecks className="mr-2 h-5 w-5 text-primary" />Threads Started</CardTitle></CardHeader>
+                <CardContent><p className="font-semibold text-lg">{profileUser.totalThreadsStartedByUser || 0}</p></CardContent>
+            </Card>
+             <Card className="bg-background/50">
+                <CardHeader><CardTitle className="text-lg flex items-center"><Award className="mr-2 h-5 w-5 text-primary" />Reactions Received</CardTitle></CardHeader>
+                <CardContent><p className="font-semibold text-lg">{profileUser.totalReactionsReceived || 0}</p></CardContent>
+            </Card>
             
             {profileUser.aboutMe && (
-              <Card className="md:col-span-2 bg-background/50">
+              <Card className="md:col-span-2 lg:col-span-3 bg-background/50">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center">
                     <FileText className="mr-2 h-5 w-5 text-primary" /> About Me
@@ -204,10 +281,54 @@ export default function UserProfilePage() {
           </div>
           
           <div className="mt-8 border-t pt-6">
-            <h3 className="text-xl font-semibold mb-4 text-center">User Activity</h3>
-            <p className="text-muted-foreground text-center">
-              User activity feed (recent posts, threads, etc.) is under construction. Check back soon!
-            </p>
+            <h3 className="text-xl font-semibold mb-4">Recent Activity</h3>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-lg font-medium mb-3 flex items-center"><ListChecks className="mr-2 h-5 w-5 text-primary"/>Recent Threads Started</h4>
+                {isLoadingThreads ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                ) : recentThreads.length > 0 ? (
+                  <ul className="space-y-3">
+                    {recentThreads.map(thread => (
+                      <li key={thread.id} className="p-3 border rounded-md hover:bg-muted/30 transition-colors">
+                        <Link href={`/forums/${thread.forumId}/threads/${thread.id}`} className="font-medium text-primary hover:underline block truncate" title={thread.title}>
+                          {thread.title}
+                        </Link>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Created {formatDistanceToNow(new Date(thread.createdAt), { addSuffix: true })}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-muted-foreground">No recent threads started by this user.</p>
+                )}
+              </div>
+
+              <div>
+                <h4 className="text-lg font-medium mb-3 flex items-center"><MessageSquare className="mr-2 h-5 w-5 text-primary"/>Recent Posts</h4>
+                {isLoadingPosts ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                ) : recentPosts.length > 0 ? (
+                  <ul className="space-y-3">
+                    {recentPosts.map(post => (
+                      <li key={post.id} className="p-3 border rounded-md hover:bg-muted/30 transition-colors">
+                        <Link href={`/forums/unknown/threads/${post.threadId}#post-${post.id}`} className="text-sm text-primary hover:underline block truncate" title={post.content.substring(0, 100) + "..."}>
+                          "{post.content.substring(0, 70)}{post.content.length > 70 ? '...' : ''}"
+                        </Link>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Posted {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-muted-foreground">No recent posts by this user.</p>
+                )}
+              </div>
+            </div>
+
           </div>
 
         </CardContent>

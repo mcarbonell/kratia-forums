@@ -163,7 +163,7 @@ export default function NewThreadPage() {
         <Ban className="h-5 w-5" />
         <AlertTitle>Action Restricted</AlertTitle>
         <AlertDescription>
-          You are sanctioned and cannot create new threads.
+           You are sanctioned and cannot create new threads.
         </AlertDescription>
         <Button asChild className="mt-4">
           <Link href={`/forums/${forumId}`}>Back to Forum</Link>
@@ -221,11 +221,11 @@ export default function NewThreadPage() {
 
       if (pollOptions.length >= 2) {
         pollToSave = {
-          id: `poll_${Date.now()}`,
+          id: `poll_${Date.now()}`, // Consider a more robust ID generation if needed
           question: data.pollQuestion.trim(),
           options: pollOptions,
           totalVotes: 0,
-          voters: {}, 
+          voters: {}, // Initialize voters map
         };
       }
     }
@@ -242,9 +242,9 @@ export default function NewThreadPage() {
         createdAt: now.toDate().toISOString(),
         lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
-        isSticky: false,
+        isSticky: false, // New threads are not sticky by default
         isLocked: false,
-        isPublic: forum.isPublic === undefined ? true : forum.isPublic,
+        isPublic: forum.isPublic === undefined ? true : forum.isPublic, // Inherit from forum
         ...(pollToSave && { poll: pollToSave }), 
       };
       batch.set(newThreadRef, newThreadData);
@@ -267,9 +267,10 @@ export default function NewThreadPage() {
 
       const userRef = doc(db, "users", authorInfo.id);
       batch.update(userRef, {
-        karma: increment(2),
+        karma: increment(2), // +1 for thread, +1 for first post
         totalPostsByUser: increment(1),
         totalPostsInThreadsStartedByUser: increment(1),
+        totalThreadsStartedByUser: increment(1) // New field
       });
 
       await batch.commit();
@@ -406,3 +407,4 @@ export default function NewThreadPage() {
     </div>
   );
 }
+

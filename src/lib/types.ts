@@ -13,8 +13,10 @@ export interface User {
   totalPostsByUser?: number;
   totalReactionsReceived?: number;
   totalPostsInThreadsStartedByUser?: number;
+  totalThreadsStartedByUser?: number; // New field
   status?: 'active' | 'under_sanction_process' | 'sanctioned'; // New status field
   sanctionEndDate?: string; // ISO date string, if sanctioned
+  role?: 'guest' | 'user' | 'normal_user' | 'admin' | 'founder' | 'visitor';
 }
 
 export interface Post {

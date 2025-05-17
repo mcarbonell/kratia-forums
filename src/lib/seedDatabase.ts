@@ -7,13 +7,19 @@ import {
     mockUsers as usersToSeed, 
     mockCategoriesData,
     mockForumsData,
-    mockThreadsData,
-    mockPostsData,
+    mockThreadsData as rawMockThreadsData, // Renamed to avoid confusion
+    mockPostsData as rawMockPostsData,     // Renamed to avoid confusion
     mockVotationsData
-} from '@/lib/mockData'; // Import consistently named arrays
+} from '@/lib/mockData';
 import { collection, doc, writeBatch, increment, Timestamp } from 'firebase/firestore';
 
-// Helper to get author info for denormalization
+// Helper to find user safely (already in mockData.ts but good for clarity here too)
+const findUserByIdForSeed = (userId: string, usersArray: KratiaUser[]): KratiaUser => {
+    const user = usersArray.find(u => u.id === userId);
+    if (!user) throw new Error(`Seed Error: User with ID ${userId} not found in usersToSeed array.`);
+    return user;
+};
+
 const getAuthorPick = (user: KratiaUser): Pick<KratiaUser, 'id' | 'username' | 'avatarUrl'> => {
   return {
     id: user.id,
@@ -26,18 +32,35 @@ export async function seedDatabase() {
   const batch = writeBatch(db);
   console.log("Starting database seed...");
 
+  // Prepare author objects for threads and posts
+  const mockThreadsData = rawMockThreadsData.map(t => ({
+    ...t,
+    author: getAuthorPick(findUserByIdForSeed(t.authorId, usersToSeed))
+  }));
+
+  const mockPostsData = rawMockPostsData.map(p => ({
+    ...p,
+    author: getAuthorPick(findUserByIdForSeed(p.authorId, usersToSeed))
+  }));
+  
+  // Calculate totalThreadsStartedByUser for each user
+  const threadsStartedCounts: Record<string, number> = {};
+  mockThreadsData.forEach(thread => {
+    threadsStartedCounts[thread.author.id] = (threadsStartedCounts[thread.author.id] || 0) + 1;
+  });
+
+
   // 1. Seed Users
   console.log(`Processing ${usersToSeed.length} users...`);
   usersToSeed.forEach(user => {
-    if (user.id === 'visitor0' || user.id === 'guest1') return; // Skip special mock auth states
+    if (user.id === 'visitor0' || user.id === 'guest1') return;
 
     const userRef = doc(db, "users", user.id);
     const userData: KratiaUser = {
-        ...user, // Spread all properties from mockUser
-        // Ensure all optional fields from KratiaUser have defaults if not in mock
+        ...user,
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username?.[0]?.toUpperCase() || 'U'}`,
         registrationDate: user.registrationDate || new Date().toISOString(),
-        karma: 0, // Will be recalculated
+        karma: 0,
         location: user.location || null,
         aboutMe: user.aboutMe || null,
         canVote: user.canVote === undefined ? false : user.canVote,
@@ -45,7 +68,9 @@ export async function seedDatabase() {
         totalPostsByUser: 0,
         totalReactionsReceived: 0,
         totalPostsInThreadsStartedByUser: 0,
+        totalThreadsStartedByUser: threadsStartedCounts[user.id] || 0, // Use pre-calculated count
         status: user.status || 'active',
+        role: user.role || 'user',
         sanctionEndDate: user.sanctionEndDate || null,
     };
     batch.set(userRef, userData);
@@ -56,9 +81,7 @@ export async function seedDatabase() {
   console.log(`Processing ${mockCategoriesData.length} categories...`);
   mockCategoriesData.forEach(category => {
     const catRef = doc(db, "categories", category.id);
-    // Forums are not embedded in category docs, they link via categoryId
-    const { ...categoryData } = category; 
-    batch.set(catRef, categoryData);
+    batch.set(catRef, category);
   });
   console.log("Categories prepared.");
 
@@ -66,7 +89,7 @@ export async function seedDatabase() {
   console.log(`Processing ${mockForumsData.length} forums...`);
   mockForumsData.forEach(forum => {
     const forumRef = doc(db, "forums", forum.id);
-    batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 }); // Initialize counts
+    batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 });
   });
   console.log("Forums prepared.");
 
@@ -74,12 +97,12 @@ export async function seedDatabase() {
   console.log(`Processing ${mockThreadsData.length} threads...`);
   mockThreadsData.forEach(thread => {
     const threadRef = doc(db, "threads", thread.id);
-    // Author is already part of mockThreadsData objects from the mapping in mockData.ts
-    batch.set(threadRef, { ...thread, postCount: 0 }); // Initialize postCount
+    const { authorId, ...threadDataToSave } = thread; // Exclude authorId as author object is already embedded
+    batch.set(threadRef, { ...threadDataToSave, postCount: 0 });
   });
   console.log("Threads prepared.");
   
-  // 5. Seed Votations (if any)
+  // 5. Seed Votations
   if (mockVotationsData.length > 0) {
     console.log(`Processing ${mockVotationsData.length} votations...`);
     mockVotationsData.forEach(votation => {
@@ -89,14 +112,12 @@ export async function seedDatabase() {
     console.log("Votations prepared.");
   }
 
-
   // 6. Seed Posts and Update Counts/Karma
   console.log(`Processing ${mockPostsData.length} posts and updating counts/karma...`);
   const threadPostCounts: Record<string, number> = {};
   const forumPostCounts: Record<string, number> = {};
   const userKarmaUpdates: Record<string, { posts: number; reactions: number; threadPosts: number }> = {};
 
-  // Initialize karma update records for all users being seeded
   usersToSeed.forEach(u => {
     if (u.id !== 'visitor0' && u.id !== 'guest1') {
       userKarmaUpdates[u.id] = { posts: 0, reactions: 0, threadPosts: 0 };
@@ -105,40 +126,32 @@ export async function seedDatabase() {
 
   mockPostsData.forEach(post => {
     const postRef = doc(db, "posts", post.id);
-    const postAuthor = post.author; // Author is already a Pick<...> object
-    
+    const { authorId, ...postDataToSave } = post; // Exclude authorId
     batch.set(postRef, { 
-        ...post, 
-        author: postAuthor, // Use the already processed author object
+        ...postDataToSave, 
         isEdited: post.isEdited || false, 
-        // poll field removed from Post type
     });
 
-    // Track post counts for threads and forums
     threadPostCounts[post.threadId] = (threadPostCounts[post.threadId] || 0) + 1;
     const parentThread = mockThreadsData.find(t => t.id === post.threadId);
     if (parentThread) {
       forumPostCounts[parentThread.forumId] = (forumPostCounts[parentThread.forumId] || 0) + 1;
-      // Karma for thread author due to new post in their thread
-      if (parentThread.author.id !== postAuthor.id && userKarmaUpdates[parentThread.author.id]) {
+      if (parentThread.author.id !== post.author.id && userKarmaUpdates[parentThread.author.id]) {
         userKarmaUpdates[parentThread.author.id].threadPosts += 1;
       }
     }
 
-    // Karma for post author
-    if (userKarmaUpdates[postAuthor.id]) {
-      userKarmaUpdates[postAuthor.id].posts += 1;
-      // Karma for reactions received by post author
+    if (userKarmaUpdates[post.author.id]) {
+      userKarmaUpdates[post.author.id].posts += 1;
       if (post.reactions) {
         Object.values(post.reactions).forEach(reaction => {
-          userKarmaUpdates[postAuthor.id]!.reactions += reaction.userIds.length;
+          userKarmaUpdates[post.author.id]!.reactions += reaction.userIds.length;
         });
       }
     }
   });
   console.log("Posts prepared, count/karma aggregation started.");
 
-  // Apply aggregated counts to threads
   for (const threadId in threadPostCounts) {
     const threadRef = doc(db, "threads", threadId);
     const lastPostInThread = mockPostsData
@@ -152,36 +165,23 @@ export async function seedDatabase() {
   }
   console.log("Thread post counts updated.");
 
-  // Apply aggregated counts to forums
-  for (const forumId in forumPostCounts) {
-    const forumRef = doc(db, "forums", forumId);
-    batch.update(forumRef, { postCount: increment(forumPostCounts[forumId]) }); // Increment as forums already have postCount from threads
-  }
-   // Update thread counts for forums based on mockThreadsData
   const forumThreadCounts: Record<string, number> = {};
   mockThreadsData.forEach(thread => {
     forumThreadCounts[thread.forumId] = (forumThreadCounts[thread.forumId] || 0) + 1;
   });
   for (const forumId in forumThreadCounts) {
     const forumRef = doc(db, "forums", forumId);
-    batch.update(forumRef, { threadCount: forumThreadCounts[forumId] });
+    batch.update(forumRef, { 
+      threadCount: forumThreadCounts[forumId],
+      postCount: forumPostCounts[forumId] || 0 // Ensure postCount is also updated
+    });
   }
   console.log("Forum counts updated.");
 
-
-  // Apply aggregated karma updates to users
   for (const userId in userKarmaUpdates) {
     const userRef = doc(db, "users", userId);
     const updates = userKarmaUpdates[userId];
     const totalKarmaDelta = updates.posts + updates.reactions + updates.threadPosts;
-    
-    // If initial post, author gets +1 for content, +1 for starting thread post
-    // If reply, author gets +1 for content. Thread starter gets +1 for thread post.
-    // For simplicity here, we'll assign karma based on direct actions:
-    // 1 karma per post, 1 karma per reaction received, 1 karma per post in own thread.
-    // This seed sets values directly based on these, rather than incremental logic.
-    // This might differ slightly from live increment logic if not careful.
-    // Let's use increments for actual karma components.
     
     batch.update(userRef, {
         totalPostsByUser: increment(updates.posts),
@@ -197,9 +197,7 @@ export async function seedDatabase() {
     console.log("Database seeded successfully with mock data!");
   } catch (error) {
     console.error("Error committing seed batch to Firestore:", error);
-    throw error; // Re-throw to be caught by the calling function in page.tsx
+    throw error;
   }
 }
 
-
-    
