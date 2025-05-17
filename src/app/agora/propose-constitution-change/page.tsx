@@ -124,6 +124,7 @@ export default function ProposeConstitutionChangePage() {
       const batch = writeBatch(db);
       const newVotationRef = doc(collection(db, "votations"));
       const newAgoraThreadRef = doc(collection(db, "threads"));
+      const newPostRef = doc(collection(db, "posts")); // Define newPostRef here
 
       const agoraThreadData: Omit<Thread, 'id'> & { relatedVotationId: string } = {
         forumId: AGORA_FORUM_ID,
@@ -156,11 +157,16 @@ ${data.proposedConstitutionText}
         createdAt: now.toDate().toISOString(),
         reactions: {},
       };
-      batch.set(newPostRef, initialPostData);
+      batch.set(newPostRef, initialPostData); // This is line ~277, should be correct now
 
       const agoraForumRef = doc(db, "forums", AGORA_FORUM_ID);
       batch.update(agoraForumRef, { threadCount: increment(1), postCount: increment(1) });
-      batch.update(doc(db, "users", loggedInUser.id), { karma: increment(2), totalPostsByUser: increment(1), totalPostsInThreadsStartedByUser: increment(1), totalThreadsStartedByUser: increment(1) });
+      batch.update(doc(db, "users", loggedInUser.id), { 
+        karma: increment(2), // For thread and first post
+        totalPostsByUser: increment(1),
+        totalPostsInThreadsStartedByUser: increment(1),
+        totalThreadsStartedByUser: increment(1) 
+      });
 
       const votationData: Votation = {
         id: newVotationRef.id,
@@ -169,7 +175,7 @@ ${data.proposedConstitutionText}
         justification: data.justification,
         proposerId: loggedInUser.id,
         proposerUsername: loggedInUser.username,
-        type: 'rule_change', // Using 'rule_change' as discussed
+        type: 'rule_change', 
         createdAt: now.toDate().toISOString(),
         deadline: deadlineDate.toISOString(),
         status: 'active',
@@ -281,3 +287,5 @@ ${data.proposedConstitutionText}
     </div>
   );
 }
+
+    
