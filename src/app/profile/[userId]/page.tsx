@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert, Ban, MessageSquare, ListChecks, ExternalLink } from "lucide-react";
+import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert, Ban, MessageSquare, ListChecks } from "lucide-react";
 import UserAvatar from "@/components/user/UserAvatar";
 import type { User as KratiaUser, Thread, Post } from '@/lib/types';
 import { db } from '@/lib/firebase';
@@ -21,7 +21,7 @@ const formatFirestoreTimestampToReadable = (timestamp: any): string | undefined 
   if (!timestamp) return undefined;
   if (typeof timestamp === 'string') {
     const d = new Date(timestamp);
-    if (!isNaN(d.getTime())) return format(d, "PPPp"); // e.g., May 18th, 2025 at 9:11 PM
+    if (!isNaN(d.getTime())) return format(d, "PPPp");
     return undefined;
   }
   if (timestamp.toDate && typeof timestamp.toDate === 'function') {
@@ -33,16 +33,8 @@ const formatFirestoreTimestampToReadable = (timestamp: any): string | undefined 
   return undefined;
 };
 
-interface RecentActivityItem {
-  id: string;
-  type: 'thread' | 'post';
-  title: string; // Thread title or post snippet
-  link: string;
-  createdAt: string; // ISO string
-  forumId?: string; // For threads, to link back to forum
-  threadId?: string; // For posts, to link back to thread
-  forumName?: string; // Optional, for display
-}
+// Define a more specific type for posts that will include forumId
+type PostWithForumId = Post & { forumId?: string };
 
 export default function UserProfilePage() {
   const params = useParams();
@@ -56,7 +48,8 @@ export default function UserProfilePage() {
 
   const [recentThreads, setRecentThreads] = useState<Thread[]>([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(false);
-  const [recentPosts, setRecentPosts] = useState<Post[]>([]);
+  
+  const [recentPosts, setRecentPosts] = useState<PostWithForumId[]>([]); // Use the new type
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
 
 
@@ -67,11 +60,11 @@ export default function UserProfilePage() {
       return;
     }
 
-    const fetchUserProfile = async () => {
+    const fetchUserProfileAndActivity = async () => {
       setIsLoading(true);
       setError(null);
       setRecentThreads([]);
-      setRecentPosts([]);
+      setRecentPosts([]); // Initialize recentPosts
       try {
         const userRef = doc(db, "users", userId);
         const userSnap = await getDoc(userRef);
@@ -80,7 +73,7 @@ export default function UserProfilePage() {
           const userData = { id: userSnap.id, ...userSnap.data(), status: userSnap.data().status || 'active' } as KratiaUser;
           setProfileUser(userData);
 
-          // Fetch recent activity after user profile is loaded
+          // Fetch recent threads
           setIsLoadingThreads(true);
           const threadsQuery = query(
             collection(db, "threads"),
@@ -92,6 +85,7 @@ export default function UserProfilePage() {
           setRecentThreads(threadsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Thread)));
           setIsLoadingThreads(false);
 
+          // Fetch recent posts
           setIsLoadingPosts(true);
           const postsQuery = query(
             collection(db, "posts"),
@@ -100,7 +94,30 @@ export default function UserProfilePage() {
             limit(5)
           );
           const postsSnapshot = await getDocs(postsQuery);
-          setRecentPosts(postsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Post)));
+          const fetchedPosts = postsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Post));
+          
+          // Now, augment posts with forumId
+          const postsWithForumData = await Promise.all(
+            fetchedPosts.map(async (p) => {
+              let fetchedForumId: string | undefined = undefined;
+              if (p.threadId) {
+                const threadRef = doc(db, "threads", p.threadId);
+                const threadSnap = await getDoc(threadRef);
+                if (threadSnap.exists()) {
+                  const threadData = threadSnap.data();
+                  if (threadData && threadData.forumId) {
+                    fetchedForumId = threadData.forumId as string;
+                  } else {
+                    console.warn(`Profile Page: Thread ${p.threadId} exists but has no forumId field for post ${p.id}.`);
+                  }
+                } else {
+                  console.warn(`Profile Page: Thread ${p.threadId} not found for post ${p.id}.`);
+                }
+              }
+              return { ...p, forumId: fetchedForumId }; // Ensure forumId is part of the object
+            })
+          );
+          setRecentPosts(postsWithForumData); // Update state with augmented posts
           setIsLoadingPosts(false);
 
         } else {
@@ -111,12 +128,15 @@ export default function UserProfilePage() {
         console.error("Error fetching user profile or activity:", err);
         setError("Failed to load user profile or activity. Please try again later.");
         setProfileUser(null);
+        // Ensure loading states are false on error
+        setIsLoadingThreads(false);
+        setIsLoadingPosts(false);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchUserProfile();
+    fetchUserProfileAndActivity();
   }, [userId]);
 
   if (isLoading) {
@@ -312,16 +332,23 @@ export default function UserProfilePage() {
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 ) : recentPosts.length > 0 ? (
                   <ul className="space-y-3">
-                    {recentPosts.map(post => (
-                      <li key={post.id} className="p-3 border rounded-md hover:bg-muted/30 transition-colors">
-                        <Link href={`/forums/unknown/threads/${post.threadId}#post-${post.id}`} className="text-sm text-primary hover:underline block truncate" title={post.content.substring(0, 100) + "..."}>
-                          "{post.content.substring(0, 70)}{post.content.length > 70 ? '...' : ''}"
-                        </Link>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Posted {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
-                        </p>
-                      </li>
-                    ))}
+                    {recentPosts.map(post => {
+                      // Construct the link using the fetched forumId for the post
+                      const postLink = (post.forumId && post.forumId !== 'unknown')
+                        ? `/forums/${post.forumId}/threads/${post.threadId}#post-${post.id}`
+                        : `/forums/unknown/threads/${post.threadId}#post-${post.id}`; // Fallback if forumId still not found
+
+                      return (
+                        <li key={post.id} className="p-3 border rounded-md hover:bg-muted/30 transition-colors">
+                          <Link href={postLink} className="text-sm text-primary hover:underline block truncate" title={post.content.substring(0, 100) + "..."}>
+                            "{post.content.substring(0, 70)}{post.content.length > 70 ? '...' : ''}"
+                          </Link>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Posted {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+                          </p>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-muted-foreground">No recent posts by this user.</p>
@@ -336,4 +363,3 @@ export default function UserProfilePage() {
     </div>
   );
 }
-
