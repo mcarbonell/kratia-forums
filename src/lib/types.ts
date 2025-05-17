@@ -13,8 +13,8 @@ export interface User {
   totalPostsByUser?: number;
   totalReactionsReceived?: number;
   totalPostsInThreadsStartedByUser?: number;
-  totalThreadsStartedByUser?: number; // New field
-  status?: 'active' | 'under_sanction_process' | 'sanctioned'; // New status field
+  totalThreadsStartedByUser?: number;
+  status?: 'active' | 'under_sanction_process' | 'sanctioned';
   sanctionEndDate?: string; // ISO date string, if sanctioned
   role?: 'guest' | 'user' | 'normal_user' | 'admin' | 'founder' | 'visitor';
 }
@@ -23,7 +23,7 @@ export interface Post {
   id: string;
   threadId: string;
   author: Pick<User, 'id' | 'username' | 'avatarUrl'>;
-  content: string; // Markdown or BBCode
+  content: string;
   createdAt: string; // ISO date string
   updatedAt?: string; // ISO date string
   reactions: Record<string, { userIds: string[] }>;
@@ -43,20 +43,20 @@ export interface Thread {
   isLocked?: boolean;
   isPublic?: boolean; // Visible to non-logged-in users
   tags?: string[];
-  poll?: Poll; // For non-binding polls
-  relatedVotationId?: string; // Link to a binding votation
+  poll?: Poll;
+  relatedVotationId?: string;
 }
 
 export interface Forum {
   id: string;
-  categoryId?: string; // Parent category
-  parentId?: string; // Parent forum (for subforums)
+  categoryId?: string;
+  parentId?: string;
   name: string;
   description: string;
   threadCount: number;
   postCount: number;
-  isPublic?: boolean; // Visible to non-logged-in users
-  isAgora?: boolean; // Special flag for Agora forum
+  isPublic?: boolean;
+  isAgora?: boolean;
   subForums?: Forum[];
 }
 
@@ -73,18 +73,19 @@ export interface PollOption {
   voteCount: number;
 }
 
-export interface Poll { // For non-binding polls within threads
+export interface Poll {
   id: string;
   question: string;
   options: PollOption[];
   allowMultipleVotes?: boolean;
-  endDate?: string; // ISO date string
+  endDate?: string;
   totalVotes: number;
-  voters: Record<string, string>; // Record<userId, optionId>
+  voters: Record<string, string>;
 }
 
-// For binding votations in Agora
 export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote' | 'closed_executed' | 'closed_rejected';
+
+export type VotationType = 'sanction' | 'rule_change' | 'forum_management' | 'other';
 
 export interface VotationOptionTally {
   for: number;
@@ -95,37 +96,41 @@ export interface VotationOptionTally {
 export interface Votation {
   id: string;
   title: string;
-  description: string; // Primary details of what's being voted on
-  justification?: string; // Proposer's reasoning (can be first post in thread)
+  description: string;
+  justification?: string;
   proposerId: string;
   proposerUsername: string;
-  type: 'sanction' | 'rule_change' | 'forum_management' | 'other'; // Type of votation
-  createdAt: string; // ISO date string
-  deadline: string; // ISO date string for when voting ends
+  type: VotationType;
+  createdAt: string;
+  deadline: string;
   status: VotationStatus;
   
-  // Specific to sanction votations
   targetUserId?: string;
   targetUsername?: string;
-  sanctionDuration?: string; // e.g., "7 days", "permanent"
+  sanctionDuration?: string;
   
-  // Vote tracking
-  options: VotationOptionTally; // e.g., { for: 0, against: 0, abstain: 0 }
-  voters: Record<string, 'for' | 'against' | 'abstain'>; // Record<userId, voteChoice>
+  proposedConstitutionText?: string; // For constitution change proposals
+
+  options: VotationOptionTally;
+  voters: Record<string, 'for' | 'against' | 'abstain'>;
   totalVotesCast: number;
   quorumRequired?: number;
   
-  relatedThreadId: string; // ID of the discussion thread in Agora
-  outcome?: string; // Text describing the result after closing
+  relatedThreadId: string;
+  outcome?: string;
 }
 
+export interface SiteSettings {
+    constitutionText?: string;
+    lastUpdated?: string; // ISO date string
+}
 
 export interface PrivateMessage {
   id: string;
   sender: User;
   recipient: User;
   content: string;
-  createdAt: string; // ISO date string
+  createdAt: string;
   isRead?: boolean;
 }
 
@@ -135,7 +140,6 @@ export interface Notification {
   type: 'reply' | 'mention' | 'pm' | 'votation_result';
   content: string;
   link?: string;
-  createdAt: string; // ISO date string
+  createdAt: string;
   isRead?: boolean;
 }
-
