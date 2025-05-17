@@ -4,14 +4,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMockAuth } from '@/hooks/use-mock-auth';
-import type { User as KratiaUser, Forum } from '@/lib/types';
+import type { User as KratiaUser, Forum, ForumCategory } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, orderBy, query } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle } from 'lucide-react';
+import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle, FolderKanban } from 'lucide-react';
 import UserAvatar from '@/components/user/UserAvatar';
 import { formatDistanceToNow } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ export default function AdminPage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const [users, setUsers] = useState<KratiaUser[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
+  const [categories, setCategories] = useState<ForumCategory[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +47,13 @@ export default function AdminPage() {
         const forumsSnapshot = await getDocs(forumsQuery);
         const fetchedForums = forumsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Forum));
         setForums(fetchedForums);
+        
+        // Fetch categories
+        const categoriesQuery = query(collection(db, "categories"), orderBy("name", "asc"));
+        const categoriesSnapshot = await getDocs(categoriesQuery);
+        const fetchedCategories = categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ForumCategory));
+        setCategories(fetchedCategories);
+
 
       } catch (err) {
         console.error("Error fetching admin data:", err);
@@ -86,7 +94,7 @@ export default function AdminPage() {
      return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Loading users and forums...</p>
+        <p className="ml-4 text-muted-foreground">Loading users, forums, and categories...</p>
       </div>
     );
   }
@@ -114,7 +122,7 @@ export default function AdminPage() {
           <ShieldAlert className="mr-3 h-8 w-8 text-primary" />
           Admin Panel
         </CardTitle>
-        <CardDescription>Manage users, forums, and other settings for Kratia Forums.</CardDescription>
+        <CardDescription>Manage users, forums, categories, and other settings for Kratia Forums.</CardDescription>
       </CardHeader>
 
       <Card>
@@ -163,6 +171,48 @@ export default function AdminPage() {
             </Table>
           ) : (
             <p className="text-muted-foreground">No users found.</p>
+          )}
+        </CardContent>
+      </Card>
+
+       <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center text-xl">
+            <FolderKanban className="mr-2 h-6 w-6" /> Category Management ({categories.length})
+          </CardTitle>
+          <Button asChild>
+            <Link href="/admin/categories/create">
+              <PlusCircle className="mr-2 h-5 w-5" /> Create New Category
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {categories.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="max-w-md truncate">Description</TableHead>
+                  {/* Add more relevant columns like forum count if needed */}
+                  <TableHead className="text-center">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {categories.map((category) => (
+                  <TableRow key={category.id}>
+                    <TableCell className="font-medium">{category.name}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-md truncate" title={category.description}>{category.description || 'N/A'}</TableCell>
+                    <TableCell className="text-center">
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/admin/categories/edit/${category.id}`}>Edit</Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-muted-foreground">No categories found. You can create one to start organizing forums.</p>
           )}
         </CardContent>
       </Card>
@@ -221,3 +271,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+    
