@@ -47,7 +47,7 @@ const newThreadSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "A poll must have at least 2 valid options.",
-        path: ["pollOption1"], // Report error on the first option for simplicity
+        path: ["pollOption1"], 
       });
     }
     options.forEach((opt, index) => {

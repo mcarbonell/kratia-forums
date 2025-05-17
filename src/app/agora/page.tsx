@@ -14,32 +14,21 @@ import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, getDocs } from 'firebase/firestore';
 
-// Helper function for timestamp conversion (copied from ForumPage)
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
-  if (!timestamp) {
-    return undefined;
-  }
+  if (!timestamp) return undefined;
   if (typeof timestamp === 'string') {
     if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
         const d = new Date(timestamp);
         if (d.toISOString() === timestamp) return timestamp;
     }
     const parsedDate = new Date(timestamp);
-    if (!isNaN(parsedDate.getTime())) {
-        return parsedDate.toISOString();
-    }
+    if (!isNaN(parsedDate.getTime())) return parsedDate.toISOString();
     console.warn('Unparseable string timestamp:', timestamp);
     return undefined;
   }
-  if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-    return timestamp.toDate().toISOString();
-  }
-  if (timestamp instanceof Date) {
-    return timestamp.toISOString();
-  }
-  if (typeof timestamp === 'number') {
-    return new Date(timestamp).toISOString();
-  }
+  if (timestamp.toDate && typeof timestamp.toDate === 'function') return timestamp.toDate().toISOString();
+  if (timestamp instanceof Date) return timestamp.toISOString();
+  if (typeof timestamp === 'number') return new Date(timestamp).toISOString();
   console.warn('Unknown timestamp format:', timestamp);
   return undefined;
 };
@@ -51,7 +40,7 @@ interface ThreadWithVotationStatus extends Thread {
 export default function AgoraPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useMockAuth();
-  const agoraForumId = 'agora'; // Hardcoded forumId for Agora
+  const agoraForumId = 'agora'; 
 
   const [forum, setForum] = useState<Forum | null>(null);
   const [threads, setThreads] = useState<ThreadWithVotationStatus[]>([]);
@@ -63,7 +52,6 @@ export default function AgoraPage() {
       setIsLoading(true);
       setError(null);
       try {
-        // Fetch Agora forum details
         const forumRef = doc(db, "forums", agoraForumId);
         const forumSnap = await getDoc(forumRef);
 
@@ -81,11 +69,9 @@ export default function AgoraPage() {
             postCount: forumData.postCount || 0,
         } as Forum);
 
-        // Fetch votation threads for Agora
         const threadsQuery = query(
           collection(db, "threads"),
           where("forumId", "==", agoraForumId)
-          // We will sort client-side after fetching votation statuses
         );
         const threadsSnapshot = await getDocs(threadsQuery);
         let fetchedThreads: ThreadWithVotationStatus[] = threadsSnapshot.docs.map(docSnap => {
@@ -98,10 +84,10 @@ export default function AgoraPage() {
             author: data.author || { username: 'Unknown', id: '' },
             postCount: data.postCount || 0,
             isLocked: data.isLocked || false,
+            isSticky: data.isSticky || false,
           } as ThreadWithVotationStatus;
         });
 
-        // Fetch votation statuses for threads that have a relatedVotationId
         const votationPromises = fetchedThreads
           .filter(thread => thread.relatedVotationId)
           .map(async (thread) => {
@@ -123,16 +109,20 @@ export default function AgoraPage() {
           ...thread,
           votationStatus: thread.relatedVotationId ? votationStatusMap.get(thread.id) : undefined,
         }));
-
-        // Sort threads: active votations first, then by lastReplyAt
+        
         fetchedThreads.sort((a, b) => {
           const aIsActive = a.votationStatus === 'active';
           const bIsActive = b.votationStatus === 'active';
 
-          if (aIsActive && !bIsActive) return -1; // a comes first
-          if (!aIsActive && bIsActive) return 1;  // b comes first
+          if (aIsActive && !bIsActive) return -1;
+          if (!aIsActive && bIsActive) return 1;
 
-          // If both are active or both are not (or one/both don't have votation status), sort by lastReplyAt
+          // Both active or both not (or one/both don't have votation status)
+          // Prioritize sticky threads within each group
+          if (a.isSticky && !b.isSticky) return -1;
+          if (!a.isSticky && b.isSticky) return 1;
+
+          // Then sort by lastReplyAt
           const dateA = a.lastReplyAt ? new Date(a.lastReplyAt).getTime() : 0;
           const dateB = b.lastReplyAt ? new Date(b.lastReplyAt).getTime() : 0;
           return dateB - dateA; // Descending
@@ -149,9 +139,10 @@ export default function AgoraPage() {
     };
 
     fetchAgoraData();
-  }, []); // agoraForumId is constant
+  }, []);
 
-  const canProposeVotation = user && user.role !== 'visitor' && user.role !== 'guest' && user.status === 'active';
+  const canProposeVotation = user && user.role !== 'visitor' && user.role !== 'guest' && user.status === 'active' && user.canVote;
+
 
   if (authLoading || isLoading) {
     return (
@@ -211,11 +202,11 @@ export default function AgoraPage() {
          {!canProposeVotation && user && (user.role !== 'visitor' && user.role !== 'guest') && (
             <Alert variant="default" className="mt-2 text-sm">
                 <Vote className="h-4 w-4" />
-                <AlertTitle>Voting Rights Required</AlertTitle>
+                <AlertTitle>Proposal Rights Required</AlertTitle>
                 <AlertDescription>
                 {user.status === 'under_sanction_process' && "You cannot propose votations while under a sanction process."}
                 {user.status === 'sanctioned' && "You cannot propose votations while sanctioned."}
-                {user.status === 'active' && (!user.canVote) && "You need voting rights to propose new votations. Continue participating to earn them!"}
+                {user.status === 'active' && (!user.canVote) && "You need voting rights to propose new votations."}
                 </AlertDescription>
             </Alert>
         )}

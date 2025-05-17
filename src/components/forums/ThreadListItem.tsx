@@ -1,7 +1,7 @@
 
 import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { MessageSquare, UserCircle, Clock, Lock } from 'lucide-react';
+import { MessageSquare, UserCircle, Clock, Lock, Pin } from 'lucide-react';
 import type { Thread } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -28,7 +28,8 @@ export default function ThreadListItem({ thread, forumId }: ThreadListItemProps)
         <div className="flex-grow min-w-0">
           <Link href={`/forums/${forumId}/threads/${thread.id}`} className="block">
             <h3 className="text-lg font-semibold text-primary hover:underline truncate flex items-center" title={thread.title}>
-              {thread.isLocked && <Lock className="mr-2 h-4 w-4 text-destructive flex-shrink-0" />}
+              {thread.isSticky && <Pin className="mr-2 h-4 w-4 text-amber-500 flex-shrink-0" title="Sticky Thread"/>}
+              {thread.isLocked && <Lock className="mr-2 h-4 w-4 text-destructive flex-shrink-0" title="Thread Locked"/>}
               {thread.title}
             </h3>
           </Link>
@@ -54,7 +55,6 @@ export default function ThreadListItem({ thread, forumId }: ThreadListItemProps)
             <MessageSquare className="mr-1 h-4 w-4" />
             {thread.postCount} post{thread.postCount !== 1 ? 's' : ''}
           </div>
-          {/* Views can be added later */}
         </div>
       </div>
     </div>

@@ -7,7 +7,6 @@ import { mockUsers as mockUsersData } from '@/lib/mockData';
 import { collection, doc, writeBatch, increment, getDoc } from 'firebase/firestore';
 import type { UserRole } from '@/hooks/use-mock-auth';
 
-// Helper to get author info in the denormalized structure
 const getAuthorInfo = (user: KratiaUser | undefined) => {
   if (!user || user.id === 'unknown') {
     console.warn("Attempted to get author info for undefined or 'unknown' user. Returning 'Unknown User'.");
@@ -24,11 +23,8 @@ export async function seedDatabase() {
   const batch = writeBatch(db);
   console.log("Starting database seed...");
 
-  // --- USERS (from mockData, now also seeding to 'users' collection) ---
   console.log(`Processing ${mockUsersData.length} users from mockData for seeding...`);
   mockUsersData.forEach(user => {
-    // Skip 'visitor0' and 'guest1' from being written to the users collection
-    // as they are special mock auth states, not actual forum users.
     if (user.id === 'visitor0' || user.id === 'guest1') {
         console.log(`Skipping seed for special mock user: ${user.id}`);
         return; 
@@ -36,7 +32,6 @@ export async function seedDatabase() {
 
     console.log(`Preparing user for seed: ${user.id} - ${user.username} with role: ${user.role}, status: ${user.status}`);
     const userRef = doc(db, "users", user.id);
-    // Ensure all fields from User type are present, defaulting if necessary
     const userData: KratiaUser = {
         id: user.id,
         username: user.username,
@@ -44,34 +39,29 @@ export async function seedDatabase() {
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username[0]}`,
         registrationDate: user.registrationDate || new Date().toISOString(),
         karma: user.karma || 0,
-        location: user.location || null, // Default to null if undefined
-        aboutMe: user.aboutMe || null, // Default to null if undefined
+        location: user.location || null,
+        aboutMe: user.aboutMe || null,
         canVote: user.canVote === undefined ? false : user.canVote,
-        isQuarantined: user.isQuarantined === undefined ? false : user.isQuarantined, // Default to false
+        isQuarantined: user.isQuarantined === undefined ? false : user.isQuarantined,
         totalPostsByUser: user.totalPostsByUser || 0,
         totalReactionsReceived: user.totalReactionsReceived || 0,
         totalPostsInThreadsStartedByUser: user.totalPostsInThreadsStartedByUser || 0,
-        role: user.role || 'user', // Default role to 'user' if not specified
-        status: user.status || 'active', // Default status to 'active' if not specified
-        sanctionEndDate: user.sanctionEndDate || null, // Default to null if undefined
+        role: user.role || 'user',
+        status: user.status || 'active',
+        sanctionEndDate: user.sanctionEndDate || null,
     };
     batch.set(userRef, userData);
   });
   console.log("User data prepared for batch.");
 
-  // Ensure core users are correctly retrieved for posts/threads after they are defined in mockUsersData.
-  // Using ! to assert they exist, as the findUser helper throws if not found.
   const alice = mockUsersData.find(u => u.id === 'user1')!;
   const bob = mockUsersData.find(u => u.id === 'user2')!;
   const charlie = mockUsersData.find(u => u.id === 'user3')!;
-
 
   const aliceAuthorInfo = getAuthorInfo(alice);
   const bobAuthorInfo = getAuthorInfo(bob);
   const charlieAuthorInfo = getAuthorInfo(charlie);
 
-
-  // --- CATEGORIES ---
   const categories: Omit<ForumCategory, 'forums'>[] = [
     { id: 'cat1', name: 'Main Topics', description: "Discussions about primary subjects." },
     { id: 'cat2', name: 'Community Life', description: "Everything related to the community itself." },
@@ -84,7 +74,6 @@ export async function seedDatabase() {
   });
   console.log("Categories prepared for batch.");
 
-  // --- FORUMS ---
   const forums: Forum[] = [
     { id: 'forum1', categoryId: 'cat1', name: 'General Discussion', description: 'A place to discuss anything and everything.', threadCount: 0, postCount: 0, isPublic: true },
     { id: 'forum_intro', categoryId: 'cat1', name: 'Introductions', description: 'Introduce yourself to the community!', threadCount: 0, postCount: 0, isPublic: true },
@@ -95,16 +84,13 @@ export async function seedDatabase() {
 
   forums.forEach(forum => {
     const forumRef = doc(db, "forums", forum.id);
-    batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 }); // Ensure counts are initialized
+    batch.set(forumRef, { ...forum, threadCount: 0, postCount: 0 }); 
   });
   console.log("Forums prepared for batch.");
 
-
-  // --- THREADS & POSTS ---
   let forumPostCounts: Record<string, number> = {};
   forums.forEach(f => forumPostCounts[f.id] = 0);
 
-  // Reset karma components for mock users before calculating from seeded posts
   mockUsersData.forEach(user => {
     if (user.id !== 'unknown' && user.id !== 'visitor0' && user.id !== 'guest1') {
         batch.update(doc(db, "users", user.id), {
@@ -117,7 +103,6 @@ export async function seedDatabase() {
   });
   console.log("User karma components reset for calculation.");
 
-  // Thread 1: General Discussion Welcome Thread (in forum1)
   const thread1Id = 'thread1_welcome';
   const thread1CreatedAt = '2023-05-01T10:00:00Z';
   let thread1PostCount = 0;
@@ -161,7 +146,6 @@ export async function seedDatabase() {
     });
   }
 
-
   const post1_2_Id = 'post1_2_thanks';
   const post1_2_CreatedAt = '2023-05-01T10:05:00Z';
   const post1_2_Reactions = { '😊': { userIds: [alice.id] } };
@@ -183,14 +167,12 @@ export async function seedDatabase() {
     batch.update(doc(db, "users", aliceAuthorInfo.id), { karma: increment(1), totalPostsInThreadsStartedByUser: increment(1) });
   }
 
-
   batch.set(doc(db, "threads", thread1Id), {
     forumId: 'forum1', title: 'General Discussion Welcome Thread', author: aliceAuthorInfo, createdAt: thread1CreatedAt, lastReplyAt: thread1LastReplyAt, postCount: thread1PostCount, isSticky: true, isLocked: false, isPublic: true, poll: thread1PollData
   });
   batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) });
-  console.log("Thread 1 (with poll) and its posts prepared.");
+  console.log("Thread 1 (with poll and sticky) and its posts prepared.");
 
-  // Thread 2: The Future of Technology (in forum2)
   const thread2Id = 'thread2_tech';
   const thread2CreatedAt = '2023-05-02T11:00:00Z';
   let thread2PostCount = 0;
@@ -219,7 +201,6 @@ export async function seedDatabase() {
   batch.update(doc(db, "forums", "forum2"), { threadCount: increment(1) });
   console.log("Thread 2 and its posts prepared.");
 
-  // Thread 3: Favorite Books of 2024 (in forum1)
   const thread3Id = 'thread3_books';
   const thread3CreatedAt = '2023-05-03T12:00:00Z';
   let thread3PostCount = 0;
@@ -248,7 +229,6 @@ export async function seedDatabase() {
   batch.update(doc(db, "forums", "forum1"), { threadCount: increment(1) }); 
   console.log("Thread 3 and its posts prepared.");
 
-  // Thread 4 (Agora): [VOTATION] Make "Introductions" thread sticky (in agora)
   const thread4Id = 'votation1_thread_sticky';
   const thread4CreatedAt = '2023-06-01T09:00:00Z';
   let thread4PostCount = 0;
@@ -288,12 +268,11 @@ export async function seedDatabase() {
   }
 
   batch.set(doc(db, "threads", thread4Id), {
-    forumId: 'agora', title: '[VOTATION] Make "Introductions" area more prominent', author: aliceAuthorInfo, createdAt: thread4CreatedAt, lastReplyAt: thread4LastReplyAt, postCount: thread4PostCount, isSticky: false, isLocked: false, isPublic: true
+    forumId: 'agora', title: '[VOTATION] Make "Introductions" area more prominent', author: aliceAuthorInfo, createdAt: thread4CreatedAt, lastReplyAt: thread4LastReplyAt, postCount: thread4PostCount, isSticky: false, isLocked: false, isPublic: true, relatedVotationId: 'votation_example_1' // Example, actual votation might be created by another process
   });
   batch.update(doc(db, "forums", "agora"), { threadCount: increment(1) });
   console.log("Thread 4 (Agora) and its posts prepared.");
 
-  // Update forum post counts
   for (const forumId in forumPostCounts) {
     if (forumPostCounts[forumId] > 0) {
       batch.update(doc(db, "forums", forumId), { postCount: increment(forumPostCounts[forumId]) });
@@ -301,7 +280,6 @@ export async function seedDatabase() {
   }
   console.log("Forum post counts updated.");
 
-  // Commit the batch
   try {
     await batch.commit();
     console.log("Database seeded successfully with mock data, including all users, categories, forums, threads, posts, and initial karma components!");
@@ -310,5 +288,3 @@ export async function seedDatabase() {
     throw error;
   }
 }
-
-    

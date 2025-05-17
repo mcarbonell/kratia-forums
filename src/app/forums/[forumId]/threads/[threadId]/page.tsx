@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
 import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, VotationStatus } from '@/lib/types';
-import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban, LogIn, Lock, Unlock } from 'lucide-react';
+import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban, LogIn, Lock, Unlock, Pin, PinOff } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment, updateDoc, writeBatch } from 'firebase/firestore';
@@ -59,6 +59,8 @@ export default function ThreadPage() {
   const [isSubmittingVotationVote, setIsSubmittingVotationVote] = useState(false);
   const [userVotationChoice, setUserVotationChoice] = useState<string | null>(null);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
+  const [isTogglingSticky, setIsTogglingSticky] = useState(false);
+
 
   // Effect 1: Fetch core thread and post data
   useEffect(() => {
@@ -93,6 +95,7 @@ export default function ThreadPage() {
           author: threadData.author || { username: 'Unknown', id: '' },
           postCount: threadData.postCount || 0,
           isLocked: threadData.isLocked || false,
+          isSticky: threadData.isSticky || false,
         } as Thread; 
         setThread(fetchedThread);
         
@@ -351,6 +354,29 @@ export default function ThreadPage() {
     }
   };
 
+  const handleToggleStickyThread = async () => {
+    if (!thread || !isAdminOrFounder) {
+      toast({ title: "Error", description: "Action not allowed or thread not found.", variant: "destructive" });
+      return;
+    }
+    setIsTogglingSticky(true);
+    const threadRef = doc(db, "threads", thread.id);
+    const newStickyState = !thread.isSticky;
+    try {
+      await updateDoc(threadRef, { isSticky: newStickyState });
+      setThread(prevThread => prevThread ? { ...prevThread, isSticky: newStickyState } : null);
+      toast({
+        title: `Thread ${newStickyState ? 'Made Sticky' : 'Removed Sticky'}`,
+        description: `The thread has been successfully ${newStickyState ? 'made sticky' : 'removed from sticky'}.`,
+      });
+    } catch (err) {
+      console.error("Error toggling thread sticky state:", err);
+      toast({ title: "Error", description: "Failed to update thread sticky state.", variant: "destructive" });
+    } finally {
+      setIsTogglingSticky(false);
+    }
+  };
+
 
   if (authLoading || isLoading) {
     return (
@@ -401,6 +427,7 @@ export default function ThreadPage() {
                 Back to {backLinkText}
             </Link>
             <h1 className="text-2xl sm:text-3xl font-bold flex items-start">
+                {thread.isSticky && <Pin className="mr-2 h-7 w-7 text-amber-500 flex-shrink-0 mt-1" title="Sticky Thread"/>}
                 <FileText className="mr-3 h-8 w-8 text-primary flex-shrink-0 mt-1" />
                 <span className="break-all">{thread.title}</span>
                 {thread.isLocked && <Lock className="ml-2 h-6 w-6 text-destructive flex-shrink-0 mt-1" title="Thread Locked" />}
@@ -411,19 +438,31 @@ export default function ThreadPage() {
         </div>
         <div className="flex flex-col sm:flex-row gap-2 items-end self-start sm:self-center">
             {isAdminOrFounder && (
+              <>
+                <Button 
+                    variant={thread.isSticky ? "destructive" : "outline"} 
+                    onClick={handleToggleStickyThread}
+                    disabled={isTogglingSticky}
+                    size="sm"
+                    className="min-w-[130px]"
+                >
+                    {isTogglingSticky ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (thread.isSticky ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />)}
+                    {thread.isSticky ? 'Remove Sticky' : 'Make Sticky'}
+                </Button>
                 <Button 
                     variant={thread.isLocked ? "destructive" : "outline"} 
                     onClick={handleToggleLockThread}
                     disabled={isTogglingLock}
                     size="sm"
-                    className="min-w-[120px]"
+                    className="min-w-[130px]"
                 >
                     {isTogglingLock ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (thread.isLocked ? <Unlock className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />)}
                     {thread.isLocked ? 'Unlock Thread' : 'Lock Thread'}
                 </Button>
+              </>
             )}
             {userCanReply && !thread.isLocked && (
-              <Button onClick={() => setShowReplyForm(prev => !prev)} size="sm">
+              <Button onClick={() => setShowReplyForm(prev => !prev)} size="sm" className="min-w-[130px]">
                 {showReplyForm ? <Edit className="mr-2 h-5 w-5" />  : <Reply className="mr-2 h-5 w-5" /> }
                 {showReplyForm ? 'Cancel Reply' : 'Reply to Thread'}
               </Button>

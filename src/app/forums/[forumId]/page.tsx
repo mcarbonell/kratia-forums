@@ -12,7 +12,7 @@ import { MessageSquareText, PlusCircle, ListChecks, Frown, Loader2 } from 'lucid
 import type { Forum, Thread } from '@/lib/types';
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, QueryOrderByConstraint } from 'firebase/firestore';
 
 // Helper function for timestamp conversion
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
@@ -20,13 +20,10 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
     return undefined; // Field might be optional
   }
   if (typeof timestamp === 'string') {
-    // Basic validation for ISO string: YYYY-MM-DDTHH:mm:ss.sssZ
     if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/.test(timestamp)) {
-        // Ensure it's a valid date by trying to parse and re-stringify
         const d = new Date(timestamp);
         if (d.toISOString() === timestamp) return timestamp;
     }
-    // Try to parse if not strictly ISO or if validation above failed
     const parsedDate = new Date(timestamp);
     if (!isNaN(parsedDate.getTime())) {
         return parsedDate.toISOString();
@@ -35,17 +32,16 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
     return undefined;
   }
   if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-    // Firestore Timestamp object
     return timestamp.toDate().toISOString();
   }
-  if (timestamp instanceof Date) { // JS Date object
+  if (timestamp instanceof Date) { 
     return timestamp.toISOString();
   }
-  if (typeof timestamp === 'number') { // Milliseconds since epoch
+  if (typeof timestamp === 'number') { 
     return new Date(timestamp).toISOString();
   }
   console.warn('Unknown timestamp format:', timestamp);
-  return undefined; // Fallback for unknown types
+  return undefined; 
 };
 
 
@@ -71,7 +67,6 @@ export default function ForumPage() {
       setIsLoading(true);
       setError(null);
       try {
-        // Fetch forum details
         const forumRef = doc(db, "forums", forumId);
         const forumSnap = await getDoc(forumRef);
 
@@ -89,11 +84,15 @@ export default function ForumPage() {
             postCount: forumData.postCount || 0,
         } as Forum);
 
-        // Fetch threads for this forum
+        const orderByConstraints: QueryOrderByConstraint[] = [
+          orderBy("isSticky", "desc"),
+          orderBy("lastReplyAt", "desc")
+        ];
+
         const threadsQuery = query(
           collection(db, "threads"),
           where("forumId", "==", forumId),
-          orderBy("lastReplyAt", "desc")
+          ...orderByConstraints
         );
         const threadsSnapshot = await getDocs(threadsQuery);
         const fetchedThreads = threadsSnapshot.docs.map(docSnap => {
@@ -101,10 +100,11 @@ export default function ForumPage() {
           return {
             id: docSnap.id,
             ...data,
-            createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(), // Fallback to epoch if undefined
+            createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(), 
             lastReplyAt: formatFirestoreTimestamp(data.lastReplyAt),
             author: data.author || { username: 'Unknown', id: '' },
             postCount: data.postCount || 0,
+            isSticky: data.isSticky || false,
           } as Thread;
         });
         setThreads(fetchedThreads);
@@ -120,7 +120,7 @@ export default function ForumPage() {
     fetchForumAndThreads();
   }, [forumId]);
 
-  const canCreateThread = user && user.role !== 'visitor' && user.role !== 'guest';
+  const canCreateThread = user && user.role !== 'visitor' && user.role !== 'guest' && user.status === 'active';
 
   if (authLoading || isLoading) {
     return (
@@ -227,3 +227,4 @@ export default function ForumPage() {
     </div>
   );
 }
+
