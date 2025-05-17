@@ -26,7 +26,8 @@ export default function LoginPage() {
     setError("");
     setSanctionError(null);
 
-    const result: LoginResult = login(email, password);
+    // Ensure login is awaited as it's an async function
+    const result: LoginResult = await login(email, password);
 
     if (result.success) {
       router.push('/'); 
