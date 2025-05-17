@@ -12,7 +12,7 @@ import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useEffect, useState } from 'react';
 import type { ForumCategory, Forum, User } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, where, Timestamp, doc, getDoc } from 'firebase/firestore';
 import { seedDatabase } from '@/lib/seedDatabase';
 import { useToast } from '@/hooks/use-toast';
 
@@ -22,23 +22,41 @@ export default function HomePage() {
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
   
-  // State for seeding button
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedCompleted, setSeedCompleted] = useState(false);
   const { toast } = useToast();
 
-  // Recalculate showOnboarding based on potentially updated user state
-  const showOnboarding = user && user.username && 
-                         user.isQuarantined && 
+  // For debugging:
+  // useEffect(() => {
+  //    if (user) {
+  //     console.log("HomePage user from useMockAuth:", JSON.stringify(user, null, 2));
+  //   }
+  // }, [user]);
+
+  const showOnboarding = user && user.username &&
+                         user.isQuarantined &&
                          (user.onboardingAccepted === undefined || user.onboardingAccepted === false);
 
 
-  const handleOnboardingAccepted = async () => {
-    // Force a re-sync of user data to ensure HomePage gets the updated onboardingAccepted status
+  const handleOnboardingAccepted = useCallback(async () => {
     if (user && syncUserWithFirestore) {
-      await syncUserWithFirestore(user);
+      // The OnboardingMessage component updates Firestore directly.
+      // We need to ensure useMockAuth's internal state reflects this.
+      // syncUserWithFirestore should be called to refresh the user object in the hook.
+      const userRef = doc(db, "users", user.id);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const latestFirestoreData = userSnap.data() as User;
+        const userToSync: MockUser = { // Ensure MockUser type is used if available, or construct carefully
+          ...user, // current user state from hook
+          ...latestFirestoreData, // override with latest from FS
+          role: (latestFirestoreData.role || user.role || 'user') as UserRole,
+          status: latestFirestoreData.status || user.status || 'active',
+        };
+        await syncUserWithFirestore(userToSync); // This will update internalCurrentUser in useMockAuth
+      }
     }
-  };
+  }, [user, syncUserWithFirestore]);
   
   useEffect(() => {
     if (typeof window !== 'undefined' && localStorage.getItem('db_seeded_kratia') === 'true') {
@@ -46,12 +64,6 @@ export default function HomePage() {
     }
     fetchCategoriesAndForums();
   }, []);
-
-  // Re-evaluate showOnboarding when user object changes
-  useEffect(() => {
-    // This effect just ensures the component re-renders when user changes,
-    // showOnboarding variable will be re-calculated.
-  }, [user]);
 
 
   const fetchCategoriesAndForums = async () => {
@@ -63,10 +75,10 @@ export default function HomePage() {
         const fetchedCategories: ForumCategory[] = [];
 
         const forumsSnapshot = await getDocs(collection(db, "forums"));
-        const allForums: Forum[] = forumsSnapshot.docs.map(doc => {
-          const data = doc.data();
+        const allForums: Forum[] = forumsSnapshot.docs.map(docSnap => {
+          const data = docSnap.data();
           return {
-            id: doc.id,
+            id: docSnap.id,
             ...data,
             threadCount: data.threadCount || 0,
             postCount: data.postCount || 0,
@@ -248,3 +260,7 @@ export default function HomePage() {
     </div>
   );
 }
+
+// Added these imports to satisfy handleOnboardingAccepted if MockUser/UserRole were not globally available
+import type { MockUser, UserRole } from '@/hooks/use-mock-auth'; 
+import { useCallback } from 'react';
