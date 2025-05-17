@@ -96,6 +96,7 @@ export default function ThreadPage() {
           postCount: threadData.postCount || 0,
           isLocked: threadData.isLocked || false,
           isSticky: threadData.isSticky || false,
+          relatedVotationId: threadData.relatedVotationId || undefined,
         } as Thread; 
         setThread(fetchedThread);
         
@@ -153,29 +154,29 @@ export default function ThreadPage() {
     fetchCoreData();
   }, [threadId, forumId]);
 
-  // Effect 2: Process Votation (closing, setting user choice)
+  // Effect 2: Process Votation (closing, setting user choice, applying outcomes)
   useEffect(() => {
-    if (!votation || !thread) { 
+    if (!votation || !thread) { // Added !thread check
       setUserVotationChoice(null);
       return;
     }
-
+  
     if (loggedInUser && votation.voters && votation.voters[loggedInUser.id]) {
       setUserVotationChoice(votation.voters[loggedInUser.id]);
     } else {
       setUserVotationChoice(null);
     }
-
+  
     const closeVotationIfNeeded = async () => {
       if (votation.status === 'active' && votation.deadline && isPast(new Date(votation.deadline))) {
-        let newStatus: VotationStatus = 'closed_failed_vote';
+        let newStatus: VotationStatus = 'closed_failed_vote'; // Default to failed
         let outcomeMessage = 'Outcome not yet determined.';
-
+  
         const quorumMet = (votation.totalVotesCast || 0) >= (votation.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS);
         const forVotes = votation.options.for || 0;
         const againstVotes = votation.options.against || 0;
         const passed = forVotes > againstVotes;
-
+  
         if (!quorumMet) {
           newStatus = 'closed_failed_quorum';
           outcomeMessage = `Failed - Quorum not met (${votation.totalVotesCast} of ${votation.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS} required).`;
@@ -192,12 +193,13 @@ export default function ThreadPage() {
           const votationRef = doc(db, "votations", votation.id);
           batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
           
+          // Apply sanction if type is sanction and passed
           if (newStatus === 'closed_passed' && votation.type === 'sanction' && votation.targetUserId) {
             const targetUserRef = doc(db, "users", votation.targetUserId);
-            const sanctionDurationDays = 1; // Defaulting to 1 day 
+            const sanctionDurationDays = 1; // Defaulting to 1 day for now
             const sanctionEndDate = new Date();
             sanctionEndDate.setDate(sanctionEndDate.getDate() + sanctionDurationDays);
-
+  
             batch.update(targetUserRef, {
               status: 'sanctioned',
               sanctionEndDate: sanctionEndDate.toISOString(),
@@ -208,30 +210,43 @@ export default function ThreadPage() {
             });
           }
 
+          // Apply constitution change if type is rule_change and passed
+          if (newStatus === 'closed_passed' && votation.type === 'rule_change' && votation.proposedConstitutionText) {
+            const constitutionRef = doc(db, "site_settings", "constitution");
+            batch.update(constitutionRef, {
+                constitutionText: votation.proposedConstitutionText,
+                lastUpdated: new Date().toISOString(),
+            });
+            toast({
+                title: "Constitution Updated!",
+                description: "The site constitution has been updated based on the passed votation.",
+            });
+          }
+
+          // Lock the Agora thread if votation is closed and thread isn't already locked
           if (newStatus !== 'active' && thread && !thread.isLocked) {
-            const threadRef = doc(db, "threads", thread.id);
-            batch.update(threadRef, { isLocked: true });
-             if (thread.id === threadId) { // Ensure we only update current thread's state
+            const threadRefDoc = doc(db, "threads", thread.id); // Renamed to avoid conflict with `thread` state
+            batch.update(threadRefDoc, { isLocked: true });
+             if (thread.id === threadId) { 
                  setThread(prevThread => prevThread ? { ...prevThread, isLocked: true } : null);
              }
             toast({ title: "Thread Locked", description: "This Agora thread has been automatically locked as its votation has concluded."});
           }
-
+  
           await batch.commit();
-
+  
           setVotation(prevVotation => prevVotation ? {...prevVotation, status: newStatus, outcome: outcomeMessage} : null);
           toast({ title: "Votation Closed", description: `Votation "${votation.title}" has been automatically closed. Result: ${outcomeMessage}`});
-
-
+  
         } catch (updateError: any) {
-          console.error("Error updating votation status, applying sanction, or locking thread:", updateError);
-          toast({ title: "Votation Update Error", description: updateError.message || "Could not automatically close the votation or apply sanction/lock thread. Please try refreshing.", variant: "destructive"});
+          console.error("Error updating votation status, applying outcome, or locking thread:", updateError);
+          toast({ title: "Votation Update Error", description: updateError.message || "Could not automatically close the votation or apply outcomes. Please try refreshing.", variant: "destructive"});
         }
       }
     };
-
+  
     closeVotationIfNeeded();
-  }, [votation, loggedInUser?.id, toast, thread, threadId]); 
+  }, [votation, loggedInUser?.id, toast, thread, threadId]); // Added thread to dependencies
 
 
   const isOwnActiveSanctionThread =
