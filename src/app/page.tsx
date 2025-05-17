@@ -10,32 +10,49 @@ import { ShieldCheck, LogIn, UserPlus, Vote, Sparkles, Loader2, AlertTriangle, D
 import { KRATIA_CONFIG } from '@/lib/config';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useEffect, useState } from 'react';
-import type { ForumCategory, Forum } from '@/lib/types';
+import type { ForumCategory, Forum, User } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, where, Timestamp } from 'firebase/firestore';
-import { seedDatabase } from '@/lib/seedDatabase'; // Import the seed function
-import { useToast } from '@/hooks/use-toast'; // Import useToast
+import { seedDatabase } from '@/lib/seedDatabase';
+import { useToast } from '@/hooks/use-toast';
 
 export default function HomePage() {
-  const { user, loading: authLoading } = useMockAuth();
+  const { user, loading: authLoading, syncUserWithFirestore } = useMockAuth();
   const [categories, setCategories] = useState<ForumCategory[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
   
-  const showOnboarding = user?.id === 'user4' && user.isQuarantined;
-
   // State for seeding button
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedCompleted, setSeedCompleted] = useState(false);
-  const { toast } = useToast(); // Initialize toast
+  const { toast } = useToast();
 
+  // Recalculate showOnboarding based on potentially updated user state
+  const showOnboarding = user && user.username && 
+                         user.isQuarantined && 
+                         (user.onboardingAccepted === undefined || user.onboardingAccepted === false);
+
+
+  const handleOnboardingAccepted = async () => {
+    // Force a re-sync of user data to ensure HomePage gets the updated onboardingAccepted status
+    if (user && syncUserWithFirestore) {
+      await syncUserWithFirestore(user);
+    }
+  };
+  
   useEffect(() => {
-    // Check if seeding has been done before (e.g., using localStorage)
-    if (localStorage.getItem('db_seeded_kratia') === 'true') {
+    if (typeof window !== 'undefined' && localStorage.getItem('db_seeded_kratia') === 'true') {
       setSeedCompleted(true);
     }
     fetchCategoriesAndForums();
   }, []);
+
+  // Re-evaluate showOnboarding when user object changes
+  useEffect(() => {
+    // This effect just ensures the component re-renders when user changes,
+    // showOnboarding variable will be re-calculated.
+  }, [user]);
+
 
   const fetchCategoriesAndForums = async () => {
       setIsLoadingCategories(true);
@@ -84,8 +101,9 @@ export default function HomePage() {
         description: "Mock data has been successfully added to Firestore.",
       });
       setSeedCompleted(true);
-      localStorage.setItem('db_seeded_kratia', 'true'); // Mark as seeded
-      // Re-fetch categories to update the list
+      if (typeof window !== 'undefined') {
+          localStorage.setItem('db_seeded_kratia', 'true');
+      }
       fetchCategoriesAndForums();
     } catch (error) {
       console.error("Error seeding database:", error);
@@ -131,7 +149,6 @@ export default function HomePage() {
         </CardContent>
       </Card>
 
-      {/* Temporary Seeding Button */}
       {!seedCompleted && (
         <Card className="shadow-md border-dashed border-primary/50">
           <CardHeader>
@@ -162,11 +179,10 @@ export default function HomePage() {
         </Card>
       )}
 
-
       {!authLoading && showOnboarding && user?.username && (
         <section aria-labelledby="onboarding-title">
           <h2 id="onboarding-title" className="sr-only">Personalized Onboarding</h2>
-          <OnboardingMessage username={user.username} />
+          <OnboardingMessage username={user.username} onAccepted={handleOnboardingAccepted} />
         </section>
       )}
       
@@ -214,7 +230,6 @@ export default function HomePage() {
         {!isLoadingCategories && !categoriesError && (
           <ForumList categories={categories} />
         )}
-         {/* Message if no categories and no error, potentially after seeding but before refresh or if seed is empty */}
         {!isLoadingCategories && !categoriesError && categories.length === 0 && !seedCompleted && (
              <Card>
                 <CardContent className="pt-6 text-center text-muted-foreground">

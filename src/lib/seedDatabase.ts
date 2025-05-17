@@ -4,22 +4,32 @@
 import { db } from '@/lib/firebase';
 import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll, Votation, SiteSettings } from '@/lib/types';
 import { 
-    mockUsers as MOCK_USERS_ARRAY, // Renamed to avoid conflict if mockUsers is also exported
+    mockUsers as MOCK_USERS_ARRAY,
     mockCategoriesData,
     mockForumsData,
-    mockThreadsData as rawMockThreadsData,
-    mockPostsData as rawMockPostsData,
+    mockThreadsData as rawMockThreadsDataWithAuthorId, // Renamed to reflect it has authorId
+    mockPostsData as rawMockPostsDataWithAuthorId, // Renamed
     mockVotationsData
-} from '@/lib/mockData';
+} from '@/lib/mockData'; // mockUsers will be directly used from mockData
 import { collection, doc, writeBatch, increment, Timestamp } from 'firebase/firestore';
 
-const findUserByIdForSeed = (userId: string, usersArray: KratiaUser[]): KratiaUser => {
-    const user = usersArray.find(u => u.id === userId);
-    if (!user) throw new Error(`Seed Error: User with ID ${userId} not found in usersToSeed array.`);
+// Helper to find a user from the MOCK_USERS_ARRAY
+const findUserByIdForSeed = (userId: string): KratiaUser => {
+    const user = MOCK_USERS_ARRAY.find(u => u.id === userId);
+    if (!user) {
+        console.error(`Seed Error: User with ID ${userId} not found in mockData.ts MOCK_USERS_ARRAY.`);
+        throw new Error(`Mock user with ID ${userId} not found. Seed data may be inconsistent.`);
+    }
     return user;
 };
 
+// Helper to get Pick<User, 'id' | 'username' | 'avatarUrl'>
 const getAuthorPick = (user: KratiaUser): Pick<KratiaUser, 'id' | 'username' | 'avatarUrl'> => {
+  if (!user || !user.id || !user.username) {
+    // This case should ideally not happen if findUserByIdForSeed works correctly
+    console.error('Seed Error: Invalid user object passed to getAuthorPick:', user);
+    return { id: 'unknown', username: 'Unknown User', avatarUrl: '' };
+  }
   return {
     id: user.id,
     username: user.username,
@@ -85,17 +95,18 @@ export async function seedDatabase() {
   const batch = writeBatch(db);
   console.log("Starting database seed...");
 
-  const usersToSeed = MOCK_USERS_ARRAY.filter(u => u.id !== 'visitor0' && u.id !== 'guest1');
-
-  const mockThreadsData = rawMockThreadsData.map(t => ({
+  // Prepare threads and posts data by embedding author objects
+  const mockThreadsData = rawMockThreadsDataWithAuthorId.map(t => ({
     ...t,
-    author: getAuthorPick(findUserByIdForSeed(t.authorId, MOCK_USERS_ARRAY)) // Use MOCK_USERS_ARRAY for finding
+    author: getAuthorPick(findUserByIdForSeed(t.authorId))
   }));
 
-  const mockPostsData = rawMockPostsData.map(p => ({
+  const mockPostsData = rawMockPostsDataWithAuthorId.map(p => ({
     ...p,
-    author: getAuthorPick(findUserByIdForSeed(p.authorId, MOCK_USERS_ARRAY)) // Use MOCK_USERS_ARRAY for finding
+    author: getAuthorPick(findUserByIdForSeed(p.authorId))
   }));
+
+  const usersToSeed = MOCK_USERS_ARRAY.filter(u => u.id !== 'visitor0' && u.id !== 'guest1');
   
   const threadsStartedCounts: Record<string, number> = {};
   mockThreadsData.forEach(thread => {
@@ -109,18 +120,20 @@ export async function seedDatabase() {
         ...user,
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username?.[0]?.toUpperCase() || 'U'}`,
         registrationDate: user.registrationDate || new Date().toISOString(),
-        karma: 0, // Will be calculated
+        karma: 0,
         location: user.location || null,
         aboutMe: user.aboutMe || null,
+        presentation: user.presentation || null,
         canVote: user.canVote === undefined ? false : user.canVote,
         isQuarantined: user.isQuarantined === undefined ? false : user.isQuarantined,
-        totalPostsByUser: 0, // Will be calculated
-        totalReactionsReceived: 0, // Will be calculated
-        totalPostsInThreadsStartedByUser: 0, // Will be calculated
+        totalPostsByUser: 0,
+        totalReactionsReceived: 0,
+        totalPostsInThreadsStartedByUser: 0,
         totalThreadsStartedByUser: threadsStartedCounts[user.id] || 0,
         status: user.status || 'active',
         role: user.role || 'user',
         sanctionEndDate: user.sanctionEndDate || null,
+        onboardingAccepted: user.onboardingAccepted || false,
     };
     batch.set(userRef, userData);
   });
@@ -143,13 +156,15 @@ export async function seedDatabase() {
   console.log(`Processing ${mockThreadsData.length} threads...`);
   mockThreadsData.forEach(thread => {
     const threadRef = doc(db, "threads", thread.id);
-    const { authorId, ...threadDataToSave } = thread; // authorId is not a field in Thread type after mapping
-    const pollData = thread.id === 'thread1_welcome' ? rawMockThreadsData.find(t => t.id === 'thread1_welcome')?.poll : undefined;
+    const { authorId, ...threadDataToSave } = thread; // authorId is no longer needed here as author object is embedded
+    const pollData = thread.id === 'thread1_welcome' ? rawMockThreadsDataWithAuthorId.find(t => t.id === 'thread1_welcome')?.poll : undefined;
+    
     batch.set(threadRef, { 
         ...threadDataToSave, 
-        postCount: 0,
+        postCount: 0, // Will be updated later
         isSticky: threadDataToSave.isSticky || false,
         isLocked: threadDataToSave.isLocked || false,
+        isPublic: threadDataToSave.isPublic === undefined ? true : threadDataToSave.isPublic,
         relatedVotationId: threadDataToSave.relatedVotationId || null,
         ...(pollData && { poll: pollData }) 
     });
@@ -165,16 +180,14 @@ export async function seedDatabase() {
     console.log("Votations prepared.");
   }
 
-  // Seed Constitution
   console.log("Processing constitution setting...");
-  const constitutionRef = doc(db, "site_settings", "constitution"); // Changed "main_constitution" to "constitution"
+  const constitutionRef = doc(db, "site_settings", "constitution");
   const constitutionData: SiteSettings = {
     constitutionText: initialConstitutionText,
     lastUpdated: new Date().toISOString(),
   };
   batch.set(constitutionRef, constitutionData);
   console.log("Constitution setting prepared.");
-
 
   console.log(`Processing ${mockPostsData.length} posts and updating counts/karma...`);
   const threadPostCounts: Record<string, number> = {};
@@ -187,7 +200,7 @@ export async function seedDatabase() {
 
   mockPostsData.forEach(post => {
     const postRef = doc(db, "posts", post.id);
-    const { authorId, ...postDataToSave } = post; 
+    const { authorId, ...postDataToSave } = post; // authorId is no longer needed here
     batch.set(postRef, { 
         ...postDataToSave, 
         isEdited: post.isEdited || false, 
@@ -216,7 +229,7 @@ export async function seedDatabase() {
         });
       }
     } else {
-        console.warn(`Seed Warning: Author ID ${post.author.id} for post ${post.id} not found in userKarmaUpdates. This shouldn't happen if usersToSeed is correct.`);
+        console.warn(`Seed Warning: Author ID ${post.author.id} for post ${post.id} not found in userKarmaUpdates.`);
     }
   });
   console.log("Posts prepared, count/karma aggregation started.");
@@ -248,7 +261,7 @@ export async function seedDatabase() {
   console.log("Forum counts updated.");
 
   for (const userId in userKarmaUpdates) {
-    if (!userKarmaUpdates[userId] || !usersToSeed.find(u => u.id === userId)) continue; // Ensure user exists
+    if (!userKarmaUpdates[userId] || !usersToSeed.find(u => u.id === userId)) continue;
     const userRef = doc(db, "users", userId);
     const updates = userKarmaUpdates[userId];
     const totalKarmaDelta = (updates.posts || 0) + (updates.reactions || 0) + (updates.threadPosts || 0);
@@ -270,4 +283,3 @@ export async function seedDatabase() {
     throw error;
   }
 }
-

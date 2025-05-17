@@ -3,23 +3,34 @@
 
 import { useEffect, useState } from 'react';
 import { generatePersonalizedOnboardingMessage, type PersonalizedOnboardingMessageInput, type PersonalizedOnboardingMessageOutput } from '@/ai/flows/personalized-onboarding-message';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, Sparkles, AlertTriangle, CheckCircle, Gift } from 'lucide-react';
 import { KRATIA_CONFIG } from '@/lib/config';
+import { useMockAuth } from '@/hooks/use-mock-auth';
+import { useToast } from '@/hooks/use-toast';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc, increment } from 'firebase/firestore';
 
 interface OnboardingMessageProps {
   username: string;
+  onAccepted?: () => void; // Callback to notify parent
 }
 
-export default function OnboardingMessage({ username }: OnboardingMessageProps) {
+export default function OnboardingMessage({ username, onAccepted }: OnboardingMessageProps) {
+  const { user, syncUserWithFirestore } = useMockAuth(); // Get user and sync function
+  const { toast } = useToast();
+
   const [message, setMessage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMessage, setIsLoadingMessage] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [hasAcceptedLocally, setHasAcceptedLocally] = useState(false); // To hide immediately
 
   useEffect(() => {
     if (!username) {
-      setIsLoading(false);
+      setIsLoadingMessage(false);
       setError("Username not provided for onboarding message.");
       return;
     }
@@ -29,7 +40,7 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
 
     if (cachedMessage) {
       setMessage(cachedMessage);
-      setIsLoading(false);
+      setIsLoadingMessage(false);
       return;
     }
 
@@ -38,16 +49,16 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
     let timeoutId: NodeJS.Timeout;
 
     const fetchOnboardingMessage = async () => {
-      setIsLoading(true);
+      setIsLoadingMessage(true);
       setError(null);
 
       timeoutId = setTimeout(() => {
         if (!signal.aborted) {
           controller.abort();
           setError("The welcome message is taking too long to generate. Please try again later or explore the forum!");
-          setIsLoading(false);
+          setIsLoadingMessage(false);
         }
-      }, 20000); // 20 seconds timeout
+      }, 20000);
 
       try {
         const input: PersonalizedOnboardingMessageInput = {
@@ -80,7 +91,7 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
         setError(displayError);
       } finally {
         if (!signal.aborted) {
-          setIsLoading(false);
+          setIsLoadingMessage(false);
         }
       }
     };
@@ -95,7 +106,45 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
     };
   }, [username]);
 
-  if (isLoading) {
+  const handleAcceptWelcome = async () => {
+    if (!user || user.id === 'visitor0' || user.id === 'guest1') {
+      toast({ title: "Error", description: "User not properly identified.", variant: "destructive" });
+      return;
+    }
+    setIsAccepting(true);
+    try {
+      const userRef = doc(db, "users", user.id);
+      await updateDoc(userRef, {
+        onboardingAccepted: true,
+        karma: increment(1)
+      });
+      toast({
+        title: "Welcome Accepted!",
+        description: "You've earned +1 karma! Enjoy Kratia Forums.",
+        action: <CheckCircle className="text-green-500" />
+      });
+      setHasAcceptedLocally(true); // Hide component immediately
+      if (onAccepted) onAccepted(); // Notify parent
+      
+      // Attempt to re-sync user data in useMockAuth for immediate reflection if possible
+      // This relies on useMockAuth's internal re-syncing mechanism after a Firestore update
+      if (user && syncUserWithFirestore) {
+        await syncUserWithFirestore(user);
+      }
+
+    } catch (err) {
+      console.error("Error accepting welcome:", err);
+      toast({ title: "Error", description: "Could not save your acceptance. Please try again.", variant: "destructive" });
+    } finally {
+      setIsAccepting(false);
+    }
+  };
+
+  if (hasAcceptedLocally) {
+    return null; // Don't render if accepted locally
+  }
+
+  if (isLoadingMessage) {
     return (
       <Card className="shadow-lg border-primary/20">
         <CardHeader>
@@ -123,7 +172,6 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
   }
 
   if (!message) {
-    // This case should ideally be covered by isLoading or error states
     return null; 
   }
 
@@ -143,6 +191,12 @@ export default function OnboardingMessage({ username }: OnboardingMessageProps) 
           ))}
         </div>
       </CardContent>
+      <CardFooter className="p-4 border-t">
+        <Button onClick={handleAcceptWelcome} disabled={isAccepting} className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground">
+          {isAccepting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Gift className="mr-2 h-5 w-5" />}
+          {isAccepting ? "Accepting..." : "Accept Welcome & Get +1 Karma!"}
+        </Button>
+      </CardFooter>
     </Card>
   );
 }

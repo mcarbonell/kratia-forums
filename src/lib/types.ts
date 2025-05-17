@@ -18,6 +18,7 @@ export interface User {
   status?: 'active' | 'under_sanction_process' | 'sanctioned' | 'pending_admission';
   sanctionEndDate?: string; // ISO date string, if sanctioned
   role?: 'guest' | 'user' | 'normal_user' | 'admin' | 'founder' | 'visitor';
+  onboardingAccepted?: boolean;
 }
 
 export interface Post {
@@ -81,7 +82,7 @@ export interface Poll {
   allowMultipleVotes?: boolean;
   endDate?: string;
   totalVotes: number;
-  voters: Record<string, string>;
+  voters: Record<string, string>; // userId: optionId
 }
 
 export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote' | 'closed_executed' | 'closed_rejected';
@@ -99,18 +100,18 @@ export interface Votation {
   title: string;
   description: string;
   justification?: string;
-  proposerId: string; // For rule_change, sanction, etc. Could be applicant's ID for admission.
-  proposerUsername: string; // For rule_change, sanction, etc. Could be applicant's username for admission.
+  proposerId: string;
+  proposerUsername: string;
   type: VotationType;
   createdAt: string;
   deadline: string;
   status: VotationStatus;
   
-  targetUserId?: string; // For sanction, or applicant's ID for admission.
-  targetUsername?: string; // For sanction, or applicant's username for admission.
+  targetUserId?: string;
+  targetUsername?: string;
   sanctionDuration?: string;
   
-  proposedConstitutionText?: string; // For constitution change proposals
+  proposedConstitutionText?: string;
 
   options: VotationOptionTally;
   voters: Record<string, 'for' | 'against' | 'abstain'>;
