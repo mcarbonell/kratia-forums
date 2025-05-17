@@ -4,7 +4,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { MailCheck, ShieldCheck, LogIn, Hourglass } from "lucide-react";
+import { MailCheck, ShieldCheck, LogIn, Hourglass, Home } from "lucide-react"; // Ensure Home is imported
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from "react";
 
