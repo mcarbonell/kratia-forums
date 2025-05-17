@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LogIn, ShieldCheck, UserX, Home } from "lucide-react";
+import { LogIn, ShieldCheck, UserX, Home, Clock } from "lucide-react";
 import { useMockAuth, type LoginResult } from "@/hooks/use-mock-auth"; 
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
@@ -19,22 +19,24 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [sanctionError, setSanctionError] = useState<{username?: string; endDate?: string} | null>(null);
+  const [authError, setAuthError] = useState<{type: 'sanctioned' | 'pending_admission', username?: string; endDate?: string} | null>(null);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    setSanctionError(null);
+    setAuthError(null);
 
-    // Ensure login is awaited as it's an async function
     const result: LoginResult = await login(email, password);
 
     if (result.success) {
       router.push('/'); 
     } else {
       if (result.reason === 'sanctioned') {
-        setSanctionError({username: result.username, endDate: result.sanctionEndDate});
+        setAuthError({type: 'sanctioned', username: result.username, endDate: result.sanctionEndDate});
         setError(`User ${result.username} is sanctioned. Access denied.`);
+      } else if (result.reason === 'pending_admission') {
+        setAuthError({type: 'pending_admission', username: result.username});
+        setError(`User ${result.username}'s application is pending community review.`);
       } else if (result.reason === 'not_found') {
         setError("User not found or credentials invalid. Please check your email/password.");
       }
@@ -46,7 +48,7 @@ export default function LoginPage() {
   };
 
   const handleContinueAsVisitor = () => {
-    logout(); // Ensure user is logged out and mock auth state is visitor
+    logout(); 
     router.push('/');
   };
 
@@ -55,23 +57,29 @@ export default function LoginPage() {
       <Card className="mx-auto max-w-sm w-full shadow-xl">
         <CardHeader className="text-center">
           <div className="inline-block mx-auto mb-4">
-            {sanctionError ? <UserX className="h-16 w-16 text-destructive" /> : <ShieldCheck className="h-16 w-16 text-primary" />}
+            {authError?.type === 'sanctioned' ? <UserX className="h-16 w-16 text-destructive" /> 
+             : authError?.type === 'pending_admission' ? <Clock className="h-16 w-16 text-amber-500" />
+             : <ShieldCheck className="h-16 w-16 text-primary" />}
           </div>
           <CardTitle className="text-3xl font-bold">
-            {sanctionError ? "Access Denied" : "Welcome Back!"}
+            {authError?.type === 'sanctioned' ? "Access Denied" 
+             : authError?.type === 'pending_admission' ? "Application Pending"
+             : "Welcome Back!"}
           </CardTitle>
           <CardDescription>
-            {sanctionError 
-              ? `User ${sanctionError.username} is currently sanctioned.` 
+            {authError?.type === 'sanctioned' 
+              ? `User ${authError.username} is currently sanctioned.` 
+              : authError?.type === 'pending_admission'
+              ? `The admission application for ${authError.username} is currently under review by the community. You will be notified of the outcome.`
               : "Enter your credentials to access your Kratia account."}
-             {sanctionError?.endDate && (
+             {authError?.type === 'sanctioned' && authError?.endDate && (
                 <span className="block mt-1 text-sm text-destructive">
-                  Sanction ends: {format(new Date(sanctionError.endDate), "PPPp")}
+                  Sanction ends: {format(new Date(authError.endDate), "PPPp")}
                 </span>
               )}
           </CardDescription>
         </CardHeader>
-        {!sanctionError && (
+        {!authError && (
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
@@ -100,7 +108,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              {error && !sanctionError && <p className="text-sm text-destructive">{error}</p>}
+              {error && !authError && <p className="text-sm text-destructive">{error}</p>}
               <Button type="submit" className="w-full">
                 <LogIn className="mr-2 h-5 w-5" /> Login
               </Button>
@@ -108,12 +116,12 @@ export default function LoginPage() {
             <div className="mt-6 text-center text-sm">
               Don&apos;t have an account?{" "}
               <Link href="/auth/signup" className="underline font-medium text-primary hover:text-primary/80">
-                Sign up
+                Apply to Join
               </Link>
             </div>
           </CardContent>
         )}
-        {sanctionError && (
+        {authError && (
             <CardContent className="text-center">
                  <Button onClick={handleContinueAsVisitor} variant="outline" className="mt-4 w-full">
                     <Home className="mr-2 h-5 w-5" /> Continue as Visitor

@@ -8,13 +8,14 @@ export interface User {
   karma?: number;
   location?: string;
   aboutMe?: string;
+  presentation?: string; // For admission requests
   isQuarantined?: boolean; // True if user is new and hasn't met criteria
   canVote?: boolean; // True if user is a "Usuario Normal"
   totalPostsByUser?: number;
   totalReactionsReceived?: number;
   totalPostsInThreadsStartedByUser?: number;
   totalThreadsStartedByUser?: number;
-  status?: 'active' | 'under_sanction_process' | 'sanctioned';
+  status?: 'active' | 'under_sanction_process' | 'sanctioned' | 'pending_admission';
   sanctionEndDate?: string; // ISO date string, if sanctioned
   role?: 'guest' | 'user' | 'normal_user' | 'admin' | 'founder' | 'visitor';
 }
@@ -85,7 +86,7 @@ export interface Poll {
 
 export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote' | 'closed_executed' | 'closed_rejected';
 
-export type VotationType = 'sanction' | 'rule_change' | 'forum_management' | 'other';
+export type VotationType = 'sanction' | 'rule_change' | 'forum_management' | 'admission_request' | 'other';
 
 export interface VotationOptionTally {
   for: number;
@@ -98,15 +99,15 @@ export interface Votation {
   title: string;
   description: string;
   justification?: string;
-  proposerId: string;
-  proposerUsername: string;
+  proposerId: string; // For rule_change, sanction, etc. Could be applicant's ID for admission.
+  proposerUsername: string; // For rule_change, sanction, etc. Could be applicant's username for admission.
   type: VotationType;
   createdAt: string;
   deadline: string;
   status: VotationStatus;
   
-  targetUserId?: string;
-  targetUsername?: string;
+  targetUserId?: string; // For sanction, or applicant's ID for admission.
+  targetUsername?: string; // For sanction, or applicant's username for admission.
   sanctionDuration?: string;
   
   proposedConstitutionText?: string; // For constitution change proposals

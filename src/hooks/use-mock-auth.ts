@@ -5,7 +5,7 @@ import type { User } from '@/lib/types';
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { mockUsers as initialMockAuthUsersData } from '@/lib/mockData';
+import { mockUsers as initialMockAuthUsersData } from '@/lib/mockData'; // Using the updated name from mockData.ts
 
 export type UserRole = 'visitor' | 'guest' | 'user' | 'normal_user' | 'admin' | 'founder';
 
@@ -14,31 +14,23 @@ export interface MockUser extends User {
   isQuarantined?: boolean;
 }
 
-// This object is prepared once and then returned by the hook.
 const preparedMockAuthUsers: Record<string, MockUser> = {};
 initialMockAuthUsersData.forEach(user => {
+    if (user.id === 'visitor0' || user.id === 'guest1') return; // Skip special mock auth states
+
     const role = user.role as UserRole | undefined;
-    const status = user.status as 'active' | 'under_sanction_process' | 'sanctioned' | undefined;
+    const status = user.status as 'active' | 'under_sanction_process' | 'sanctioned' | 'pending_admission' | undefined;
 
     preparedMockAuthUsers[user.id] = {
-        ...user,
-        role: role || (user.id === 'visitor0' ? 'visitor' : user.id === 'guest1' ? 'guest' : 'user'),
-        status: status || 'active',
+        ...user, // Spread all properties from User type
+        role: role || 'user', // Default role
+        status: status || 'active', // Default status
     };
 });
 
 // Ensure special mock users are defined with correct default roles
-if (!preparedMockAuthUsers['visitor0']) {
-  preparedMockAuthUsers['visitor0'] = { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor', status: 'active' };
-} else if (preparedMockAuthUsers['visitor0']) {
-  preparedMockAuthUsers['visitor0'].role = 'visitor';
-}
-
-if (!preparedMockAuthUsers['guest1']) {
-  preparedMockAuthUsers['guest1'] = { id: 'guest1', username: 'Guest User', email: 'guest@example.com', role: 'guest', status: 'active' };
-} else if (preparedMockAuthUsers['guest1']) {
-  preparedMockAuthUsers['guest1'].role = 'guest';
-}
+preparedMockAuthUsers['visitor0'] = { id: 'visitor0', username: 'Visitor', email: '', role: 'visitor', status: 'active' };
+preparedMockAuthUsers['guest1'] = { id: 'guest1', username: 'Guest User', email: 'guest@example.com', avatarUrl: 'https://placehold.co/100x100.png?text=G', role: 'guest', status: 'active' };
 
 
 let internalCurrentUser: MockUser | null = null;
@@ -52,7 +44,7 @@ const setInternalCurrentUser = (user: MockUser | null) => {
 export interface LoginResult {
   success: boolean;
   user?: MockUser;
-  reason?: 'not_found' | 'sanctioned' | 'credentials_invalid';
+  reason?: 'not_found' | 'sanctioned' | 'pending_admission' | 'credentials_invalid';
   username?: string;
   sanctionEndDate?: string;
 }
@@ -70,14 +62,13 @@ export function useMockAuth() {
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         const firestoreData = userSnap.data() as User;
-        // Prioritize Firestore status, but keep mock role if FS doesn't have one (e.g. for new users)
         const updatedUser = {
-             ...baseUser,
-             ...firestoreData,
-             role: baseUser.role, // Keep the role from the mock data as FS might not have it
-             status: firestoreData.status || baseUser.status, // FS status is source of truth if exists
+             ...baseUser, // Start with mock data (which includes role from mockData.ts)
+             ...firestoreData, // Override with Firestore data (like karma, status, sanctionEndDate, etc.)
+             // Ensure role from mock (or a sensible default) is kept if not in Firestore
+             role: (firestoreData.role || baseUser.role || 'user') as UserRole,
+             status: firestoreData.status || baseUser.status || 'active',
         };
-
 
         if (updatedUser.status === 'sanctioned' && updatedUser.sanctionEndDate && new Date() > new Date(updatedUser.sanctionEndDate)) {
           await updateDoc(userRef, { status: 'active', sanctionEndDate: null });
@@ -86,7 +77,10 @@ export function useMockAuth() {
         }
         return updatedUser as MockUser;
       } else {
-        return baseUser; // User not in FS, return base mock
+        // User not in Firestore, could be an applicant not yet saved or an issue.
+        // For mock auth, if we expect them to be in preparedMockAuthUsers, return baseUser.
+        // If new signup flow creates users in FS, this path should be less common for "logged in" users.
+        return baseUser; 
       }
     } catch (error) {
       console.error(`[syncUserWithFirestore] Error syncing user ${baseUser.id} with Firestore:`, error);
@@ -107,11 +101,22 @@ export function useMockAuth() {
       let baseUserToSync = storedUserKey && preparedMockAuthUsers[storedUserKey]
                              ? { ...preparedMockAuthUsers[storedUserKey] }
                              : { ...preparedMockAuthUsers['visitor0'] };
-
+      
       syncUserWithFirestore(baseUserToSync).then(syncedUser => {
-        setInternalCurrentUser(syncedUser);
-        if (!storedUserKey || !preparedMockAuthUsers[storedUserKey]) {
+        // After sync, if user is sanctioned AND their key was stored, DONT default to visitor.
+        // Let SanctionCheckWrapper handle redirection if they are sanctioned.
+        // If storedUserKey was not found or user became visitor due to some other logic, then set visitor.
+        if (syncedUser.id === 'visitor0' && storedUserKey && storedUserKey !== 'visitor0') {
+            // This means sync somehow turned a potential user into visitor0, perhaps they don't exist in FS yet.
+            // Or if sync determined they should be visitor (e.g. missing in FS)
+            setInternalCurrentUser(preparedMockAuthUsers['visitor0']);
             localStorage.setItem('mockUserKey', 'visitor0');
+        } else {
+            setInternalCurrentUser(syncedUser);
+            // Ensure localStorage has a key, even if it's visitor0
+            if (!storedUserKey || !preparedMockAuthUsers[storedUserKey]) {
+                localStorage.setItem('mockUserKey', 'visitor0');
+            }
         }
         setLoading(false);
       });
@@ -128,38 +133,62 @@ export function useMockAuth() {
     return () => {
       listeners.delete(listener);
     };
-  }, [syncUserWithFirestore]);
+  }, [syncUserWithFirestore]); // syncUserWithFirestore is stable
 
   const login = useCallback(async (usernameOrEmail?: string, password?: string): Promise<LoginResult> => {
-    let userKeyToLogin: string | undefined;
+    let userToLogin: MockUser | undefined;
 
     if (!usernameOrEmail) {
         return { success: false, reason: 'credentials_invalid' };
     }
-
     const lowerInput = usernameOrEmail.toLowerCase();
-    userKeyToLogin = Object.keys(preparedMockAuthUsers).find(key =>
-        preparedMockAuthUsers[key].username.toLowerCase() === lowerInput ||
-        (preparedMockAuthUsers[key].email && preparedMockAuthUsers[key].email!.toLowerCase().startsWith(lowerInput)) ||
-        key.toLowerCase() === lowerInput
-    );
+    
+    // Attempt to find user by key first (e.g. "user1", "admin1")
+    let userKeyToLogin: string | undefined = Object.keys(preparedMockAuthUsers).find(key => key.toLowerCase() === lowerInput);
 
+    // If not found by key, try by username or email
+    if (!userKeyToLogin) {
+        userKeyToLogin = Object.keys(preparedMockAuthUsers).find(key =>
+            preparedMockAuthUsers[key].username.toLowerCase() === lowerInput ||
+            (preparedMockAuthUsers[key].email && preparedMockAuthUsers[key].email!.toLowerCase().startsWith(lowerInput))
+        );
+    }
+    
     if (!userKeyToLogin || !preparedMockAuthUsers[userKeyToLogin]) {
         console.warn(`Mock login attempt for "${usernameOrEmail}" - user not found in mockAuthUsers.`);
-        return { success: false, reason: 'not_found' };
+        // Try fetching from Firestore directly as a fallback if a new user applied
+        try {
+            // This is a simplified lookup; real app would query by email/username
+            // For now, assume usernameOrEmail might be a user ID for direct FS check
+            const userRef = doc(db, "users", usernameOrEmail);
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+                userToLogin = userSnap.data() as MockUser;
+                // If user found in FS but not in preparedMockAuthUsers, it's likely a newly applied user
+            } else {
+                return { success: false, reason: 'not_found' };
+            }
+        } catch (e) {
+             return { success: false, reason: 'not_found' };
+        }
+    } else {
+        userToLogin = { ...preparedMockAuthUsers[userKeyToLogin] };
     }
 
-    let userToLogin = { ...preparedMockAuthUsers[userKeyToLogin] };
+    if (!userToLogin) return { success: false, reason: 'not_found' };
+
+
+    // Sync with Firestore to get the latest status (especially for pending_admission or sanctioned)
     userToLogin = await syncUserWithFirestore(userToLogin);
 
+    if (userToLogin.status === 'pending_admission') {
+        return { 
+            success: false, 
+            reason: 'pending_admission', 
+            username: userToLogin.username 
+        };
+    }
     if (userToLogin.status === 'sanctioned') {
-       // Check if sanction has expired client-side before returning (sync might have caught it too)
-      if (userToLogin.sanctionEndDate && new Date() > new Date(userToLogin.sanctionEndDate)) {
-        // This implies syncUserWithFirestore might not have updated internalCurrentUser yet
-        // or this is a direct login attempt for a user whose sanction just expired.
-        // The checkAndLiftSanction can be called, or we rely on the next sync cycle.
-        // For now, let's proceed with the 'sanctioned' status as per sync result.
-      } else {
         return {
           success: false,
           user: userToLogin,
@@ -167,24 +196,27 @@ export function useMockAuth() {
           username: userToLogin.username,
           sanctionEndDate: userToLogin.sanctionEndDate
         };
-      }
     }
 
     setInternalCurrentUser(userToLogin);
-    localStorage.setItem('mockUserKey', userKeyToLogin);
+    localStorage.setItem('mockUserKey', userToLogin.id); // Store by actual ID
     return { success: true, user: userToLogin };
   }, [syncUserWithFirestore]);
 
+  // This mock signup is largely superseded by the new direct-to-Firestore application process.
+  // Kept for potential use by dev switcher or if direct mock signup is ever needed without FS.
   const signup = useCallback((username: string, email: string) => {
-    const newUserKey = 'user1'; // For mock, signup always maps to Alice for simplicity
-    const userToSignup = { ...preparedMockAuthUsers[newUserKey] };
+    // This is a simplified mock signup, new flow writes to Firestore.
+    // For testing, we can map to an existing mock user or create a temporary one.
+    // Let's assume it logs in as 'user1' (Alice) for simplicity if this is called.
+    const userToSignup = { ...preparedMockAuthUsers['user1'] };
     userToSignup.username = username;
     userToSignup.email = email;
-    userToSignup.status = 'active';
+    userToSignup.status = 'active'; 
     userToSignup.sanctionEndDate = undefined;
 
     setInternalCurrentUser(userToSignup);
-    localStorage.setItem('mockUserKey', newUserKey);
+    localStorage.setItem('mockUserKey', 'user1');
   }, []);
 
   const logout = useCallback(() => {
@@ -222,7 +254,7 @@ export function useMockAuth() {
           });
           if (internalCurrentUser && internalCurrentUser.id === userId) {
             const updatedUser = { ...internalCurrentUser, status: 'active', sanctionEndDate: undefined } as MockUser;
-            setInternalCurrentUser(updatedUser); // This will notify listeners
+            setInternalCurrentUser(updatedUser); 
           }
           return true;
         }
@@ -236,4 +268,3 @@ export function useMockAuth() {
 
   return { user: currentUserLocal, loading, login, logout, signup, switchToUser, checkAndLiftSanction, mockAuthUsers: preparedMockAuthUsers };
 }
-
