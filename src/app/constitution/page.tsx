@@ -2,26 +2,30 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { FileText, Loader2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, Loader2, AlertTriangle, Edit } from "lucide-react";
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import type { SiteSettings } from '@/lib/types';
+import { useMockAuth } from '@/hooks/use-mock-auth';
 
 export default function ConstitutionPage() {
   const [constitutionText, setConstitutionText] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const { user: loggedInUser, loading: authLoading } = useMockAuth();
 
   useEffect(() => {
     const fetchConstitution = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const constitutionRef = doc(db, "site_settings", "constitution"); // Changed "main_constitution" to "constitution"
+        const constitutionRef = doc(db, "site_settings", "constitution");
         const docSnap = await getDoc(constitutionRef);
 
         if (docSnap.exists()) {
@@ -46,7 +50,9 @@ export default function ConstitutionPage() {
     fetchConstitution();
   }, []);
 
-  if (isLoading) {
+  const canProposeChange = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active';
+
+  if (isLoading || authLoading) {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -57,11 +63,18 @@ export default function ConstitutionPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold flex items-center">
           <FileText className="mr-3 h-8 w-8 text-primary" />
           Normas y Condiciones (Constitución)
         </h1>
+        {canProposeChange && (
+          <Button asChild>
+            <Link href="/agora/propose-constitution-change">
+              <Edit className="mr-2 h-5 w-5" /> Propose Change
+            </Link>
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -80,20 +93,18 @@ export default function ConstitutionPage() {
         <CardContent>
           {constitutionText ? (
             <ScrollArea className="h-[calc(100vh-25rem)] p-4 border rounded-md bg-background/50">
-              <div 
-                className="prose prose-sm sm:prose lg:prose-lg xl:prose-xl max-w-none dark:prose-invert" 
-                dangerouslySetInnerHTML={{ 
+              <div
+                className="prose prose-sm sm:prose lg:prose-lg xl:prose-xl max-w-none dark:prose-invert whitespace-pre-line"
+                dangerouslySetInnerHTML={{
                   __html: constitutionText
-                            .replace(/\n\n/g, '<br /><br />') // Preserve double newlines as paragraph breaks
-                            .replace(/\n/g, '<br />')         // Single newlines as line breaks
-                            .replace(/^## (.*?)(<br \/>|$)/gm, '<h2>$1</h2>') // Headlines
+                            .replace(/^## (.*?)$/gm, '<h2>$1</h2>') // Headlines
                             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
-                            .replace(/\*(.*?)\*/g, '<em>$1</em>')         // Italics
-                }} 
+                            .replace(/\*(.*?)\*/g, '<em>$1</em>') // Italics
+                }}
               />
             </ScrollArea>
           ) : (
-            !error && <p>No constitution text available.</p> 
+            !error && <p>No constitution text available.</p>
           )}
         </CardContent>
       </Card>
