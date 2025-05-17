@@ -4,7 +4,7 @@
 import { db } from '@/lib/firebase';
 import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll, Votation, SiteSettings } from '@/lib/types';
 import { 
-    mockUsers as usersToSeed, 
+    mockUsers as MOCK_USERS_ARRAY, // Renamed to avoid conflict if mockUsers is also exported
     mockCategoriesData,
     mockForumsData,
     mockThreadsData as rawMockThreadsData,
@@ -85,14 +85,16 @@ export async function seedDatabase() {
   const batch = writeBatch(db);
   console.log("Starting database seed...");
 
+  const usersToSeed = MOCK_USERS_ARRAY.filter(u => u.id !== 'visitor0' && u.id !== 'guest1');
+
   const mockThreadsData = rawMockThreadsData.map(t => ({
     ...t,
-    author: getAuthorPick(findUserByIdForSeed(t.authorId, usersToSeed))
+    author: getAuthorPick(findUserByIdForSeed(t.authorId, MOCK_USERS_ARRAY)) // Use MOCK_USERS_ARRAY for finding
   }));
 
   const mockPostsData = rawMockPostsData.map(p => ({
     ...p,
-    author: getAuthorPick(findUserByIdForSeed(p.authorId, usersToSeed))
+    author: getAuthorPick(findUserByIdForSeed(p.authorId, MOCK_USERS_ARRAY)) // Use MOCK_USERS_ARRAY for finding
   }));
   
   const threadsStartedCounts: Record<string, number> = {};
@@ -102,20 +104,19 @@ export async function seedDatabase() {
 
   console.log(`Processing ${usersToSeed.length} users...`);
   usersToSeed.forEach(user => {
-    if (user.id === 'visitor0' || user.id === 'guest1') return;
     const userRef = doc(db, "users", user.id);
     const userData: KratiaUser = {
         ...user,
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username?.[0]?.toUpperCase() || 'U'}`,
         registrationDate: user.registrationDate || new Date().toISOString(),
-        karma: 0, 
+        karma: 0, // Will be calculated
         location: user.location || null,
         aboutMe: user.aboutMe || null,
         canVote: user.canVote === undefined ? false : user.canVote,
         isQuarantined: user.isQuarantined === undefined ? false : user.isQuarantined,
-        totalPostsByUser: 0,
-        totalReactionsReceived: 0,
-        totalPostsInThreadsStartedByUser: 0,
+        totalPostsByUser: 0, // Will be calculated
+        totalReactionsReceived: 0, // Will be calculated
+        totalPostsInThreadsStartedByUser: 0, // Will be calculated
         totalThreadsStartedByUser: threadsStartedCounts[user.id] || 0,
         status: user.status || 'active',
         role: user.role || 'user',
@@ -142,13 +143,15 @@ export async function seedDatabase() {
   console.log(`Processing ${mockThreadsData.length} threads...`);
   mockThreadsData.forEach(thread => {
     const threadRef = doc(db, "threads", thread.id);
-    const { authorId, ...threadDataToSave } = thread;
+    const { authorId, ...threadDataToSave } = thread; // authorId is not a field in Thread type after mapping
     const pollData = thread.id === 'thread1_welcome' ? rawMockThreadsData.find(t => t.id === 'thread1_welcome')?.poll : undefined;
     batch.set(threadRef, { 
         ...threadDataToSave, 
         postCount: 0,
-        isSticky: threadDataToSave.isSticky || false, // Ensure default value
-        ...(pollData && { poll: pollData }) // Add poll data here
+        isSticky: threadDataToSave.isSticky || false,
+        isLocked: threadDataToSave.isLocked || false,
+        relatedVotationId: threadDataToSave.relatedVotationId || null,
+        ...(pollData && { poll: pollData }) 
     });
   });
   console.log("Threads prepared.");
@@ -164,7 +167,7 @@ export async function seedDatabase() {
 
   // Seed Constitution
   console.log("Processing constitution setting...");
-  const constitutionRef = doc(db, "site_settings", "constitution");
+  const constitutionRef = doc(db, "site_settings", "constitution"); // Changed "main_constitution" to "constitution"
   const constitutionData: SiteSettings = {
     constitutionText: initialConstitutionText,
     lastUpdated: new Date().toISOString(),
@@ -179,9 +182,7 @@ export async function seedDatabase() {
   const userKarmaUpdates: Record<string, { posts: number; reactions: number; threadPosts: number }> = {};
 
   usersToSeed.forEach(u => {
-    if (u.id !== 'visitor0' && u.id !== 'guest1') {
-      userKarmaUpdates[u.id] = { posts: 0, reactions: 0, threadPosts: 0 };
-    }
+    userKarmaUpdates[u.id] = { posts: 0, reactions: 0, threadPosts: 0 };
   });
 
   mockPostsData.forEach(post => {
@@ -190,6 +191,8 @@ export async function seedDatabase() {
     batch.set(postRef, { 
         ...postDataToSave, 
         isEdited: post.isEdited || false, 
+        updatedAt: post.updatedAt || null,
+        lastEditedBy: post.lastEditedBy || null,
     });
 
     threadPostCounts[post.threadId] = (threadPostCounts[post.threadId] || 0) + 1;
@@ -199,17 +202,21 @@ export async function seedDatabase() {
       if (parentThread.author.id !== post.author.id && userKarmaUpdates[parentThread.author.id]) {
         userKarmaUpdates[parentThread.author.id].threadPosts += 1;
       }
+    } else {
+      console.warn(`Seed Warning: Post ${post.id} has threadId ${post.threadId} but parent thread not found in mockThreadsData.`);
     }
 
     if (userKarmaUpdates[post.author.id]) {
       userKarmaUpdates[post.author.id].posts += 1;
       if (post.reactions) {
         Object.values(post.reactions).forEach(reaction => {
-          if (reaction && reaction.userIds) { // Check if reaction and userIds are defined
+          if (reaction && reaction.userIds) {
             userKarmaUpdates[post.author.id]!.reactions += reaction.userIds.length;
           }
         });
       }
+    } else {
+        console.warn(`Seed Warning: Author ID ${post.author.id} for post ${post.id} not found in userKarmaUpdates. This shouldn't happen if usersToSeed is correct.`);
     }
   });
   console.log("Posts prepared, count/karma aggregation started.");
@@ -241,7 +248,7 @@ export async function seedDatabase() {
   console.log("Forum counts updated.");
 
   for (const userId in userKarmaUpdates) {
-    if (!userKarmaUpdates[userId]) continue;
+    if (!userKarmaUpdates[userId] || !usersToSeed.find(u => u.id === userId)) continue; // Ensure user exists
     const userRef = doc(db, "users", userId);
     const updates = userKarmaUpdates[userId];
     const totalKarmaDelta = (updates.posts || 0) + (updates.reactions || 0) + (updates.threadPosts || 0);
@@ -263,3 +270,4 @@ export async function seedDatabase() {
     throw error;
   }
 }
+

@@ -21,7 +21,7 @@ export default function ConstitutionPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const constitutionRef = doc(db, "site_settings", "main_constitution");
+        const constitutionRef = doc(db, "site_settings", "constitution"); // Changed "main_constitution" to "constitution"
         const docSnap = await getDoc(constitutionRef);
 
         if (docSnap.exists()) {
@@ -84,9 +84,11 @@ export default function ConstitutionPage() {
                 className="prose prose-sm sm:prose lg:prose-lg xl:prose-xl max-w-none dark:prose-invert" 
                 dangerouslySetInnerHTML={{ 
                   __html: constitutionText
-                            .replace(/\n/g, '<br />')
-                            .replace(/## (.*?)(<br \/>|$)/g, '<h2>$1</h2>')
-                            .replace(/\*\*(.*?)\*\*(<br \/>|$)/g, '<strong>$1</strong>$2')
+                            .replace(/\n\n/g, '<br /><br />') // Preserve double newlines as paragraph breaks
+                            .replace(/\n/g, '<br />')         // Single newlines as line breaks
+                            .replace(/^## (.*?)(<br \/>|$)/gm, '<h2>$1</h2>') // Headlines
+                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+                            .replace(/\*(.*?)\*/g, '<em>$1</em>')         // Italics
                 }} 
               />
             </ScrollArea>
