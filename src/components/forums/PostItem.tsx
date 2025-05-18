@@ -124,7 +124,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         const currentThreadData = threadDoc.data() as Thread;
         const pollFromDb = currentThreadData.poll;
         if (!pollFromDb) throw new Error("Poll not found in thread, cannot update.");
-        if (pollFromDb.voters && pollFromDb.voters[user.id]) return pollFromDb;
+        if (pollFromDb.voters && pollFromDb.voters[user.id]) return pollFromDb; // Already voted check in transaction
         const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
         if (optionIndex === -1) throw new Error("Selected option not found in poll.");
         const newOptions = [...pollFromDb.options];
@@ -184,7 +184,9 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         if (newEmojiUserIds.length === 0) delete newReactionsField[emoji];
         else newReactionsField[emoji] = updatedReactionsForEmoji;
         transaction.update(postRef, { reactions: newReactionsField });
-        if (post.author.id !== 'unknown' && post.author.id !== user.id) {
+        
+        // Ensure we don't update karma for 'unknown' author or if liker is the author (already handled)
+        if (post.author.id && post.author.id !== 'unknown' && post.author.id !== user.id) {
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChangeForAuthor),
                 totalReactionsReceived: increment(reactionChangeForAuthor),
@@ -231,7 +233,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
             content: editedContent,
             updatedAt: newUpdatedAt,
             isEdited: true,
-            lastEditedBy: editorInfo, // Store who edited
+            lastEditedBy: editorInfo,
         });
         setPost(prevPost => ({
             ...prevPost,
@@ -259,7 +261,12 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   const now = new Date();
   const diffMinutes = (now.getTime() - postCreatedAtDate.getTime()) / (1000 * 60);
   const isWithinEditLimit = diffMinutes < KRATIA_CONFIG.EDIT_TIME_LIMIT_MINUTES;
+  
   const canEditPost = user && (isAdminOrFounder || (isOwnPost && isWithinEditLimit));
+  
+  const canAuthorDelete = isOwnPost && isWithinEditLimit;
+  const canAdminDelete = isAdminOrFounder;
+  const canDeletePost = user && (canAdminDelete || canAuthorDelete);
 
 
   return (
@@ -385,12 +392,17 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                     <Edit2 className="h-4 w-4" /> <span className="sr-only">Edit</span>
                 </Button>
             )}
-            <Button variant="ghost" size="sm" disabled title="Delete Post" className="text-destructive hover:text-destructive/80 hover:bg-destructive/10">
-                <Trash2 className="h-4 w-4" /> <span className="sr-only">Delete</span>
-            </Button>
+            {canDeletePost && (
+                <Button variant="ghost" size="sm" disabled title="Delete Post (functionality to be implemented)" className="text-destructive hover:text-destructive/80 hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" /> <span className="sr-only">Delete</span>
+                </Button>
+            )}
             </div>
         </CardFooter>
       )}
     </Card>
   );
 }
+
+
+    
