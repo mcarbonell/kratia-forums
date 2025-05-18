@@ -6,65 +6,81 @@ import Link from 'next/link';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import type { User as KratiaUser, Forum, ForumCategory } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, getDocs, orderBy, query, deleteDoc, doc } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
-import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle, FolderKanban } from 'lucide-react';
+import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle, FolderKanban, Trash2 } from 'lucide-react';
 import UserAvatar from '@/components/user/UserAvatar';
 import { formatDistanceToNow } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
 
 export default function AdminPage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
+  const { toast } = useToast();
   const [users, setUsers] = useState<KratiaUser[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
   const [categories, setCategories] = useState<ForumCategory[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [forumToDelete, setForumToDelete] = useState<Forum | null>(null);
 
   const isAdminOrFounder = loggedInUser?.role === 'admin' || loggedInUser?.role === 'founder';
 
-  useEffect(() => {
-    if (authLoading || !isAdminOrFounder) {
+  const fetchData = async () => {
+    if (!isAdminOrFounder) {
       setIsLoadingData(false);
       return;
     }
+    setIsLoadingData(true);
+    setError(null);
+    try {
+      const usersQuery = query(collection(db, "users"), orderBy("username", "asc"));
+      const usersSnapshot = await getDocs(usersQuery);
+      setUsers(usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as KratiaUser)));
 
-    const fetchData = async () => {
-      setIsLoadingData(true);
-      setError(null);
-      try {
-        // Fetch users
-        const usersQuery = query(collection(db, "users"), orderBy("username", "asc"));
-        const usersSnapshot = await getDocs(usersQuery);
-        const fetchedUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as KratiaUser));
-        setUsers(fetchedUsers);
+      const forumsQuery = query(collection(db, "forums"), orderBy("name", "asc"));
+      const forumsSnapshot = await getDocs(forumsQuery);
+      setForums(forumsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Forum)));
+      
+      const categoriesQuery = query(collection(db, "categories"), orderBy("name", "asc"));
+      const categoriesSnapshot = await getDocs(categoriesQuery);
+      setCategories(categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ForumCategory)));
+    } catch (err) {
+      console.error("Error fetching admin data:", err);
+      setError("Failed to load admin data. Please try again.");
+    } finally {
+      setIsLoadingData(false);
+    }
+  };
 
-        // Fetch forums
-        const forumsQuery = query(collection(db, "forums"), orderBy("name", "asc"));
-        const forumsSnapshot = await getDocs(forumsQuery);
-        const fetchedForums = forumsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Forum));
-        setForums(fetchedForums);
-        
-        // Fetch categories
-        const categoriesQuery = query(collection(db, "categories"), orderBy("name", "asc"));
-        const categoriesSnapshot = await getDocs(categoriesQuery);
-        const fetchedCategories = categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ForumCategory));
-        setCategories(fetchedCategories);
-
-
-      } catch (err) {
-        console.error("Error fetching admin data:", err);
-        setError("Failed to load admin data. Please try again.");
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
-
+  useEffect(() => {
     fetchData();
-  }, [loggedInUser, authLoading, isAdminOrFounder]);
+  }, [loggedInUser, isAdminOrFounder]); // Removed authLoading from deps to prevent double fetch on initial load
+
+  const handleDeleteForum = async () => {
+    if (!forumToDelete) return;
+    try {
+      await deleteDoc(doc(db, "forums", forumToDelete.id));
+      toast({
+        title: "Forum Deleted",
+        description: `Forum "${forumToDelete.name}" has been successfully deleted.`,
+      });
+      setForums(forums.filter(forum => forum.id !== forumToDelete.id)); // Update local state
+      setForumToDelete(null); // Close dialog
+    } catch (err) {
+      console.error("Error deleting forum:", err);
+      toast({
+        title: "Error Deleting Forum",
+        description: "Could not delete the forum. Please try again.",
+        variant: "destructive",
+      });
+      setForumToDelete(null);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -90,7 +106,7 @@ export default function AdminPage() {
     );
   }
   
-  if (isLoadingData) {
+  if (isLoadingData && users.length === 0 && forums.length === 0 && categories.length === 0) { // Show main loader only if truly nothing is loaded
      return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -99,7 +115,7 @@ export default function AdminPage() {
     );
   }
 
-  if (error) {
+  if (error && users.length === 0 && forums.length === 0 && categories.length === 0) {
     return (
       <Alert variant="destructive">
         <BadgeAlert className="h-5 w-5" />
@@ -132,7 +148,9 @@ export default function AdminPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {users.length > 0 ? (
+          {isLoadingData && users.length === 0 ? (
+             <div className="flex justify-center items-center py-10"> <Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+          ) : users.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -187,13 +205,14 @@ export default function AdminPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {categories.length > 0 ? (
+         {isLoadingData && categories.length === 0 ? (
+             <div className="flex justify-center items-center py-10"> <Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+          ) : categories.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead className="max-w-md truncate">Description</TableHead>
-                  {/* Add more relevant columns like forum count if needed */}
                   <TableHead className="text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -229,7 +248,9 @@ export default function AdminPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {forums.length > 0 ? (
+          {isLoadingData && forums.length === 0 ? (
+             <div className="flex justify-center items-center py-10"> <Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+          ) : forums.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -254,10 +275,15 @@ export default function AdminPage() {
                     <TableCell>{forum.categoryId || 'N/A'}</TableCell>
                     <TableCell className="text-right">{forum.threadCount || 0}</TableCell>
                     <TableCell className="text-right">{forum.postCount || 0}</TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="text-center space-x-2">
                         <Button asChild variant="outline" size="sm">
                             <Link href={`/admin/forums/edit/${forum.id}`}>Edit</Link>
                         </Button>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="destructive" size="sm" onClick={() => setForumToDelete(forum)}>
+                            <Trash2 className="h-4 w-4"/>
+                          </Button>
+                        </AlertDialogTrigger>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -268,8 +294,27 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+      
+      <AlertDialog open={!!forumToDelete} onOpenChange={(open) => !open && setForumToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the forum
+              <span className="font-semibold"> "{forumToDelete?.name}"</span>.
+              Associated threads and posts will <span className="font-bold text-destructive">NOT</span> be deleted and will become orphaned.
+              Consider archiving or re-categorizing threads first if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setForumToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteForum} className="bg-destructive hover:bg-destructive/90">
+              Yes, delete forum
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }
-
-    
