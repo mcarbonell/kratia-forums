@@ -12,12 +12,13 @@ import { useState, useEffect, type ChangeEvent } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, runTransaction, increment, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, runTransaction, increment, getDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from '@/lib/utils';
 import { KRATIA_CONFIG } from '@/lib/config';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 interface PostItemProps {
   post: Post;
@@ -25,9 +26,11 @@ interface PostItemProps {
   threadPoll?: Poll;
   onPollUpdate?: (updatedPoll: Poll) => void;
   threadId?: string;
+  forumId: string; // Added to update forum post count
+  onPostDeleted: (postId: string) => void; // Callback to update parent state
 }
 
-export default function PostItem({ post: initialPost, isFirstPost = false, threadPoll, onPollUpdate, threadId }: PostItemProps) {
+export default function PostItem({ post: initialPost, isFirstPost = false, threadPoll, onPollUpdate, threadId, forumId, onPostDeleted }: PostItemProps) {
   const { user } = useMockAuth();
   const { toast } = useToast();
 
@@ -41,6 +44,9 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(initialPost.content);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeletingPost, setIsDeletingPost] = useState(false);
 
 
   const hasUserVotedInPoll = !!(user && currentPoll?.voters && currentPoll.voters[user.id]);
@@ -76,12 +82,10 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
 
   const formatContent = (content: string) => {
     let processedContent = content;
-    // Image embedding
     processedContent = processedContent.replace(
       /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp)(\?[^\s]*)?)/gi,
       (match) => `<div class="my-4"><img src="${match}" alt="User embedded image" class="max-w-full h-auto rounded-md shadow-md border" data-ai-hint="forum image" /></div>`
     );
-    // YouTube video embedding
     processedContent = processedContent.replace(
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
@@ -91,7 +95,6 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         return `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
       }
     );
-    // Basic markdown-like formatting (only if no HTML tags are present, to avoid messing up embeds)
     let finalContent = processedContent;
     if (!finalContent.match(/<[^>]+>/)) {
         finalContent = finalContent
@@ -124,7 +127,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         const currentThreadData = threadDoc.data() as Thread;
         const pollFromDb = currentThreadData.poll;
         if (!pollFromDb) throw new Error("Poll not found in thread, cannot update.");
-        if (pollFromDb.voters && pollFromDb.voters[user.id]) return pollFromDb; // Already voted check in transaction
+        if (pollFromDb.voters && pollFromDb.voters[user.id]) return pollFromDb; 
         const optionIndex = pollFromDb.options.findIndex(opt => opt.id === selectedOptionId);
         if (optionIndex === -1) throw new Error("Selected option not found in poll.");
         const newOptions = [...pollFromDb.options];
@@ -185,7 +188,6 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         else newReactionsField[emoji] = updatedReactionsForEmoji;
         transaction.update(postRef, { reactions: newReactionsField });
         
-        // Ensure we don't update karma for 'unknown' author or if liker is the author (already handled)
         if (post.author.id && post.author.id !== 'unknown' && post.author.id !== user.id) {
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChangeForAuthor),
@@ -252,6 +254,47 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     }
   };
 
+  const confirmDeletePost = async () => {
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
+      return;
+    }
+    setIsDeletingPost(true);
+    const batch = writeBatch(db);
+
+    const postRef = doc(db, "posts", post.id);
+    batch.delete(postRef);
+
+    if (threadId) {
+      const threadRef = doc(db, "threads", threadId);
+      batch.update(threadRef, { postCount: increment(-1) });
+    }
+    if (forumId) {
+        const forumRef = doc(db, "forums", forumId);
+        batch.update(forumRef, { postCount: increment(-1) });
+    }
+    if (post.author.id && post.author.id !== 'unknown') {
+        const authorRef = doc(db, "users", post.author.id);
+        batch.update(authorRef, { 
+            totalPostsByUser: increment(-1),
+            karma: increment(-1)
+        });
+    }
+
+    try {
+      await batch.commit();
+      toast({ title: "Post Deleted", description: "The post has been successfully deleted." });
+      onPostDeleted(post.id); // Notify parent to update UI
+    } catch (error) {
+      console.error("Error deleting post:", error);
+      toast({ title: "Error", description: "Failed to delete post. Please try again.", variant: "destructive" });
+    } finally {
+      setIsDeletingPost(false);
+      setIsDeleteConfirmOpen(false);
+    }
+  };
+
+
   const likeCount = currentReactions['👍']?.userIds?.length || 0;
   const hasUserLiked = user ? currentReactions['👍']?.userIds?.includes(user.id) : false;
   const isOwnPost = user?.id === post.author.id;
@@ -264,12 +307,13 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   
   const canEditPost = user && (isAdminOrFounder || (isOwnPost && isWithinEditLimit));
   
-  const canAuthorDelete = isOwnPost && isWithinEditLimit;
+  const canAuthorDelete = isOwnPost && isWithinEditLimit; // Author can delete within edit time limit
   const canAdminDelete = isAdminOrFounder;
   const canDeletePost = user && (canAdminDelete || canAuthorDelete);
 
 
   return (
+    <>
     <Card className={`w-full ${isFirstPost ? 'border-primary/40 shadow-lg' : 'shadow-md'}`}>
       <CardHeader className="flex flex-row items-start space-x-4 p-4 bg-muted/30 rounded-t-lg">
         <Link href={`/profile/${post.author.id}`} className="flex-shrink-0">
@@ -393,7 +437,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                 </Button>
             )}
             {canDeletePost && (
-                <Button variant="ghost" size="sm" disabled title="Delete Post (functionality to be implemented)" className="text-destructive hover:text-destructive/80 hover:bg-destructive/10">
+                <Button variant="ghost" size="sm" onClick={() => setIsDeleteConfirmOpen(true)} title="Delete Post" className="text-destructive hover:text-destructive/80 hover:bg-destructive/10">
                     <Trash2 className="h-4 w-4" /> <span className="sr-only">Delete</span>
                 </Button>
             )}
@@ -401,8 +445,29 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         </CardFooter>
       )}
     </Card>
+
+    <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete this post.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)} disabled={isDeletingPost}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeletePost}
+              disabled={isDeletingPost}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isDeletingPost ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Yes, delete post"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
-
 
     

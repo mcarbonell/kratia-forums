@@ -18,7 +18,6 @@ import { format, formatDistanceToNow, isPast, addDays } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { KRATIA_CONFIG } from '@/lib/config';
 
-// Helper function for timestamp conversion (ensure it's robust)
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
   if (!timestamp) return undefined;
   if (typeof timestamp === 'string') {
@@ -63,6 +62,16 @@ export default function ThreadPage() {
   const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
   const [hasMorePosts, setHasMorePosts] = useState(true);
 
+  const handlePostDeleted = useCallback((deletedPostId: string) => {
+    setPosts(prevPosts => prevPosts.filter(p => p.id !== deletedPostId));
+    setThread(prevThread => {
+      if (prevThread) {
+        return { ...prevThread, postCount: Math.max(0, (prevThread.postCount || 0) - 1) };
+      }
+      return null;
+    });
+  }, []);
+
 
   useEffect(() => {
     // console.log('[ThreadPage MAIN Effect] Running. threadId:', threadId, 'forumId:', forumId);
@@ -76,7 +85,7 @@ export default function ThreadPage() {
     const fetchDataAndProcessVotation = async () => {
       setIsLoading(true);
       setError(null);
-      setPosts([]); // Reset posts for new thread load
+      setPosts([]); 
       setLastVisiblePostSnapshot(null);
       setHasMorePosts(true);
 
@@ -87,9 +96,8 @@ export default function ThreadPage() {
         if (!threadSnap.exists()) {
           setError("Thread not found.");
           setThread(null);
-          setIsLoading(false);
           setHasMorePosts(false);
-          // console.log('[ThreadPage MAIN Effect] Thread not found.');
+          setIsLoading(false);
           return;
         }
         let fetchedThreadData = threadSnap.data() as Omit<Thread, 'id'>;
@@ -105,28 +113,20 @@ export default function ThreadPage() {
           relatedVotationId: fetchedThreadData.relatedVotationId || undefined,
           poll: fetchedThreadData.poll || undefined,
         };
-        // console.log('[ThreadPage MAIN Effect] Fetched thread:', JSON.parse(JSON.stringify(currentThreadState)));
         
         let fetchedVotationData: Votation | null = null;
         if (currentThreadState.relatedVotationId) {
-          // console.log('[ThreadPage MAIN Effect] Thread has relatedVotationId:', currentThreadState.relatedVotationId, 'Fetching votation...');
           const votationRef = doc(db, "votations", currentThreadState.relatedVotationId);
           const votationSnap = await getDoc(votationRef);
           if (votationSnap.exists()) {
             fetchedVotationData = { id: votationSnap.id, ...votationSnap.data() } as Votation;
-            // console.log('[ThreadPage MAIN Effect] Fetched votation for processing:', JSON.parse(JSON.stringify(fetchedVotationData)));
-          } else {
-            // console.warn(`[ThreadPage MAIN Effect] Votation document with ID ${currentThreadState.relatedVotationId} not found.`);
           }
-        } else {
-            // console.log('[ThreadPage MAIN Effect] Thread has no relatedVotationId.');
         }
 
         let batch: ReturnType<typeof writeBatch> | null = null;
-        let finalThreadState = currentThreadState;
-
+        
         if (fetchedVotationData && fetchedVotationData.status === 'active' && fetchedVotationData.deadline && isPast(new Date(fetchedVotationData.deadline))) {
-          // console.log('[ThreadPage MAIN Effect] Votation deadline passed and status is active. Processing closure for votation ID:', fetchedVotationData.id);
+          console.log('[ThreadPage MAIN Effect] Votation deadline passed and status is active. Processing closure for votation ID:', fetchedVotationData.id);
           if (!batch) batch = writeBatch(db);
 
           let newStatus: VotationStatus = 'closed_failed_vote';
@@ -146,7 +146,7 @@ export default function ThreadPage() {
             newStatus = 'closed_failed_vote';
             outcomeMessage = `Failed - Did not receive majority "For" votes.`;
           }
-          // console.log(`[VotationCloseDebug] Determined newStatus: ${newStatus}, Outcome: ${outcomeMessage}`);
+          console.log(`[VotationCloseDebug] Determined newStatus: ${newStatus}, Outcome: ${outcomeMessage}`);
           
           const votationRef = doc(db, "votations", fetchedVotationData.id);
           batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
@@ -155,60 +155,60 @@ export default function ThreadPage() {
 
           if (newStatus === 'closed_passed') {
             if (fetchedVotationData.type === 'sanction' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
-              // console.log(`[VotationCloseDebug] Sanction votation PASSED for ${fetchedVotationData.targetUsername}. Applying sanction.`);
+              console.log(`[VotationCloseDebug] Sanction votation PASSED for ${fetchedVotationData.targetUsername}. Applying sanction.`);
               const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
               const sanctionEndDate = addDays(new Date(), 1); 
               batch.update(targetUserRef, { status: 'sanctioned', sanctionEndDate: sanctionEndDate.toISOString() });
               toast({ title: "Sanction Applied", description: `${fetchedVotationData.targetUsername} has been sanctioned for 1 day.`});
             }
             if (fetchedVotationData.type === 'rule_change' && fetchedVotationData.proposedConstitutionText) {
-              // console.log(`[VotationCloseDebug] Constitution change votation PASSED. Applying changes.`);
+              console.log(`[VotationCloseDebug] Constitution change votation PASSED. Applying changes.`);
               batch.update(doc(db, "site_settings", "constitution"), { constitutionText: fetchedVotationData.proposedConstitutionText, lastUpdated: new Date().toISOString() });
               toast({ title: "Constitution Updated!", description: "The site constitution has been updated."});
             }
-             if (fetchedVotationData.type === 'admission_request' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
-              // console.log('[VotationCloseDebug] Applying ADMISSION outcome for targetUserId:', fetchedVotationData.targetUserId, 'targetUsername:', fetchedVotationData.targetUsername);
-              const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
-              batch.update(targetUserRef, { status: 'active', canVote: true, isQuarantined: false, role: 'user' });
-              toast({ title: "Admission Approved!", description: `User ${fetchedVotationData.targetUsername} has been admitted.`});
+            if (fetchedVotationData.type === 'admission_request' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
+                console.log('[VotationCloseDebug] Applying ADMISSION outcome for targetUserId:', fetchedVotationData.targetUserId, 'targetUsername:', fetchedVotationData.targetUsername);
+                const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
+                batch.update(targetUserRef, { status: 'active', canVote: true, isQuarantined: false, role: 'user' });
+                toast({ title: "Admission Approved!", description: `User ${fetchedVotationData.targetUsername} has been admitted.`});
             }
             if (fetchedVotationData.type === 'new_forum_proposal' && fetchedVotationData.proposedForumName && fetchedVotationData.proposedForumCategoryId && fetchedVotationData.proposedForumDescription) {
-              // console.log('[VotationCloseDebug] New Forum Proposal PASSED. Creating forum:', fetchedVotationData.proposedForumName);
-              const newForumRef = doc(collection(db, "forums"));
-              const newForumData = {
-                name: fetchedVotationData.proposedForumName,
-                description: fetchedVotationData.proposedForumDescription,
-                categoryId: fetchedVotationData.proposedForumCategoryId,
-                isPublic: fetchedVotationData.proposedForumIsPublic === undefined ? true : fetchedVotationData.proposedForumIsPublic,
-                isAgora: false, 
-                threadCount: 0,
-                postCount: 0,
-              };
-              batch.set(newForumRef, newForumData);
-              toast({ title: "New Forum Created!", description: `Forum "${fetchedVotationData.proposedForumName}" has been created.`});
+                console.log('[VotationCloseDebug] New Forum Proposal PASSED. Creating forum:', fetchedVotationData.proposedForumName);
+                const newForumRef = doc(collection(db, "forums"));
+                const newForumData = {
+                    name: fetchedVotationData.proposedForumName,
+                    description: fetchedVotationData.proposedForumDescription,
+                    categoryId: fetchedVotationData.proposedForumCategoryId,
+                    isPublic: fetchedVotationData.proposedForumIsPublic === undefined ? true : fetchedVotationData.proposedForumIsPublic,
+                    isAgora: false, 
+                    threadCount: 0,
+                    postCount: 0,
+                };
+                batch.set(newForumRef, newForumData);
+                toast({ title: "New Forum Created!", description: `Forum "${fetchedVotationData.proposedForumName}" has been created.`});
             }
           }
 
-          if (finalThreadState && !finalThreadState.isLocked) {
-            // console.log(`[VotationCloseDebug] Votation closed. Locking Agora thread ${finalThreadState.id}.`);
+          if (currentThreadState && !currentThreadState.isLocked) {
+            console.log(`[VotationCloseDebug] Votation closed. Locking Agora thread ${currentThreadState.id}.`);
             batch.update(threadRef, { isLocked: true });
-            finalThreadState = { ...finalThreadState, isLocked: true };
+            currentThreadState = { ...currentThreadState, isLocked: true };
             toast({ title: "Thread Locked", description: "This Agora thread has been automatically locked as the votation concluded."});
           }
         }
 
         if (batch) { 
           await batch.commit();
-          // console.log(`[ThreadPage MAIN Effect] Batch commit successful for votation processing.`);
+          console.log(`[ThreadPage MAIN Effect] Batch commit successful for votation processing.`);
           if (fetchedVotationData && fetchedVotationData.outcome && fetchedVotationData.status !== 'active') {
             toast({ title: "Votation Processed", description: `Votation "${fetchedVotationData.title}" processed. Result: ${fetchedVotationData.outcome}`});
           }
         }
         
-        setThread(finalThreadState);
+        setThread(currentThreadState);
         setVotation(fetchedVotationData);
 
-        if (finalThreadState.forumId === forumId) {
+        if (currentThreadState.forumId === forumId) {
             const forumRefDoc = doc(db, "forums", forumId);
             const forumSnap = await getDoc(forumRefDoc);
             if (forumSnap.exists()) {
@@ -243,15 +243,15 @@ export default function ThreadPage() {
         if (fetchedPosts.length < KRATIA_CONFIG.MESSAGES_PER_PAGE) {
           setHasMorePosts(false);
         }
-        // console.log('[ThreadPage MAIN Effect] Fetched posts count:', fetchedPosts.length);
+        console.log('[ThreadPage MAIN Effect] Fetched posts count:', fetchedPosts.length);
 
       } catch (err: any) {
-        // console.error(`[ThreadPage MAIN Effect] Error in main effect:`, err);
+        console.error(`[ThreadPage MAIN Effect] Error in main effect:`, err);
         setError("Failed to load thread details or process votation. Please try again. " + err.message);
         setThread(null); setPosts([]); setVotation(null); setHasMorePosts(false);
       } finally {
         setIsLoading(false);
-        // console.log('[ThreadPage MAIN Effect] Main effect finished. isLoading set to false.');
+        console.log('[ThreadPage MAIN Effect] Main effect finished. isLoading set to false.');
       }
     };
 
@@ -259,13 +259,13 @@ export default function ThreadPage() {
   }, [threadId, forumId, toast]); 
 
   useEffect(() => {
-    // console.log('[ThreadPage VotationChoice Effect] Running. Votation:', votation?.id, 'Logged in user:', loggedInUser?.id);
+    console.log('[ThreadPage VotationChoice Effect] Running. Votation:', votation?.id, 'Logged in user:', loggedInUser?.id);
     if (loggedInUser && votation && votation.voters && votation.voters[loggedInUser.id]) {
       setUserVotationChoice(votation.voters[loggedInUser.id]);
-      // console.log('[ThreadPage VotationChoice Effect] User has voted. Choice:', votation.voters[loggedInUser.id]);
+      console.log('[ThreadPage VotationChoice Effect] User has voted. Choice:', votation.voters[loggedInUser.id]);
     } else {
       setUserVotationChoice(null);
-      // console.log('[ThreadPage VotationChoice Effect] User has not voted or no relevant data.');
+      console.log('[ThreadPage VotationChoice Effect] User has not voted or no relevant data.');
     }
   }, [votation, loggedInUser]);
 
@@ -453,7 +453,7 @@ export default function ThreadPage() {
       }
     } catch (err) {
       console.error("Error loading more posts:", err);
-      setError("Failed to load more posts. Please try again."); // Can set a specific error for this if needed
+      setError("Failed to load more posts. Please try again."); 
     } finally {
       setIsLoadingMorePosts(false);
     }
@@ -490,15 +490,15 @@ export default function ThreadPage() {
         <AlertDescription>
           The thread you are looking for does not exist or could not be loaded.
         </AlertDescription>
-        <Button onClick={() => router.push(thread?.relatedVotationId ? '/agora' : (forumId ? `/forums/${forumId}` : '/forums'))} className="mt-4">
-           Back to {thread?.relatedVotationId ? 'The Agora' : (forumName || 'Forum')}
+        <Button onClick={() => router.push(forumId === 'agora' ? '/agora' : (forumId ? `/forums/${forumId}` : '/forums'))} className="mt-4">
+           Back to {forumId === 'agora' ? 'The Agora' : (forumName || 'Forum')}
         </Button>
       </Alert>
     );
   }
   
-  const backLinkHref = thread.relatedVotationId ? '/agora' : `/forums/${forumId}`;
-  const backLinkText = (forumName || (thread.relatedVotationId ? 'The Agora' : 'Forum'));
+  const backLinkHref = forumId === 'agora' ? '/agora' : `/forums/${forumId}`;
+  const backLinkText = (forumName || (forumId === 'agora' ? 'The Agora' : 'Forum'));
 
 
   return (
@@ -696,6 +696,8 @@ export default function ThreadPage() {
                 threadPoll={thread?.poll}
                 onPollUpdate={handlePollUpdate}
                 threadId={thread.id}
+                forumId={forumId}
+                onPostDeleted={handlePostDeleted}
             />
           ))}
         </div>
