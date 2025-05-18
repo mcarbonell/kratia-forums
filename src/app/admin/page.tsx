@@ -10,7 +10,7 @@ import { collection, getDocs, orderBy, query, deleteDoc, doc } from 'firebase/fi
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger
 import { Button } from '@/components/ui/button';
 import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle, FolderKanban, Trash2 } from 'lucide-react';
 import UserAvatar from '@/components/user/UserAvatar';
@@ -24,7 +24,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<KratiaUser[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
   const [categories, setCategories] = useState<ForumCategory[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isLoadingData, setIsLoadingData] = useState(true); // Combined loading state
   const [error, setError] = useState<string | null>(null);
   const [forumToDelete, setForumToDelete] = useState<Forum | null>(null);
 
@@ -56,10 +56,15 @@ export default function AdminPage() {
       setIsLoadingData(false);
     }
   };
-
+  
   useEffect(() => {
-    fetchData();
-  }, [loggedInUser, isAdminOrFounder]); // Removed authLoading from deps to prevent double fetch on initial load
+    if (isAdminOrFounder) { // Only fetch if authorized
+        fetchData();
+    } else if (!authLoading) { // If auth is done and user is not admin, stop loading
+        setIsLoadingData(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedInUser, isAdminOrFounder]); // Removed authLoading, let isAdminOrFounder handle loading stop for non-admins
 
   const handleDeleteForum = async () => {
     if (!forumToDelete) return;
@@ -69,8 +74,8 @@ export default function AdminPage() {
         title: "Forum Deleted",
         description: `Forum "${forumToDelete.name}" has been successfully deleted.`,
       });
-      setForums(forums.filter(forum => forum.id !== forumToDelete.id)); // Update local state
-      setForumToDelete(null); // Close dialog
+      setForums(forums.filter(forum => forum.id !== forumToDelete.id)); 
+      setForumToDelete(null); 
     } catch (err) {
       console.error("Error deleting forum:", err);
       toast({
@@ -106,7 +111,7 @@ export default function AdminPage() {
     );
   }
   
-  if (isLoadingData && users.length === 0 && forums.length === 0 && categories.length === 0) { // Show main loader only if truly nothing is loaded
+  if (isLoadingData && users.length === 0 && forums.length === 0 && categories.length === 0) {
      return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -279,11 +284,9 @@ export default function AdminPage() {
                         <Button asChild variant="outline" size="sm">
                             <Link href={`/admin/forums/edit/${forum.id}`}>Edit</Link>
                         </Button>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" onClick={() => setForumToDelete(forum)}>
-                            <Trash2 className="h-4 w-4"/>
-                          </Button>
-                        </AlertDialogTrigger>
+                        <Button variant="destructive" size="sm" onClick={() => setForumToDelete(forum)}>
+                           <Trash2 className="h-4 w-4"/>
+                        </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -318,3 +321,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+    
