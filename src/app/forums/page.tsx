@@ -6,7 +6,7 @@ import { MessageSquare, Loader2, AlertTriangle, PlusCircle } from 'lucide-react'
 import { useEffect, useState } from 'react';
 import type { ForumCategory, Forum } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore'; // Removed unused 'where', 'Timestamp'
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -74,7 +74,7 @@ export default function ForumsPage() {
         </h1>
         {!authLoading && canProposeForum && (
           <Button asChild>
-            <Link href="/forums/propose-new-forum">
+            <Link href="/forums/propose-new-forum/">
               <PlusCircle className="mr-2 h-5 w-5" /> Propose New Forum
             </Link>
           </Button>
