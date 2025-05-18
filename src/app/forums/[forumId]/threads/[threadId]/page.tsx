@@ -13,7 +13,7 @@ import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, Vota
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban, LogIn, Lock, Unlock, Pin, PinOff, PlusCircle } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment, updateDoc, writeBatch, addDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, runTransaction, increment, updateDoc, writeBatch, addDoc, limit, startAfter, type DocumentSnapshot } from 'firebase/firestore';
 import { format, formatDistanceToNow, isPast, addDays } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { KRATIA_CONFIG } from '@/lib/config';
@@ -59,19 +59,26 @@ export default function ThreadPage() {
   const [isTogglingLock, setIsTogglingLock] = useState(false);
   const [isTogglingSticky, setIsTogglingSticky] = useState(false);
 
+  const [lastVisiblePostSnapshot, setLastVisiblePostSnapshot] = useState<DocumentSnapshot | null>(null);
+  const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+
+
   useEffect(() => {
-    console.log('[ThreadPage MAIN Effect] Running. threadId:', threadId, 'forumId:', forumId);
+    // console.log('[ThreadPage MAIN Effect] Running. threadId:', threadId, 'forumId:', forumId);
     if (!threadId || !forumId) {
       setError("Thread ID or Forum ID is missing.");
       setIsLoading(false);
+      setHasMorePosts(false);
       return;
     }
 
     const fetchDataAndProcessVotation = async () => {
       setIsLoading(true);
       setError(null);
-      // setVotation(null); // Resetting votation here might cause flicker if it was already processed
-      // setUserVotationChoice(null); // This will be set by the second effect based on loaded votation
+      setPosts([]); // Reset posts for new thread load
+      setLastVisiblePostSnapshot(null);
+      setHasMorePosts(true);
 
       try {
         const threadRef = doc(db, "threads", threadId);
@@ -81,10 +88,11 @@ export default function ThreadPage() {
           setError("Thread not found.");
           setThread(null);
           setIsLoading(false);
-          console.log('[ThreadPage MAIN Effect] Thread not found.');
+          setHasMorePosts(false);
+          // console.log('[ThreadPage MAIN Effect] Thread not found.');
           return;
         }
-        let fetchedThreadData = threadSnap.data() as Omit<Thread, 'id'>; 
+        let fetchedThreadData = threadSnap.data() as Omit<Thread, 'id'>;
         let currentThreadState: Thread = {
           id: threadSnap.id,
           ...fetchedThreadData,
@@ -95,34 +103,33 @@ export default function ThreadPage() {
           isLocked: fetchedThreadData.isLocked || false,
           isSticky: fetchedThreadData.isSticky || false,
           relatedVotationId: fetchedThreadData.relatedVotationId || undefined,
+          poll: fetchedThreadData.poll || undefined,
         };
-        console.log('[ThreadPage MAIN Effect] Fetched thread:', JSON.parse(JSON.stringify(currentThreadState)));
+        // console.log('[ThreadPage MAIN Effect] Fetched thread:', JSON.parse(JSON.stringify(currentThreadState)));
         
         let fetchedVotationData: Votation | null = null;
         if (currentThreadState.relatedVotationId) {
-          console.log('[ThreadPage MAIN Effect] Thread has relatedVotationId:', currentThreadState.relatedVotationId, 'Fetching votation...');
+          // console.log('[ThreadPage MAIN Effect] Thread has relatedVotationId:', currentThreadState.relatedVotationId, 'Fetching votation...');
           const votationRef = doc(db, "votations", currentThreadState.relatedVotationId);
           const votationSnap = await getDoc(votationRef);
           if (votationSnap.exists()) {
             fetchedVotationData = { id: votationSnap.id, ...votationSnap.data() } as Votation;
-            console.log('[ThreadPage MAIN Effect] Fetched votation for processing:', JSON.parse(JSON.stringify(fetchedVotationData)));
+            // console.log('[ThreadPage MAIN Effect] Fetched votation for processing:', JSON.parse(JSON.stringify(fetchedVotationData)));
           } else {
-            console.warn(`[ThreadPage MAIN Effect] Votation document with ID ${currentThreadState.relatedVotationId} not found.`);
+            // console.warn(`[ThreadPage MAIN Effect] Votation document with ID ${currentThreadState.relatedVotationId} not found.`);
           }
         } else {
-            console.log('[ThreadPage MAIN Effect] Thread has no relatedVotationId.');
+            // console.log('[ThreadPage MAIN Effect] Thread has no relatedVotationId.');
         }
 
-        // --- Votation Closing Logic ---
         let batch: ReturnType<typeof writeBatch> | null = null;
-        let votationNeedsFirestoreUpdate = false;
-        let finalThreadState = currentThreadState; // Start with the fetched thread state
+        let finalThreadState = currentThreadState;
 
         if (fetchedVotationData && fetchedVotationData.status === 'active' && fetchedVotationData.deadline && isPast(new Date(fetchedVotationData.deadline))) {
-          console.log('[ThreadPage MAIN Effect] Votation deadline passed and status is active. Processing closure for votation ID:', fetchedVotationData.id);
+          // console.log('[ThreadPage MAIN Effect] Votation deadline passed and status is active. Processing closure for votation ID:', fetchedVotationData.id);
           if (!batch) batch = writeBatch(db);
 
-          let newStatus: VotationStatus = 'closed_failed_vote'; // Default
+          let newStatus: VotationStatus = 'closed_failed_vote';
           let outcomeMessage = 'Outcome not yet determined.';
           const quorumMet = (fetchedVotationData.totalVotesCast || 0) >= (fetchedVotationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS);
           const forVotes = fetchedVotationData.options.for || 0;
@@ -139,37 +146,34 @@ export default function ThreadPage() {
             newStatus = 'closed_failed_vote';
             outcomeMessage = `Failed - Did not receive majority "For" votes.`;
           }
-          console.log(`[VotationCloseDebug] Determined newStatus: ${newStatus}, Outcome: ${outcomeMessage}`);
+          // console.log(`[VotationCloseDebug] Determined newStatus: ${newStatus}, Outcome: ${outcomeMessage}`);
           
           const votationRef = doc(db, "votations", fetchedVotationData.id);
           batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
-          votationNeedsFirestoreUpdate = true;
           
-          // Update fetchedVotationData for immediate UI use and further processing
           fetchedVotationData = { ...fetchedVotationData, status: newStatus, outcome: outcomeMessage };
 
-          // Handle outcomes based on votation type
           if (newStatus === 'closed_passed') {
             if (fetchedVotationData.type === 'sanction' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
-              console.log(`[VotationCloseDebug] Sanction votation PASSED for ${fetchedVotationData.targetUsername}. Applying sanction.`);
+              // console.log(`[VotationCloseDebug] Sanction votation PASSED for ${fetchedVotationData.targetUsername}. Applying sanction.`);
               const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
-              const sanctionEndDate = addDays(new Date(), 1); // 1 day sanction for now
+              const sanctionEndDate = addDays(new Date(), 1); 
               batch.update(targetUserRef, { status: 'sanctioned', sanctionEndDate: sanctionEndDate.toISOString() });
               toast({ title: "Sanction Applied", description: `${fetchedVotationData.targetUsername} has been sanctioned for 1 day.`});
             }
             if (fetchedVotationData.type === 'rule_change' && fetchedVotationData.proposedConstitutionText) {
-              console.log(`[VotationCloseDebug] Constitution change votation PASSED. Applying changes.`);
+              // console.log(`[VotationCloseDebug] Constitution change votation PASSED. Applying changes.`);
               batch.update(doc(db, "site_settings", "constitution"), { constitutionText: fetchedVotationData.proposedConstitutionText, lastUpdated: new Date().toISOString() });
               toast({ title: "Constitution Updated!", description: "The site constitution has been updated."});
             }
              if (fetchedVotationData.type === 'admission_request' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
-              console.log('[VotationCloseDebug] Applying ADMISSION outcome for targetUserId:', fetchedVotationData.targetUserId, 'targetUsername:', fetchedVotationData.targetUsername);
+              // console.log('[VotationCloseDebug] Applying ADMISSION outcome for targetUserId:', fetchedVotationData.targetUserId, 'targetUsername:', fetchedVotationData.targetUsername);
               const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
               batch.update(targetUserRef, { status: 'active', canVote: true, isQuarantined: false, role: 'user' });
               toast({ title: "Admission Approved!", description: `User ${fetchedVotationData.targetUsername} has been admitted.`});
             }
             if (fetchedVotationData.type === 'new_forum_proposal' && fetchedVotationData.proposedForumName && fetchedVotationData.proposedForumCategoryId && fetchedVotationData.proposedForumDescription) {
-              console.log('[VotationCloseDebug] New Forum Proposal PASSED. Creating forum:', fetchedVotationData.proposedForumName);
+              // console.log('[VotationCloseDebug] New Forum Proposal PASSED. Creating forum:', fetchedVotationData.proposedForumName);
               const newForumRef = doc(collection(db, "forums"));
               const newForumData = {
                 name: fetchedVotationData.proposedForumName,
@@ -185,28 +189,26 @@ export default function ThreadPage() {
             }
           }
 
-          // Automatically lock the Agora thread if its votation has concluded
-          if (finalThreadState && !finalThreadState.isLocked) { // Check if finalThreadState (which is currentThreadState here) exists
-            console.log(`[VotationCloseDebug] Votation closed. Locking Agora thread ${finalThreadState.id}.`);
+          if (finalThreadState && !finalThreadState.isLocked) {
+            // console.log(`[VotationCloseDebug] Votation closed. Locking Agora thread ${finalThreadState.id}.`);
             batch.update(threadRef, { isLocked: true });
-            finalThreadState = { ...finalThreadState, isLocked: true }; // Update the local thread state as well
+            finalThreadState = { ...finalThreadState, isLocked: true };
             toast({ title: "Thread Locked", description: "This Agora thread has been automatically locked as the votation concluded."});
           }
         }
 
-        if (batch && votationNeedsFirestoreUpdate) { 
+        if (batch) { 
           await batch.commit();
-          console.log(`[ThreadPage MAIN Effect] Batch commit successful for votation processing.`);
-          if (fetchedVotationData && fetchedVotationData.outcome) {
+          // console.log(`[ThreadPage MAIN Effect] Batch commit successful for votation processing.`);
+          if (fetchedVotationData && fetchedVotationData.outcome && fetchedVotationData.status !== 'active') {
             toast({ title: "Votation Processed", description: `Votation "${fetchedVotationData.title}" processed. Result: ${fetchedVotationData.outcome}`});
           }
         }
         
-        setThread(finalThreadState); // Set thread (possibly updated with isLocked)
-        setVotation(fetchedVotationData); // Set votation (possibly updated with new status/outcome)
+        setThread(finalThreadState);
+        setVotation(fetchedVotationData);
 
-        // --- Fetch Forum Name & Posts (always run after thread/votation processing) ---
-        if (finalThreadState.forumId === forumId) { // Use finalThreadState which is currentThreadState
+        if (finalThreadState.forumId === forumId) {
             const forumRefDoc = doc(db, "forums", forumId);
             const forumSnap = await getDoc(forumRefDoc);
             if (forumSnap.exists()) {
@@ -214,7 +216,12 @@ export default function ThreadPage() {
             }
         }
 
-        const postsQuery = query(collection(db, "posts"), where("threadId", "==", threadId), orderBy("createdAt", "asc"));
+        const postsQuery = query(
+            collection(db, "posts"), 
+            where("threadId", "==", threadId), 
+            orderBy("createdAt", "asc"),
+            limit(KRATIA_CONFIG.MESSAGES_PER_PAGE)
+        );
         const postsSnapshot = await getDocs(postsQuery);
         const fetchedPosts = postsSnapshot.docs.map(docSnap => {
           const data = docSnap.data();
@@ -228,30 +235,37 @@ export default function ThreadPage() {
           } as PostType;
         });
         setPosts(fetchedPosts);
-        console.log('[ThreadPage MAIN Effect] Fetched posts count:', fetchedPosts.length);
+        if (postsSnapshot.docs.length > 0) {
+          setLastVisiblePostSnapshot(postsSnapshot.docs[postsSnapshot.docs.length - 1]);
+        } else {
+          setHasMorePosts(false);
+        }
+        if (fetchedPosts.length < KRATIA_CONFIG.MESSAGES_PER_PAGE) {
+          setHasMorePosts(false);
+        }
+        // console.log('[ThreadPage MAIN Effect] Fetched posts count:', fetchedPosts.length);
 
       } catch (err: any) {
-        console.error(`[ThreadPage MAIN Effect] Error in main effect:`, err);
+        // console.error(`[ThreadPage MAIN Effect] Error in main effect:`, err);
         setError("Failed to load thread details or process votation. Please try again. " + err.message);
-        setThread(null); setPosts([]); setVotation(null);
+        setThread(null); setPosts([]); setVotation(null); setHasMorePosts(false);
       } finally {
         setIsLoading(false);
-        console.log('[ThreadPage MAIN Effect] Main effect finished. isLoading set to false.');
+        // console.log('[ThreadPage MAIN Effect] Main effect finished. isLoading set to false.');
       }
     };
 
     fetchDataAndProcessVotation();
-  }, [threadId, forumId, toast]); // Dependencies for the main data fetching and initial processing effect
+  }, [threadId, forumId, toast]); 
 
-  // Separate effect for setting user's choice, depends on loggedInUser and votation state
   useEffect(() => {
-    console.log('[ThreadPage VotationChoice Effect] Running. Votation:', votation?.id, 'Logged in user:', loggedInUser?.id);
+    // console.log('[ThreadPage VotationChoice Effect] Running. Votation:', votation?.id, 'Logged in user:', loggedInUser?.id);
     if (loggedInUser && votation && votation.voters && votation.voters[loggedInUser.id]) {
       setUserVotationChoice(votation.voters[loggedInUser.id]);
-      console.log('[ThreadPage VotationChoice Effect] User has voted. Choice:', votation.voters[loggedInUser.id]);
+      // console.log('[ThreadPage VotationChoice Effect] User has voted. Choice:', votation.voters[loggedInUser.id]);
     } else {
       setUserVotationChoice(null);
-      console.log('[ThreadPage VotationChoice Effect] User has not voted or no relevant data.');
+      // console.log('[ThreadPage VotationChoice Effect] User has not voted or no relevant data.');
     }
   }, [votation, loggedInUser]);
 
@@ -400,6 +414,48 @@ export default function ThreadPage() {
       toast({ title: "Error", description: "Failed to update thread sticky state.", variant: "destructive" });
     } finally {
       setIsTogglingSticky(false);
+    }
+  };
+
+  const handleLoadMorePosts = async () => {
+    if (!lastVisiblePostSnapshot || !hasMorePosts || isLoadingMorePosts) {
+      return;
+    }
+    setIsLoadingMorePosts(true);
+    try {
+      const nextPostsQuery = query(
+        collection(db, "posts"),
+        where("threadId", "==", threadId),
+        orderBy("createdAt", "asc"),
+        startAfter(lastVisiblePostSnapshot),
+        limit(KRATIA_CONFIG.MESSAGES_PER_PAGE)
+      );
+      const postsSnapshot = await getDocs(nextPostsQuery);
+      const newPosts = postsSnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          ...data,
+          createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
+          updatedAt: formatFirestoreTimestamp(data.updatedAt),
+          author: data.author || { username: 'Unknown', id: '' },
+          reactions: data.reactions || {},
+          lastEditedBy: data.lastEditedBy
+        } as PostType;
+      });
+
+      setPosts(prevPosts => [...prevPosts, ...newPosts]);
+      if (postsSnapshot.docs.length > 0) {
+        setLastVisiblePostSnapshot(postsSnapshot.docs[postsSnapshot.docs.length - 1]);
+      }
+      if (newPosts.length < KRATIA_CONFIG.MESSAGES_PER_PAGE) {
+        setHasMorePosts(false);
+      }
+    } catch (err) {
+      console.error("Error loading more posts:", err);
+      setError("Failed to load more posts. Please try again."); // Can set a specific error for this if needed
+    } finally {
+      setIsLoadingMorePosts(false);
     }
   };
 
@@ -662,6 +718,23 @@ export default function ThreadPage() {
         </Card>
       )}
 
+      {hasMorePosts && posts.length > 0 && (
+        <div className="text-center mt-8">
+          <Button onClick={handleLoadMorePosts} disabled={isLoadingMorePosts}>
+            {isLoadingMorePosts ? (
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            ) : (
+              <PlusCircle className="mr-2 h-5 w-5" />
+            )}
+            Load More Posts
+          </Button>
+        </div>
+      )}
+      {!hasMorePosts && posts.length >= KRATIA_CONFIG.MESSAGES_PER_PAGE && (
+        <p className="text-center text-muted-foreground mt-8">No more posts to load.</p>
+      )}
+
+
       {thread.isLocked && (
         <Alert variant="default" className="mt-6 border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
           <Lock className="h-5 w-5" />
@@ -703,3 +776,5 @@ export default function ThreadPage() {
     </div>
   );
 }
+
+    
