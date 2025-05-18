@@ -6,16 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LogIn, ShieldCheck, UserX, Home, Clock } from "lucide-react";
+import { LogIn, ShieldCheck, UserX, Home, Clock, Loader2 } from "lucide-react"; // Added Loader2
 import { useMockAuth, type LoginResult } from "@/hooks/use-mock-auth";
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { auth } from "@/lib/firebase"; // Import Firebase auth instance
-import { signInWithEmailAndPassword } from "firebase/auth"; // Firebase auth function
+import { auth } from "@/lib/firebase"; 
+import { signInWithEmailAndPassword } from "firebase/auth"; 
 
 export default function LoginPage() {
-  const { loginAndSetUserFromFirestore, logout } = useMockAuth(); // Using the new function
+  const { loginAndSetUserFromFirestore, logout } = useMockAuth(); 
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,33 +30,38 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
+      // Step 1: Authenticate with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
 
       if (firebaseUser && firebaseUser.uid) {
+        // Step 2: Fetch user profile from Firestore and check status
         const firestoreCheckResult: LoginResult = await loginAndSetUserFromFirestore(firebaseUser.uid);
+        
         if (firestoreCheckResult.success) {
           router.push('/');
         } else {
+          // Handle specific reasons from Firestore check (e.g., sanctioned, pending_admission)
           if (firestoreCheckResult.reason === 'sanctioned') {
             setAuthError({type: 'sanctioned', username: firestoreCheckResult.username, endDate: firestoreCheckResult.sanctionEndDate});
-            setError(`User ${firestoreCheckResult.username} is sanctioned. Access denied.`);
+            // Error message is set by authError state
           } else if (firestoreCheckResult.reason === 'pending_admission') {
             setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
-            setError(`User ${firestoreCheckResult.username}'s application is pending community review.`);
+            // Error message is set by authError state
           } else {
-            setError("Login failed after authentication. User profile issue."); // Should not happen if Firestore is consistent
+            setError("Login failed after authentication. User profile issue."); 
           }
           console.error("Login failed (Firestore check):", firestoreCheckResult.reason);
         }
       } else {
-        setError("Authentication successful but no user data found from Firebase.");
-        console.error("Login failed: No user data from Firebase Auth.");
+        // This case should ideally not be hit if signInWithEmailAndPassword was successful
+        setError("Authentication successful but no user data found from Firebase Auth.");
+        console.error("Login failed: No user data from Firebase Auth after successful sign-in.");
       }
-    } catch (authError: any) {
-      console.error("Firebase Auth Login error:", authError);
+    } catch (err: any) { // Catch errors from signInWithEmailAndPassword
+      console.error("Firebase Auth Login error:", err.code, err.message);
       let specificError = "Login failed. Please check your credentials.";
-      switch (authError.code) {
+      switch (err.code) {
         case 'auth/user-not-found':
           specificError = "No user found with this email.";
           break;
@@ -66,7 +71,7 @@ export default function LoginPage() {
         case 'auth/invalid-email':
           specificError = "The email address is not valid.";
           break;
-        case 'auth/invalid-credential': // General for wrong email/password combination
+        case 'auth/invalid-credential': // General for wrong email/password combination or other issues
            specificError = "Invalid credentials. Please check your email and password.";
            break;
         case 'auth/too-many-requests':
@@ -106,7 +111,7 @@ export default function LoginPage() {
               : authError?.type === 'pending_admission'
               ? `The admission application for ${authError.username} is currently under review by the community. You will be notified of the outcome.`
               : "Enter your credentials to access your Kratia account."}
-             {authError?.type === 'sanctioned' && authError?.endDate && (
+             {authError?.type === 'sanctioned' && authError.endDate && (
                 <span className="block mt-1 text-sm text-destructive">
                   Sanction ends: {format(new Date(authError.endDate), "PPPp")}
                 </span>
@@ -170,4 +175,3 @@ export default function LoginPage() {
   );
 }
 
-    
