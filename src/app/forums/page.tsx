@@ -2,17 +2,21 @@
 "use client";
 
 import ForumList from '@/components/forums/ForumList';
-import { MessageSquare, Loader2, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Loader2, AlertTriangle, PlusCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ForumCategory, Forum } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore'; // Removed unused 'where', 'Timestamp'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+import { useMockAuth } from '@/hooks/use-mock-auth';
 
 export default function ForumsPage() {
   const [categories, setCategories] = useState<ForumCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { user, loading: authLoading } = useMockAuth();
 
   useEffect(() => {
     const fetchCategoriesAndForums = async () => {
@@ -59,13 +63,22 @@ export default function ForumsPage() {
     fetchCategoriesAndForums();
   }, []);
 
+  const canProposeForum = user && user.canVote && user.status === 'active';
+
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold flex items-center">
           <MessageSquare className="mr-3 h-8 w-8 text-primary" />
           Forums
         </h1>
+        {!authLoading && canProposeForum && (
+          <Button asChild>
+            <Link href="/forums/propose-new-forum">
+              <PlusCircle className="mr-2 h-5 w-5" /> Propose New Forum
+            </Link>
+          </Button>
+        )}
       </div>
       <section aria-labelledby="forum-categories-title">
         <h2 id="forum-categories-title" className="sr-only">
