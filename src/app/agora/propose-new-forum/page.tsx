@@ -121,10 +121,12 @@ export default function ProposeNewForumPage() {
     const now = Timestamp.now();
     const deadlineDate = new Date(now.toDate().getTime() + KRATIA_CONFIG.VOTATION_DURATION_DAYS * 24 * 60 * 60 * 1000);
     
+    const selectedCategory = categories.find(c => c.id === data.proposedForumCategoryId);
+    const selectedCategoryName = selectedCategory?.name || 'Unknown Category';
+
     const agoraThreadTitle = `Votation: Proposal for New Forum - "${data.proposedForumName}"`;
     const votationTitle = `Vote on New Forum Proposal: "${data.proposedForumName}"`;
-    const selectedCategory = categories.find(c=>c.id === data.proposedForumCategoryId);
-    const votationDescription = `Proposal to create a new forum: "${data.proposedForumName}" in category "${selectedCategory?.name || 'Unknown'}". Justification: ${data.justification.substring(0,100)}...`;
+    const votationDescription = `Proposal to create a new forum: "${data.proposedForumName}" in category "${selectedCategoryName}". Justification: ${data.justification.substring(0,100)}...`;
 
     try {
       const batch = writeBatch(db);
@@ -146,7 +148,7 @@ export default function ProposeNewForumPage() {
 
       const initialPostContent = `
 **Forum Name Proposal:** ${data.proposedForumName}
-**Proposed Category:** ${selectedCategory?.name || 'Unknown Category ID: ' + data.proposedForumCategoryId}
+**Proposed Category:** ${selectedCategoryName}
 **Proposed Description:** ${data.proposedForumDescription}
 **Proposed Public Status:** ${data.proposedForumIsPublic ? 'Public' : 'Private (Members Only)'}
 
@@ -194,6 +196,7 @@ This proposal is now subject to community votation.
         proposedForumName: data.proposedForumName,
         proposedForumDescription: data.proposedForumDescription,
         proposedForumCategoryId: data.proposedForumCategoryId,
+        proposedForumCategoryName: selectedCategoryName, // Store the name
         proposedForumIsPublic: data.proposedForumIsPublic,
       };
       batch.set(newVotationRef, votationData);
@@ -338,6 +341,3 @@ This proposal is now subject to community votation.
     </div>
   );
 }
-
-
-    

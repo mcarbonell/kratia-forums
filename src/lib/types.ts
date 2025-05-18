@@ -66,7 +66,7 @@ export interface ForumCategory {
   id: string;
   name: string;
   description?: string;
-  forums: Forum[];
+  forums?: Forum[]; // Optional if forums are primarily linked by categoryId
 }
 
 export interface PollOption {
@@ -87,7 +87,7 @@ export interface Poll {
 
 export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote' | 'closed_executed' | 'closed_rejected';
 
-export type VotationType = 'sanction' | 'rule_change' | 'forum_management' | 'admission_request' | 'other';
+export type VotationType = 'sanction' | 'rule_change' | 'forum_management' | 'admission_request' | 'new_forum_proposal' | 'other';
 
 export interface VotationOptionTally {
   for: number;
@@ -112,6 +112,13 @@ export interface Votation {
   sanctionDuration?: string;
   
   proposedConstitutionText?: string;
+
+  // For new forum proposals
+  proposedForumName?: string;
+  proposedForumDescription?: string;
+  proposedForumCategoryId?: string;
+  proposedForumCategoryName?: string; // Denormalized for display
+  proposedForumIsPublic?: boolean;
 
   options: VotationOptionTally;
   voters: Record<string, 'for' | 'against' | 'abstain'>;

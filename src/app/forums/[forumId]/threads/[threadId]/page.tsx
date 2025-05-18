@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
-import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, VotationStatus } from '@/lib/types';
+import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, VotationStatus, ForumCategory } from '@/lib/types';
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban, LogIn, Lock, Unlock, Pin, PinOff, PlusCircle } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
@@ -70,8 +70,8 @@ export default function ThreadPage() {
     const fetchDataAndProcessVotation = async () => {
       setIsLoading(true);
       setError(null);
-      setVotation(null); 
-      setUserVotationChoice(null);
+      // setVotation(null); // Resetting votation here might cause flicker if it was already processed
+      // setUserVotationChoice(null); // This will be set by the second effect based on loaded votation
 
       try {
         const threadRef = doc(db, "threads", threadId);
@@ -113,34 +113,42 @@ export default function ThreadPage() {
             console.log('[ThreadPage MAIN Effect] Thread has no relatedVotationId.');
         }
 
+        // --- Votation Closing Logic ---
         let batch: ReturnType<typeof writeBatch> | null = null;
         let votationNeedsFirestoreUpdate = false;
-        let finalThreadState = currentThreadState;
+        let finalThreadState = currentThreadState; // Start with the fetched thread state
 
         if (fetchedVotationData && fetchedVotationData.status === 'active' && fetchedVotationData.deadline && isPast(new Date(fetchedVotationData.deadline))) {
           console.log('[ThreadPage MAIN Effect] Votation deadline passed and status is active. Processing closure for votation ID:', fetchedVotationData.id);
           if (!batch) batch = writeBatch(db);
 
-          let newStatus: VotationStatus = 'closed_failed_vote';
+          let newStatus: VotationStatus = 'closed_failed_vote'; // Default
           let outcomeMessage = 'Outcome not yet determined.';
           const quorumMet = (fetchedVotationData.totalVotesCast || 0) >= (fetchedVotationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS);
           const forVotes = fetchedVotationData.options.for || 0;
           const againstVotes = fetchedVotationData.options.against || 0;
           const passed = forVotes > againstVotes;
 
-          if (!quorumMet) newStatus = 'closed_failed_quorum';
-          else if (passed) newStatus = 'closed_passed';
-          else newStatus = 'closed_failed_vote';
-          
-          outcomeMessage = newStatus === 'closed_passed' ? 'Passed.' : (newStatus === 'closed_failed_quorum' ? `Failed - Quorum not met (${fetchedVotationData.totalVotesCast} of ${fetchedVotationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS} required).` : `Failed - Did not receive majority "For" votes.`);
+          if (!quorumMet) {
+            newStatus = 'closed_failed_quorum';
+            outcomeMessage = `Failed - Quorum not met (${fetchedVotationData.totalVotesCast} of ${fetchedVotationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS} required).`;
+          } else if (passed) {
+            newStatus = 'closed_passed';
+            outcomeMessage = 'Passed.';
+          } else {
+            newStatus = 'closed_failed_vote';
+            outcomeMessage = `Failed - Did not receive majority "For" votes.`;
+          }
           console.log(`[VotationCloseDebug] Determined newStatus: ${newStatus}, Outcome: ${outcomeMessage}`);
-
+          
           const votationRef = doc(db, "votations", fetchedVotationData.id);
           batch.update(votationRef, { status: newStatus, outcome: outcomeMessage });
           votationNeedsFirestoreUpdate = true;
-          fetchedVotationData.status = newStatus; 
-          fetchedVotationData.outcome = outcomeMessage;
+          
+          // Update fetchedVotationData for immediate UI use and further processing
+          fetchedVotationData = { ...fetchedVotationData, status: newStatus, outcome: outcomeMessage };
 
+          // Handle outcomes based on votation type
           if (newStatus === 'closed_passed') {
             if (fetchedVotationData.type === 'sanction' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
               console.log(`[VotationCloseDebug] Sanction votation PASSED for ${fetchedVotationData.targetUsername}. Applying sanction.`);
@@ -152,9 +160,9 @@ export default function ThreadPage() {
             if (fetchedVotationData.type === 'rule_change' && fetchedVotationData.proposedConstitutionText) {
               console.log(`[VotationCloseDebug] Constitution change votation PASSED. Applying changes.`);
               batch.update(doc(db, "site_settings", "constitution"), { constitutionText: fetchedVotationData.proposedConstitutionText, lastUpdated: new Date().toISOString() });
-              toast({ title: "Constitution Updated!"});
+              toast({ title: "Constitution Updated!", description: "The site constitution has been updated."});
             }
-            if (fetchedVotationData.type === 'admission_request' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
+             if (fetchedVotationData.type === 'admission_request' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
               console.log('[VotationCloseDebug] Applying ADMISSION outcome for targetUserId:', fetchedVotationData.targetUserId, 'targetUsername:', fetchedVotationData.targetUsername);
               const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
               batch.update(targetUserRef, { status: 'active', canVote: true, isQuarantined: false, role: 'user' });
@@ -168,7 +176,7 @@ export default function ThreadPage() {
                 description: fetchedVotationData.proposedForumDescription,
                 categoryId: fetchedVotationData.proposedForumCategoryId,
                 isPublic: fetchedVotationData.proposedForumIsPublic === undefined ? true : fetchedVotationData.proposedForumIsPublic,
-                isAgora: false, // Cannot create an Agora forum this way
+                isAgora: false, 
                 threadCount: 0,
                 postCount: 0,
               };
@@ -177,26 +185,28 @@ export default function ThreadPage() {
             }
           }
 
-          if (finalThreadState && !finalThreadState.isLocked) {
+          // Automatically lock the Agora thread if its votation has concluded
+          if (finalThreadState && !finalThreadState.isLocked) { // Check if finalThreadState (which is currentThreadState here) exists
             console.log(`[VotationCloseDebug] Votation closed. Locking Agora thread ${finalThreadState.id}.`);
             batch.update(threadRef, { isLocked: true });
-            finalThreadState = { ...finalThreadState, isLocked: true };
+            finalThreadState = { ...finalThreadState, isLocked: true }; // Update the local thread state as well
             toast({ title: "Thread Locked", description: "This Agora thread has been automatically locked as the votation concluded."});
           }
         }
 
-        if (batch && votationNeedsFirestoreUpdate) { // Check if batch has operations
+        if (batch && votationNeedsFirestoreUpdate) { 
           await batch.commit();
           console.log(`[ThreadPage MAIN Effect] Batch commit successful for votation processing.`);
-          if (fetchedVotationData) { // Ensure fetchedVotationData is not null
+          if (fetchedVotationData && fetchedVotationData.outcome) {
             toast({ title: "Votation Processed", description: `Votation "${fetchedVotationData.title}" processed. Result: ${fetchedVotationData.outcome}`});
           }
         }
         
-        setThread(finalThreadState);
-        setVotation(fetchedVotationData);
+        setThread(finalThreadState); // Set thread (possibly updated with isLocked)
+        setVotation(fetchedVotationData); // Set votation (possibly updated with new status/outcome)
 
-        if (finalThreadState.forumId === forumId) {
+        // --- Fetch Forum Name & Posts (always run after thread/votation processing) ---
+        if (finalThreadState.forumId === forumId) { // Use finalThreadState which is currentThreadState
             const forumRefDoc = doc(db, "forums", forumId);
             const forumSnap = await getDoc(forumRefDoc);
             if (forumSnap.exists()) {
@@ -231,11 +241,11 @@ export default function ThreadPage() {
     };
 
     fetchDataAndProcessVotation();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, forumId, toast]); 
+  }, [threadId, forumId, toast]); // Dependencies for the main data fetching and initial processing effect
 
+  // Separate effect for setting user's choice, depends on loggedInUser and votation state
   useEffect(() => {
-    console.log('[ThreadPage VotationChoice Effect] Running. Votation:', votation, 'Logged in user:', loggedInUser?.id);
+    console.log('[ThreadPage VotationChoice Effect] Running. Votation:', votation?.id, 'Logged in user:', loggedInUser?.id);
     if (loggedInUser && votation && votation.voters && votation.voters[loggedInUser.id]) {
       setUserVotationChoice(votation.voters[loggedInUser.id]);
       console.log('[ThreadPage VotationChoice Effect] User has voted. Choice:', votation.voters[loggedInUser.id]);
@@ -348,7 +358,6 @@ export default function ThreadPage() {
       toast({ title: "Error", description: "Action not allowed or thread not found.", variant: "destructive" });
       return;
     }
-    // Prevent unlocking an Agora thread that was locked due to votation conclusion, unless it's done by specific logic later
     if (thread.isLocked && thread.relatedVotationId && votation && votation.status !== 'active') {
         toast({ title: "Action Restricted", description: "This Agora thread was locked because its votation concluded. It cannot be unlocked from here.", variant: "default"});
         return;
@@ -522,7 +531,7 @@ export default function ThreadPage() {
             {votation.type === 'new_forum_proposal' && votation.proposedForumName && (
                  <div className="flex items-center text-sm">
                     <PlusCircle className="mr-2 h-4 w-4 text-green-600" />
-                    <span>Proposal for New Forum: <strong>{votation.proposedForumName}</strong> in category <strong>{categories.find(c => c.id === votation.proposedForumCategoryId)?.name || 'Unknown'}</strong></span>
+                    <span>Proposal for New Forum: <strong>{votation.proposedForumName}</strong> in category <strong>{votation.proposedForumCategoryName || votation.proposedForumCategoryId || 'Unknown'}</strong></span>
                 </div>
             )}
             <div className="text-sm">
