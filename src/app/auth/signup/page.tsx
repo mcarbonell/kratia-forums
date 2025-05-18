@@ -12,13 +12,14 @@ import { UserPlus, ShieldCheck, Loader2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
-import { db, auth, app } from "@/lib/firebase"; // Import auth and app
-import { getAuth, createUserWithEmailAndPassword } from "firebase/auth"; // Firebase Auth functions
-import { collection, addDoc, serverTimestamp, writeBatch, doc, Timestamp, increment } from "firebase/firestore";
-import type { User, Thread, Post, Votation } from "@/lib/types";
+import { db, auth } from "@/lib/firebase";
+import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+import { doc, setDoc, Timestamp } from "firebase/firestore";
+import type { User } from "@/lib/types";
 import { KRATIA_CONFIG } from "@/lib/config";
 
-const AGORA_FORUM_ID = 'agora';
+// Note: Agora-related imports (Thread, Post, Votation, increment, writeBatch, collection, AGORA_FORUM_ID)
+// are removed from here as admission request creation moves to login after email verification.
 
 export default function SignupPage() {
   const router = useRouter();
@@ -55,19 +56,17 @@ export default function SignupPage() {
 
     try {
       // 1. Create user in Firebase Authentication
-      // const firebaseAuth = getAuth(app); // Or use the exported auth from firebase.ts
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
       const firebaseUserId = firebaseUser.uid;
 
-      // 2. Prepare Firestore batch
-      const batch = writeBatch(db);
-      const now = Timestamp.now();
-      const deadlineDate = new Date(now.toDate().getTime() + KRATIA_CONFIG.VOTATION_DURATION_DAYS * 24 * 60 * 60 * 1000);
+      // 2. Send email verification
+      await sendEmailVerification(firebaseUser);
 
-      // 3. Create User document in Firestore with 'pending_admission' status
-      const userDocRef = doc(db, "users", firebaseUserId); // Use Firebase UID as document ID
-      const newUserFirestoreData: Omit<User, 'id'> = { // Omit 'id' as it's the doc ID
+      // 3. Create User document in Firestore with 'pending_email_verification' status
+      const userDocRef = doc(db, "users", firebaseUserId);
+      const now = Timestamp.now();
+      const newUserFirestoreData: Omit<User, 'id'> = {
         username,
         email,
         avatarUrl: `https://placehold.co/100x100.png?text=${username?.[0]?.toUpperCase() || 'U'}`,
@@ -75,89 +74,25 @@ export default function SignupPage() {
         karma: 0,
         presentation: presentation,
         canVote: false,
-        isQuarantined: true,
-        status: 'pending_admission',
-        role: 'guest', // Initial role, will be 'user' upon admission
+        isQuarantined: true, // New users start quarantined until admission
+        status: 'pending_email_verification', // New status
+        role: 'guest', // Initial role
         totalPostsByUser: 0,
         totalReactionsReceived: 0,
         totalPostsInThreadsStartedByUser: 0,
         totalThreadsStartedByUser: 0,
-        onboardingAccepted: false, // Explicitly set for new users
+        onboardingAccepted: false,
       };
-      batch.set(userDocRef, newUserFirestoreData);
-
-      // 4. Create Agora Thread for admission request
-      const admissionThreadRef = doc(collection(db, "threads"));
-      const admissionThreadTitle = `Admission Request: ${username}`;
-      const authorInfoForThread = {
-        id: firebaseUserId,
-        username: username,
-        avatarUrl: newUserFirestoreData.avatarUrl
-      };
-      const admissionThreadData: Omit<Thread, 'id'> & { relatedVotationId: string } = {
-        forumId: AGORA_FORUM_ID,
-        title: admissionThreadTitle,
-        author: authorInfoForThread,
-        createdAt: now.toDate().toISOString(),
-        lastReplyAt: now.toDate().toISOString(),
-        postCount: 1,
-        isPublic: true,
-        relatedVotationId: '', // Will be set after votation is created
-      };
-
-      // 5. Create Votation document for admission
-      const newVotationRef = doc(collection(db, "votations"));
-      (admissionThreadData as any).relatedVotationId = newVotationRef.id; // Link thread to votation
-      batch.set(admissionThreadRef, admissionThreadData);
-
-      const votationData: Votation = {
-        id: newVotationRef.id,
-        title: `Vote on admission for ${username}`,
-        description: `Community vote to admit ${username} to ${KRATIA_CONFIG.FORUM_NAME}. Their presentation is in the linked thread.`,
-        proposerId: firebaseUserId, 
-        proposerUsername: username,
-        type: 'admission_request',
-        createdAt: now.toDate().toISOString(),
-        deadline: deadlineDate.toISOString(),
-        status: 'active',
-        targetUserId: firebaseUserId, 
-        targetUsername: username,
-        options: { for: 0, against: 0, abstain: 0 },
-        voters: {},
-        totalVotesCast: 0,
-        quorumRequired: KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS,
-        relatedThreadId: admissionThreadRef.id,
-      };
-      batch.set(newVotationRef, votationData);
-
-      // 6. Create Initial Post in the Admission Thread (Applicant's Presentation)
-      const initialPostRef = doc(collection(db, "posts"));
-      const initialPostData: Omit<Post, 'id'> = {
-        threadId: admissionThreadRef.id,
-        author: authorInfoForThread,
-        content: `**Applicant:** ${username}\n\n**Reason for Joining / Presentation:**\n\n${presentation}`,
-        createdAt: now.toDate().toISOString(),
-        reactions: {},
-      };
-      batch.set(initialPostRef, initialPostData);
-      
-      // 7. Update Agora forum counts (one new thread, one new post)
-      const agoraForumRef = doc(db, "forums", AGORA_FORUM_ID);
-      batch.update(agoraForumRef, {
-        threadCount: increment(1),
-        postCount: increment(1),
-      });
-
-      await batch.commit();
+      await setDoc(userDocRef, newUserFirestoreData); // Using setDoc for clarity
 
       toast({
-        title: "Application Submitted!",
-        description: "Your application to join Kratia Forums is now pending community review. You'll be notified of the outcome.",
+        title: "Registration Successful!",
+        description: "Please check your email to verify your account. After verification, log in to complete your admission request.",
       });
-      router.push('/auth/confirm?status=application_submitted'); 
+      router.push(`/auth/confirm?status=email_verification_sent&email=${encodeURIComponent(email)}`); 
     } catch (err: any) {
-      console.error("Error submitting application:", err);
-      let errorMessage = "Failed to submit application. Please try again.";
+      console.error("Error during signup:", err);
+      let errorMessage = "Failed to sign up. Please try again.";
       if (err.code) {
         switch (err.code) {
           case 'auth/email-already-in-use':
@@ -175,7 +110,7 @@ export default function SignupPage() {
       }
       setError(errorMessage);
       toast({
-        title: "Application Error",
+        title: "Signup Error",
         description: errorMessage,
         variant: "destructive",
       });

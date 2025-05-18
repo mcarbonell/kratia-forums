@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { LogIn, ShieldCheck, UserX, Home, Clock, Loader2 } from "lucide-react"; // Added Loader2
+import { LogIn, ShieldCheck, UserX, Home, Clock, Loader2, AlertCircle } from "lucide-react";
 import { useMockAuth, type LoginResult } from "@/hooks/use-mock-auth";
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
@@ -20,7 +20,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [authError, setAuthError] = useState<{type: 'sanctioned' | 'pending_admission', username?: string; endDate?: string} | null>(null);
+  const [authError, setAuthError] = useState<{type: 'sanctioned' | 'pending_admission' | 'email_not_verified', username?: string; endDate?: string; userEmail?: string} | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent) => {
@@ -34,31 +34,40 @@ export default function LoginPage() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
 
-      if (firebaseUser && firebaseUser.uid) {
-        // Step 2: Fetch user profile from Firestore and check status
-        const firestoreCheckResult: LoginResult = await loginAndSetUserFromFirestore(firebaseUser.uid);
-        
-        if (firestoreCheckResult.success) {
-          router.push('/');
-        } else {
-          // Handle specific reasons from Firestore check (e.g., sanctioned, pending_admission)
-          if (firestoreCheckResult.reason === 'sanctioned') {
-            setAuthError({type: 'sanctioned', username: firestoreCheckResult.username, endDate: firestoreCheckResult.sanctionEndDate});
-            // Error message is set by authError state
-          } else if (firestoreCheckResult.reason === 'pending_admission') {
-            setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
-            // Error message is set by authError state
-          } else {
-            setError("Login failed after authentication. User profile issue."); 
-          }
-          console.error("Login failed (Firestore check):", firestoreCheckResult.reason);
-        }
-      } else {
-        // This case should ideally not be hit if signInWithEmailAndPassword was successful
-        setError("Authentication successful but no user data found from Firebase Auth.");
-        console.error("Login failed: No user data from Firebase Auth after successful sign-in.");
+      if (!firebaseUser) {
+        setError("Authentication failed. Please try again.");
+        setIsSubmitting(false);
+        return;
       }
-    } catch (err: any) { // Catch errors from signInWithEmailAndPassword
+      
+      // Step 1.5: Check if email is verified
+      if (!firebaseUser.emailVerified) {
+        setAuthError({ type: 'email_not_verified', userEmail: firebaseUser.email || email });
+        // Optionally, resend verification email here if desired, or instruct user to check inbox.
+        // For now, just showing an error.
+        // await sendEmailVerification(firebaseUser); // Example if you want to resend
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Step 2: Fetch user profile from Firestore and check status
+      const firestoreCheckResult: LoginResult = await loginAndSetUserFromFirestore(firebaseUser.uid, firebaseUser.email || undefined);
+        
+      if (firestoreCheckResult.success) {
+        router.push('/');
+      } else {
+        if (firestoreCheckResult.reason === 'sanctioned') {
+          setAuthError({type: 'sanctioned', username: firestoreCheckResult.username, endDate: firestoreCheckResult.sanctionEndDate});
+        } else if (firestoreCheckResult.reason === 'pending_admission') {
+          setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
+        } else if (firestoreCheckResult.reason === 'not_found_in_firestore') {
+          setError("Login failed. User profile not found after authentication. Please contact support.");
+        } else {
+          setError("Login failed after authentication. User profile issue."); 
+        }
+        console.error("Login failed (Firestore check):", firestoreCheckResult.reason);
+      }
+    } catch (err: any) {
       console.error("Firebase Auth Login error:", err.code, err.message);
       let specificError = "Login failed. Please check your credentials.";
       switch (err.code) {
@@ -71,7 +80,7 @@ export default function LoginPage() {
         case 'auth/invalid-email':
           specificError = "The email address is not valid.";
           break;
-        case 'auth/invalid-credential': // General for wrong email/password combination or other issues
+        case 'auth/invalid-credential':
            specificError = "Invalid credentials. Please check your email and password.";
            break;
         case 'auth/too-many-requests':
@@ -98,11 +107,13 @@ export default function LoginPage() {
           <div className="inline-block mx-auto mb-4">
             {authError?.type === 'sanctioned' ? <UserX className="h-16 w-16 text-destructive" />
              : authError?.type === 'pending_admission' ? <Clock className="h-16 w-16 text-amber-500" />
+             : authError?.type === 'email_not_verified' ? <AlertCircle className="h-16 w-16 text-yellow-500" />
              : <ShieldCheck className="h-16 w-16 text-primary" />}
           </div>
           <CardTitle className="text-3xl font-bold">
             {authError?.type === 'sanctioned' ? "Access Denied"
              : authError?.type === 'pending_admission' ? "Application Pending"
+             : authError?.type === 'email_not_verified' ? "Email Not Verified"
              : "Welcome Back!"}
           </CardTitle>
           <CardDescription>
@@ -110,6 +121,8 @@ export default function LoginPage() {
               ? `User ${authError.username} is currently sanctioned.`
               : authError?.type === 'pending_admission'
               ? `The admission application for ${authError.username} is currently under review by the community. You will be notified of the outcome.`
+              : authError?.type === 'email_not_verified'
+              ? `Please verify your email address (${authError.userEmail}) by clicking the link sent to your inbox. Check your spam folder if you can't find it.`
               : "Enter your credentials to access your Kratia account."}
              {authError?.type === 'sanctioned' && authError.endDate && (
                 <span className="block mt-1 text-sm text-destructive">
@@ -174,4 +187,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

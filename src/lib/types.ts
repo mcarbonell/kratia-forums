@@ -1,4 +1,6 @@
 
+export type UserStatus = 'active' | 'under_sanction_process' | 'sanctioned' | 'pending_admission' | 'pending_email_verification';
+
 export interface User {
   id: string;
   username: string;
@@ -15,7 +17,7 @@ export interface User {
   totalReactionsReceived?: number;
   totalPostsInThreadsStartedByUser?: number;
   totalThreadsStartedByUser?: number;
-  status?: 'active' | 'under_sanction_process' | 'sanctioned' | 'pending_admission';
+  status?: UserStatus;
   sanctionEndDate?: string; // ISO date string, if sanctioned
   role?: 'guest' | 'user' | 'normal_user' | 'admin' | 'founder' | 'visitor';
   onboardingAccepted?: boolean;
