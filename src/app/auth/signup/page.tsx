@@ -12,7 +12,8 @@ import { UserPlus, ShieldCheck, Loader2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
+import { db, auth, app } from "@/lib/firebase"; // Import auth and app
+import { getAuth, createUserWithEmailAndPassword } from "firebase/auth"; // Firebase Auth functions
 import { collection, addDoc, serverTimestamp, writeBatch, doc, Timestamp, increment } from "firebase/firestore";
 import type { User, Thread, Post, Votation } from "@/lib/types";
 import { KRATIA_CONFIG } from "@/lib/config";
@@ -53,40 +54,50 @@ export default function SignupPage() {
     }
 
     try {
+      // 1. Create user in Firebase Authentication
+      // const firebaseAuth = getAuth(app); // Or use the exported auth from firebase.ts
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const firebaseUser = userCredential.user;
+      const firebaseUserId = firebaseUser.uid;
+
+      // 2. Prepare Firestore batch
       const batch = writeBatch(db);
       const now = Timestamp.now();
       const deadlineDate = new Date(now.toDate().getTime() + KRATIA_CONFIG.VOTATION_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
-      // 1. Create User document with 'pending_admission' status
-      const newUserRef = doc(collection(db, "users"));
-      const newUserData: Omit<User, 'id'> = {
+      // 3. Create User document in Firestore with 'pending_admission' status
+      const userDocRef = doc(db, "users", firebaseUserId); // Use Firebase UID as document ID
+      const newUserFirestoreData: Omit<User, 'id'> = { // Omit 'id' as it's the doc ID
         username,
         email,
-        // In a real app, password would be hashed securely on the backend
-        // For this mock, we're not storing it or handling real auth
         avatarUrl: `https://placehold.co/100x100.png?text=${username?.[0]?.toUpperCase() || 'U'}`,
         registrationDate: now.toDate().toISOString(),
         karma: 0,
         presentation: presentation,
         canVote: false,
-        isQuarantined: true, // New users start quarantined until criteria met (after admission)
+        isQuarantined: true,
         status: 'pending_admission',
-        role: 'guest', // Initial role, will be updated upon admission
+        role: 'guest', // Initial role, will be 'user' upon admission
         totalPostsByUser: 0,
         totalReactionsReceived: 0,
         totalPostsInThreadsStartedByUser: 0,
         totalThreadsStartedByUser: 0,
+        onboardingAccepted: false, // Explicitly set for new users
       };
-      batch.set(newUserRef, { ...newUserData, id: newUserRef.id });
+      batch.set(userDocRef, newUserFirestoreData);
 
-
-      // 2. Create Agora Thread for admission request
+      // 4. Create Agora Thread for admission request
       const admissionThreadRef = doc(collection(db, "threads"));
       const admissionThreadTitle = `Admission Request: ${username}`;
-      const admissionThreadData: Omit<Thread, 'id' | 'author'> & { authorId: string, relatedVotationId: string } = {
+      const authorInfoForThread = {
+        id: firebaseUserId,
+        username: username,
+        avatarUrl: newUserFirestoreData.avatarUrl
+      };
+      const admissionThreadData: Omit<Thread, 'id'> & { relatedVotationId: string } = {
         forumId: AGORA_FORUM_ID,
         title: admissionThreadTitle,
-        authorId: newUserRef.id, // Applicant is the author
+        author: authorInfoForThread,
         createdAt: now.toDate().toISOString(),
         lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
@@ -94,26 +105,22 @@ export default function SignupPage() {
         relatedVotationId: '', // Will be set after votation is created
       };
 
-      // 3. Create Votation document for admission
+      // 5. Create Votation document for admission
       const newVotationRef = doc(collection(db, "votations"));
       (admissionThreadData as any).relatedVotationId = newVotationRef.id; // Link thread to votation
-
-      batch.set(admissionThreadRef, {
-        ...admissionThreadData,
-        author: { id: newUserRef.id, username, avatarUrl: newUserData.avatarUrl }
-      });
+      batch.set(admissionThreadRef, admissionThreadData);
 
       const votationData: Votation = {
         id: newVotationRef.id,
         title: `Vote on admission for ${username}`,
         description: `Community vote to admit ${username} to ${KRATIA_CONFIG.FORUM_NAME}. Their presentation is in the linked thread.`,
-        proposerId: newUserRef.id, // The applicant is the 'proposer' of their own admission
+        proposerId: firebaseUserId, 
         proposerUsername: username,
         type: 'admission_request',
         createdAt: now.toDate().toISOString(),
         deadline: deadlineDate.toISOString(),
         status: 'active',
-        targetUserId: newUserRef.id, // The applicant is the target
+        targetUserId: firebaseUserId, 
         targetUsername: username,
         options: { for: 0, against: 0, abstain: 0 },
         voters: {},
@@ -123,27 +130,23 @@ export default function SignupPage() {
       };
       batch.set(newVotationRef, votationData);
 
-      // 4. Create Initial Post in the Admission Thread (Applicant's Presentation)
+      // 6. Create Initial Post in the Admission Thread (Applicant's Presentation)
       const initialPostRef = doc(collection(db, "posts"));
-      const initialPostData: Omit<Post, 'id' | 'author'> & { authorId: string } = {
+      const initialPostData: Omit<Post, 'id'> = {
         threadId: admissionThreadRef.id,
-        authorId: newUserRef.id,
+        author: authorInfoForThread,
         content: `**Applicant:** ${username}\n\n**Reason for Joining / Presentation:**\n\n${presentation}`,
         createdAt: now.toDate().toISOString(),
         reactions: {},
       };
-      batch.set(initialPostRef, {
-          ...initialPostData,
-          author: { id: newUserRef.id, username, avatarUrl: newUserData.avatarUrl }
-      });
+      batch.set(initialPostRef, initialPostData);
       
-      // 5. Update Agora forum counts (one new thread, one new post)
+      // 7. Update Agora forum counts (one new thread, one new post)
       const agoraForumRef = doc(db, "forums", AGORA_FORUM_ID);
       batch.update(agoraForumRef, {
         threadCount: increment(1),
         postCount: increment(1),
       });
-
 
       await batch.commit();
 
@@ -152,19 +155,34 @@ export default function SignupPage() {
         description: "Your application to join Kratia Forums is now pending community review. You'll be notified of the outcome.",
       });
       router.push('/auth/confirm?status=application_submitted'); 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error submitting application:", err);
-      setError("Failed to submit application. Please try again. " + (err as Error).message);
+      let errorMessage = "Failed to submit application. Please try again.";
+      if (err.code) {
+        switch (err.code) {
+          case 'auth/email-already-in-use':
+            errorMessage = "This email address is already in use. Please use a different email or log in.";
+            break;
+          case 'auth/weak-password':
+            errorMessage = "The password is too weak. Please use a stronger password (at least 6 characters).";
+            break;
+          case 'auth/invalid-email':
+            errorMessage = "The email address is not valid.";
+            break;
+          default:
+             errorMessage = `An error occurred: ${err.message || 'Unknown error'}`;
+        }
+      }
+      setError(errorMessage);
       toast({
         title: "Application Error",
-        description: "Could not submit your application. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
       setIsSubmitting(false);
     }
   };
-
 
   return (
     <div className="flex items-center justify-center py-12">
@@ -210,6 +228,7 @@ export default function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isSubmitting}
+                placeholder="At least 6 characters"
               />
             </div>
              <div className="space-y-2">
