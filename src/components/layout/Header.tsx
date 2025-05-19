@@ -2,19 +2,19 @@
 "use client";
 
 import Link from 'next/link';
-import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu, BadgeAlert, Bell } from 'lucide-react'; // Added Bell
+import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu, BadgeAlert, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user/UserAvatar';
-import { useMockAuth, type MockUser } from '@/hooks/use-mock-auth'; 
+import { useMockAuth, type MockUser } from '@/hooks/use-mock-auth';
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useState, useEffect } from 'react'; // Added useEffect
-import { db } from '@/lib/firebase'; // Added db
-import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore'; // Added Firestore imports
-import { Badge } from '@/components/ui/badge'; // Added Badge
+import { useState, useEffect } from 'react';
+import { db } from '@/lib/firebase';
+import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore';
+import { Badge } from '@/components/ui/badge';
 
 export default function Header() {
-  const { user, loading, logout, switchToUser, mockAuthUsers } = useMockAuth(); 
+  const { user, loading, logout, switchToUser, mockAuthUsers } = useMockAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
@@ -33,7 +33,7 @@ export default function Header() {
         setUnreadNotificationsCount(0);
       });
     } else {
-      setUnreadNotificationsCount(0);
+      setUnreadNotificationsCount(0); // Reset count if user logs out or is a visitor
     }
     return () => {
       if (unsubscribe) {
@@ -65,7 +65,7 @@ export default function Header() {
     </div>
   );
 
-  const isMobile = () => mobileMenuOpen; 
+  const isMobile = () => mobileMenuOpen;
 
   const renderNavLinks = (isMobileLink: boolean = false) => navLinks.map((link) => (
     <Button key={link.label} variant="ghost" asChild className={isMobileLink ? "justify-start w-full text-base py-3" : ""}>
@@ -95,7 +95,6 @@ export default function Header() {
           ) : user && user.role !== 'visitor' ? (
             <>
               <Button variant="ghost" size="icon" asChild className="relative">
-                 {/* TODO: Link to notifications page later */}
                 <Link href="/notifications">
                   <Bell />
                   {unreadNotificationsCount > 0 && (
@@ -118,6 +117,14 @@ export default function Header() {
                   <DropdownMenuItem asChild>
                     <Link href={`/profile/${user.id}`}>My Profile</Link>
                   </DropdownMenuItem>
+                   <DropdownMenuItem asChild>
+                    <Link href="/notifications">
+                      Notifications
+                      {unreadNotificationsCount > 0 && (
+                        <Badge variant="destructive" className="ml-auto">{unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}</Badge>
+                      )}
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link href="/profile/edit">Settings</Link>
                   </DropdownMenuItem>
@@ -132,11 +139,11 @@ export default function Header() {
                     Logout
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                   <div className="p-2"> 
+                   <div className="p-2">
                       <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
                       {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
                           const userObject = mockAuthUsers[userKey as keyof typeof mockAuthUsers] as MockUser | undefined;
-                          if (!userObject) return null; 
+                          if (!userObject) return null;
                           const displayName = userObject.username || userKey;
                           return (
                               <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
@@ -184,7 +191,6 @@ export default function Header() {
                 {renderNavLinks(true)}
                  {user && user.role !== 'visitor' && (
                    <Button variant="ghost" asChild className="justify-start w-full text-base py-3 relative">
-                     {/* TODO: Link to notifications page later */}
                     <Link href="/notifications" onClick={() => setMobileMenuOpen(false)}>
                       <Bell />
                       <span className="ml-2">Notifications</span>
@@ -209,6 +215,14 @@ export default function Header() {
                     <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
                       <Link href={`/profile/${user.id}`}>My Profile</Link>
                     </Button>
+                     <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
+                        <Link href="/notifications">
+                          Notifications
+                          {unreadNotificationsCount > 0 && (
+                            <Badge variant="destructive" className="ml-auto">{unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}</Badge>
+                          )}
+                        </Link>
+                     </Button>
                     <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
                       <Link href="/profile/edit">Settings</Link>
                     </Button>
@@ -236,7 +250,7 @@ export default function Header() {
                   </div>
                 )}
               </div>
-              <div className="overflow-y-auto"> 
+              <div className="overflow-y-auto">
                 <UserRoleSwitcher />
               </div>
             </SheetContent>
@@ -246,3 +260,4 @@ export default function Header() {
     </header>
   );
 }
+
