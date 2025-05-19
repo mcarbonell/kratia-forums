@@ -46,9 +46,13 @@ export default function NotificationsPage() {
         ...docSnap.data()
       } as NotificationWithId));
       setNotifications(fetchedNotifications);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching notifications:", err);
-      setError("Failed to load notifications. Please try again.");
+      let errorMessage = "Failed to load notifications. Please try again.";
+      if (err.message && err.message.includes("indexes")) {
+        errorMessage += " This might be due to a missing Firestore index. Please check your browser's developer console for a link to create it.";
+      }
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -131,7 +135,14 @@ export default function NotificationsPage() {
 
   const timeAgo = (dateString?: string) => {
     if (!dateString) return 'some time ago';
-    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'an invalid date';
+        return formatDistanceToNow(date, { addSuffix: true });
+    } catch (e) {
+        // Fallback for potentially malformed date strings, though ISO strings should be fine.
+        return 'a while back';
+    }
   };
 
   return (
@@ -192,3 +203,4 @@ export default function NotificationsPage() {
     </div>
   );
 }
+
