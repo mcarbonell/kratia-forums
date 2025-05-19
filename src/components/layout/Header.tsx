@@ -2,17 +2,46 @@
 "use client";
 
 import Link from 'next/link';
-import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu, BadgeAlert } from 'lucide-react';
+import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu, BadgeAlert, Bell } from 'lucide-react'; // Added Bell
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user/UserAvatar';
-import { useMockAuth } from '@/hooks/use-mock-auth'; // Only import useMockAuth
+import { useMockAuth, type MockUser } from '@/hooks/use-mock-auth'; 
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // Added useEffect
+import { db } from '@/lib/firebase'; // Added db
+import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore'; // Added Firestore imports
+import { Badge } from '@/components/ui/badge'; // Added Badge
 
 export default function Header() {
-  const { user, loading, logout, switchToUser, mockAuthUsers } = useMockAuth(); // Destructure mockAuthUsers here
+  const { user, loading, logout, switchToUser, mockAuthUsers } = useMockAuth(); 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+  useEffect(() => {
+    let unsubscribe: Unsubscribe | undefined;
+    if (user && user.id !== 'visitor0' && user.id !== 'guest1') {
+      const notificationsQuery = query(
+        collection(db, "notifications"),
+        where("recipientId", "==", user.id),
+        where("isRead", "==", false)
+      );
+      unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
+        setUnreadNotificationsCount(snapshot.size);
+      }, (error) => {
+        console.error("Error fetching unread notifications:", error);
+        setUnreadNotificationsCount(0);
+      });
+    } else {
+      setUnreadNotificationsCount(0);
+    }
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [user]);
+
 
   const navLinks = [
     { href: '/', label: 'Home', icon: <Home /> },
@@ -20,14 +49,11 @@ export default function Header() {
     { href: '/agora', label: 'Agora', icon: <Vote /> },
   ];
 
-  // UserRoleSwitcher now uses the mockAuthUsers from the hook's scope
   const UserRoleSwitcher = () => (
     <div className="mt-4 p-2 border-t">
       <p className="text-sm font-semibold mb-2">Switch User Role (Dev):</p>
-      {/* Ensure mockAuthUsers is defined before trying to get its keys */}
       {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
-        const userObject = mockAuthUsers[userKey];
-        // Ensure userObject is defined before trying to access its properties
+        const userObject = mockAuthUsers[userKey as keyof typeof mockAuthUsers] as MockUser | undefined;
         if (!userObject) return null;
         const displayName = userObject.username || userKey;
         return (
@@ -39,7 +65,7 @@ export default function Header() {
     </div>
   );
 
-  const isMobile = () => mobileMenuOpen; // Helper to check if mobile menu is open for closing logic
+  const isMobile = () => mobileMenuOpen; 
 
   const renderNavLinks = (isMobileLink: boolean = false) => navLinks.map((link) => (
     <Button key={link.label} variant="ghost" asChild className={isMobileLink ? "justify-start w-full text-base py-3" : ""}>
@@ -67,48 +93,61 @@ export default function Header() {
           {loading ? (
             <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
           ) : user && user.role !== 'visitor' ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="p-1.5 rounded-full">
-                  <UserAvatar user={user} size="md" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{user.username} ({user.role})</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href={`/profile/${user.id}`}>My Profile</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/profile/edit">Settings</Link>
-                </DropdownMenuItem>
-                {(user.role === 'admin' || user.role === 'founder') && (
+            <>
+              <Button variant="ghost" size="icon" asChild className="relative">
+                 {/* TODO: Link to notifications page later */}
+                <Link href="/notifications">
+                  <Bell />
+                  {unreadNotificationsCount > 0 && (
+                    <Badge variant="destructive" className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                      {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                    </Badge>
+                  )}
+                  <span className="sr-only">Notifications</span>
+                </Link>
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="p-1.5 rounded-full">
+                    <UserAvatar user={user} size="md" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{user.username} ({user.role})</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href="/admin"><BadgeAlert className="mr-2 h-4 w-4 text-primary"/>Admin Panel</Link>
+                    <Link href={`/profile/${user.id}`}>My Profile</Link>
                   </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                 <div className="p-2"> {/* UserRoleSwitcher for desktop dropdown */}
-                    <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
-                    {/* Ensure mockAuthUsers is defined */}
-                    {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
-                        const userObject = mockAuthUsers[userKey];
-                        if (!userObject) return null; // Safety check
-                        const displayName = userObject.username || userKey;
-                        return (
-                            <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
-                             {displayName} ({userKey})
-                            </Button>
-                        );
-                    })}
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <DropdownMenuItem asChild>
+                    <Link href="/profile/edit">Settings</Link>
+                  </DropdownMenuItem>
+                  {(user.role === 'admin' || user.role === 'founder') && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin"><BadgeAlert className="mr-2 h-4 w-4 text-primary"/>Admin Panel</Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logout
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                   <div className="p-2"> 
+                      <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
+                      {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
+                          const userObject = mockAuthUsers[userKey as keyof typeof mockAuthUsers] as MockUser | undefined;
+                          if (!userObject) return null; 
+                          const displayName = userObject.username || userKey;
+                          return (
+                              <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
+                               {displayName} ({userKey})
+                              </Button>
+                          );
+                      })}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           ) : (
             <>
               <Button variant="ghost" asChild>
@@ -143,6 +182,20 @@ export default function Header() {
               </div>
               <nav className="flex flex-col p-4 space-y-2">
                 {renderNavLinks(true)}
+                 {user && user.role !== 'visitor' && (
+                   <Button variant="ghost" asChild className="justify-start w-full text-base py-3 relative">
+                     {/* TODO: Link to notifications page later */}
+                    <Link href="/notifications" onClick={() => setMobileMenuOpen(false)}>
+                      <Bell />
+                      <span className="ml-2">Notifications</span>
+                      {unreadNotificationsCount > 0 && (
+                        <Badge variant="destructive" className="absolute left-8 top-1.5 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                           {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                        </Badge>
+                      )}
+                    </Link>
+                  </Button>
+                )}
               </nav>
               <div className="p-4 mt-auto border-t">
                 {loading ? (
@@ -183,7 +236,7 @@ export default function Header() {
                   </div>
                 )}
               </div>
-              <div className="overflow-y-auto"> {/* UserRoleSwitcher for mobile sheet */}
+              <div className="overflow-y-auto"> 
                 <UserRoleSwitcher />
               </div>
             </SheetContent>

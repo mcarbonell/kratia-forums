@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
-import type { Post as PostType, User as KratiaUser, Thread } from '@/lib/types';
+import type { Post as PostType, User as KratiaUser, Thread, Notification } from '@/lib/types';
 import { Loader2, Send, MessageSquare } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, doc, Timestamp, writeBatch, increment, getDoc } from 'firebase/firestore';
@@ -61,11 +61,11 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
     };
     
     const now = Timestamp.fromDate(new Date());
+    const newPostRef = doc(collection(db, "posts")); // Define ref before batch
 
     try {
       const batch = writeBatch(db);
 
-      const newPostRef = doc(collection(db, "posts"));
       const newPostData: Omit<PostType, 'id'> = { 
         threadId: threadId,
         author: authorInfo,
@@ -78,7 +78,7 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
       const threadRef = doc(db, "threads", threadId);
       batch.update(threadRef, {
         postCount: increment(1),
-        lastReplyAt: now 
+        lastReplyAt: now // Firestore Timestamp for server-side consistency if possible, or client-side now
       });
 
       const forumRef = doc(db, "forums", forumId);
@@ -93,12 +93,13 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
         totalPostsByUser: increment(1),
       });
       
-      // Karma update for thread author
-      const threadDocSnap = await getDoc(threadRef); // Fetch thread to get its author
+      // Fetch thread to get its author for karma and notification
+      const threadDocSnap = await getDoc(threadRef); 
+      let threadData: Thread | null = null;
       if (threadDocSnap.exists()) {
-        const threadData = threadDocSnap.data() as Thread;
+        threadData = threadDocSnap.data() as Thread;
         const threadAuthorId = threadData.author.id;
-        if (threadAuthorId) {
+        if (threadAuthorId && threadAuthorId !== authorInfo.id) { // Don't update if self-replying for thread author karma
             const threadAuthorUserRef = doc(db, "users", threadAuthorId);
             batch.update(threadAuthorUserRef, {
                 karma: increment(1),
@@ -106,17 +107,39 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
             });
         }
       } else {
-        console.warn(`Thread ${threadId} not found when attempting to update thread author karma.`);
+        console.warn(`Thread ${threadId} not found when attempting to update thread author karma or send notification.`);
       }
 
+      await batch.commit(); // Commit post and karma updates
+      
+      // Create notification after batch commit to ensure post ID is available and post exists
+      if (threadData && threadData.author.id !== authorInfo.id) {
+        const truncatedThreadTitle = threadData.title.length > 50 
+            ? `${threadData.title.substring(0, 47)}...` 
+            : threadData.title;
 
-      await batch.commit();
+        const notificationData: Omit<Notification, 'id'> = {
+            recipientId: threadData.author.id,
+            actor: authorInfo,
+            type: 'new_reply_to_your_thread',
+            threadId: threadId,
+            threadTitle: truncatedThreadTitle,
+            postId: newPostRef.id,
+            forumId: forumId,
+            message: `${authorInfo.username} replied to your thread "${truncatedThreadTitle}".`,
+            link: `/forums/${forumId}/threads/${threadId}#post-${newPostRef.id}`,
+            createdAt: now.toDate().toISOString(),
+            isRead: false,
+        };
+        await addDoc(collection(db, "notifications"), notificationData);
+      }
       
       toast({
         title: "Reply Posted!",
         description: "Your reply has been added to the thread.",
       });
       
+      // Pass the full post object with its new ID
       onReplySuccess({ ...newPostData, id: newPostRef.id, createdAt: newPostData.createdAt });
       reset(); 
 

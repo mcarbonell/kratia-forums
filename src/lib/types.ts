@@ -119,7 +119,7 @@ export interface Votation {
   proposedForumName?: string;
   proposedForumDescription?: string;
   proposedForumCategoryId?: string;
-  proposedForumCategoryName?: string; // Denormalized for display
+  proposedForumCategoryName?: string;
   proposedForumIsPublic?: boolean;
 
   options: VotationOptionTally;
@@ -145,12 +145,23 @@ export interface PrivateMessage {
   isRead?: boolean;
 }
 
+export type NotificationType = 'new_reply_to_your_thread' | 'votation_ended' | 'post_reaction';
+
 export interface Notification {
   id: string;
-  userId: string;
-  type: 'reply' | 'mention' | 'pm' | 'votation_result';
-  content: string;
-  link?: string;
-  createdAt: string;
-  isRead?: boolean;
+  recipientId: string; // The ID of the user who should receive the notification
+  actor: Pick<User, 'id' | 'username' | 'avatarUrl'>; // Who performed the action
+  type: NotificationType;
+  threadId?: string;
+  threadTitle?: string; // Can be truncated
+  postId?: string; // e.g., The ID of the new reply
+  forumId?: string;
+  votationId?: string;
+  votationTitle?: string; // Can be truncated
+  votationOutcome?: VotationStatus;
+  reactionEmoji?: string;
+  message: string; // Generated message for display
+  link: string; // Link to the relevant content
+  createdAt: string; // ISO date string
+  isRead: boolean;
 }
