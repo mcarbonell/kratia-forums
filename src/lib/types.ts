@@ -114,12 +114,12 @@ export interface Votation {
   sanctionDuration?: string;
   
   proposedConstitutionText?: string;
+  proposedForumCategoryName?: string;
 
   // For new forum proposals
   proposedForumName?: string;
   proposedForumDescription?: string;
   proposedForumCategoryId?: string;
-  proposedForumCategoryName?: string;
   proposedForumIsPublic?: boolean;
 
   options: VotationOptionTally;
@@ -145,7 +145,10 @@ export interface PrivateMessage {
   isRead?: boolean;
 }
 
-export type NotificationType = 'new_reply_to_your_thread' | 'votation_ended' | 'post_reaction';
+export type NotificationType = 
+  | 'new_reply_to_your_thread' 
+  | 'votation_concluded' 
+  | 'post_reaction';
 
 export interface Notification {
   id: string;
@@ -158,7 +161,7 @@ export interface Notification {
   forumId?: string;
   votationId?: string;
   votationTitle?: string; // Can be truncated
-  votationOutcome?: VotationStatus;
+  votationOutcome?: VotationStatus; // Store the outcome of the votation
   reactionEmoji?: string;
   message: string; // Generated message for display
   link: string; // Link to the relevant content
