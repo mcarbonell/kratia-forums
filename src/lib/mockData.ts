@@ -1,5 +1,5 @@
 
-import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll } from './types';
+import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll, Votation } from './types';
 import type { UserRole } from '@/hooks/use-mock-auth';
 
 // Helper to find a user, ensuring we use the most up-to-date mockUsers array.
