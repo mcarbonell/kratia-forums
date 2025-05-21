@@ -30,7 +30,6 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      // Step 1: Authenticate with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
 
@@ -40,17 +39,12 @@ export default function LoginPage() {
         return;
       }
       
-      // Step 1.5: Check if email is verified
       if (!firebaseUser.emailVerified) {
         setAuthError({ type: 'email_not_verified', userEmail: firebaseUser.email || email });
-        // Optionally, resend verification email here if desired, or instruct user to check inbox.
-        // For now, just showing an error.
-        // await sendEmailVerification(firebaseUser); // Example if you want to resend
         setIsSubmitting(false);
         return;
       }
 
-      // Step 2: Fetch user profile from Firestore and check status
       const firestoreCheckResult: LoginResult = await loginAndSetUserFromFirestore(firebaseUser.uid, firebaseUser.email || undefined);
         
       if (firestoreCheckResult.success) {
@@ -62,10 +56,18 @@ export default function LoginPage() {
           setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
         } else if (firestoreCheckResult.reason === 'not_found_in_firestore') {
           setError("Login failed. User profile not found after authentication. Please contact support.");
-        } else {
-          setError("Login failed after authentication. User profile issue."); 
+          console.error("Login failed (Firestore check): User UID not found in users collection after Firebase Auth success.", firebaseUser.uid);
+        } else if (firestoreCheckResult.reason === 'auth_error') {
+           setError("Login failed. An authentication-related error occurred with the user profile.");
+           console.error("Login failed (Firestore check): Auth error with profile for UID.", firebaseUser.uid);
+        } else if (firestoreCheckResult.reason === 'unknown_firestore_status') {
+           setError("Login failed. User profile has an unrecognized status.");
+            console.error("Login failed (Firestore check): Unknown profile status for UID.", firebaseUser.uid, "Status:", firestoreCheckResult.user?.status);
         }
-        console.error("Login failed (Firestore check):", firestoreCheckResult.reason);
+         else {
+          setError("Login failed after authentication. User profile issue."); 
+          console.error("Login failed (Firestore check), reason:", firestoreCheckResult.reason, "for UID:", firebaseUser.uid);
+        }
       }
     } catch (err: any) {
       console.error("Firebase Auth Login error:", err.code, err.message);
@@ -84,7 +86,7 @@ export default function LoginPage() {
            specificError = "Invalid credentials. Please check your email and password.";
            break;
         case 'auth/too-many-requests':
-            specificError = "Too many login attempts. Please try again later.";
+            specificError = "Too many login attempts. Please try again later or reset your password.";
             break;
         default:
           specificError = "Failed to login. Please check your credentials and try again.";
@@ -123,7 +125,7 @@ export default function LoginPage() {
               ? `The admission application for ${authError.username} is currently under review by the community. You will be notified of the outcome.`
               : authError?.type === 'email_not_verified'
               ? `Please verify your email address (${authError.userEmail}) by clicking the link sent to your inbox. Check your spam folder if you can't find it.`
-              : "Enter your credentials to access your Kratia account."}
+              : "Enter your email to access your Kratia account."}
              {authError?.type === 'sanctioned' && authError.endDate && (
                 <span className="block mt-1 text-sm text-destructive">
                   Sanction ends: {format(new Date(authError.endDate), "PPPp")}
@@ -135,11 +137,11 @@ export default function LoginPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="email">Email or Username</Label>
+                <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
-                  type="text" 
-                  placeholder="m@example.com or username"
+                  type="email" 
+                  placeholder="you@example.com"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -149,7 +151,7 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center">
                   <Label htmlFor="password">Password</Label>
-                  <Link href="#" className="ml-auto inline-block text-sm underline text-muted-foreground hover:text-primary">
+                  <Link href="/auth/forgot-password" className="ml-auto inline-block text-sm underline text-muted-foreground hover:text-primary">
                     Forgot your password?
                   </Link>
                 </div>
@@ -187,3 +189,4 @@ export default function LoginPage() {
     </div>
   );
 }
+
