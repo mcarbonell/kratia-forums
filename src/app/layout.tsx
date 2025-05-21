@@ -7,26 +7,8 @@ import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import SanctionCheckWrapper from '@/components/layout/SanctionCheckWrapper';
-import { useMockAuth } from '@/hooks/use-mock-auth'; // Import useMockAuth
-
-// This component is needed to use the hook inside the Server Component RootLayout
-// and pass the key to Header.
-function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user } = useMockAuth(); // Get user from the hook
-
-  return (
-    <>
-      <Header key={user?.id || 'logged-out'} /> {/* Add key here */}
-      <main className="flex-grow container mx-auto px-4 py-8">
-        <SanctionCheckWrapper>
-          {children}
-        </SanctionCheckWrapper>
-      </main>
-      <Footer />
-      <Toaster />
-    </>
-  );
-}
+// No necesitamos appWithTranslation para el App Router de esta manera.
+// La inicialización de i18next se manejará en los componentes cliente que usan useTranslation.
 
 export const metadata: Metadata = {
   title: 'Kratia Forums',
@@ -35,24 +17,18 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
+  params, // Next.js App Router pasará params.locale si la ruta está configurada para ello
 }: Readonly<{
   children: React.ReactNode;
+  params?: { locale?: string }; // Opcional por ahora, ya que no estamos usando [locale] en la ruta
 }>) {
-  return (
-    <html lang="en">
-      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased flex flex-col min-h-screen`}>
-        {/* We need a client component wrapper to use useMockAuth for the Header key */}
-        {/* However, useMockAuth uses localStorage which is client-side only. */}
-        {/* RootLayout is a Server Component. We cannot directly use client-side hooks here. */}
-        {/* Let's rethink the Header update strategy if this direct keying doesn't work as expected */}
-        {/* Forcing a key on Header like this might not be feasible if useMockAuth can't be called here directly. */}
-        
-        {/* A simpler approach for the Header to re-render is to ensure its internal state or props change. */}
-        {/* The Header already calls useMockAuth() internally, so it should re-render. */}
-        {/* The issue might be more subtle. Let's try a direct approach. */}
+  // Aquí podríamos pasar params.locale a un ContextProvider si fuera necesario
+  // o si la configuración de next-i18next lo requiriera para Server Components.
+  // Por ahora, nos apoyaremos en la detección del lado del cliente de next-i18next.
 
-        {/* The key strategy on the Header will be problematic because RootLayout is a Server Component. */}
-        {/* Let's revert to the original structure here and investigate useMockAuth directly. */}
+  return (
+    <html lang={params?.locale || 'en'}>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased flex flex-col min-h-screen`}>
         <Header />
         <main className="flex-grow container mx-auto px-4 py-8">
           <SanctionCheckWrapper>

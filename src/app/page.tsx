@@ -8,14 +8,14 @@ import OnboardingMessage from '@/components/onboarding/OnboardingMessage';
 import Link from 'next/link';
 import { ShieldCheck, LogIn, UserPlus, Vote, Sparkles, Loader2, AlertTriangle, Database } from 'lucide-react';
 import { KRATIA_CONFIG } from '@/lib/config';
-import { useMockAuth } from '@/hooks/use-mock-auth';
+import { useMockAuth, type MockUser, type UserRole } from '@/hooks/use-mock-auth'; 
 import { useEffect, useState, useCallback } from 'react';
-import type { ForumCategory, Forum, User } from '@/lib/types';
+import type { ForumCategory, Forum } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore'; // Removed unused: where, Timestamp, doc, getDoc
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { seedDatabase } from '@/lib/seedDatabase';
 import { useToast } from '@/hooks/use-toast';
-import type { MockUser, UserRole } from '@/hooks/use-mock-auth'; // Added for handleOnboardingAccepted
+import { useTranslation } from 'next-i18next'; // Import useTranslation
 
 export default function HomePage() {
   const { user, loading: authLoading, syncUserWithFirestore } = useMockAuth();
@@ -26,6 +26,7 @@ export default function HomePage() {
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedCompleted, setSeedCompleted] = useState(false);
   const { toast } = useToast();
+  const { t } = useTranslation('common'); // Initialize useTranslation
 
   const showOnboarding = user && user.username &&
                          user.isQuarantined &&
@@ -33,8 +34,9 @@ export default function HomePage() {
 
   const handleOnboardingAccepted = useCallback(async () => {
     if (user && syncUserWithFirestore) {
-      await syncUserWithFirestore(user as MockUser); // Ensure user type matches if syncUserWithFirestore expects MockUser
+      await syncUserWithFirestore(user as MockUser); 
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, syncUserWithFirestore]);
   
   const fetchCategoriesAndForums = useCallback(async () => {
@@ -69,12 +71,12 @@ export default function HomePage() {
         setCategories(fetchedCategories);
       } catch (error) {
         console.error("Error fetching categories for homepage:", error);
-        setCategoriesError("Could not load forum categories. Ensure Firestore is set up and has data, or try seeding.");
+        setCategoriesError(t('errorLoadingForumsMessage'));
       } finally {
         setIsLoadingCategories(false);
       }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Added empty dependency array if it doesn't depend on component props/state that change
+    }, [t]); 
   
   useEffect(() => {
     if (typeof window !== 'undefined' && localStorage.getItem('db_seeded_kratia') === 'true') {
@@ -89,18 +91,18 @@ export default function HomePage() {
     try {
       await seedDatabase();
       toast({
-        title: "Database Seeded!",
-        description: "Mock data has been successfully added to Firestore.",
+        title: t('databaseSeededButton'),
+        description: t('databaseSeededMessage'),
       });
       setSeedCompleted(true);
       if (typeof window !== 'undefined') {
           localStorage.setItem('db_seeded_kratia', 'true');
       }
-      fetchCategoriesAndForums(); // Refresh categories and forums
+      fetchCategoriesAndForums(); 
     } catch (error) {
       console.error("Error seeding database:", error);
       toast({
-        title: "Seeding Failed",
+        title: "Seeding Failed", // This could be translated too
         description: (error as Error).message || "Could not seed the database. Check console for details.",
         variant: "destructive",
       });
@@ -108,6 +110,7 @@ export default function HomePage() {
       setIsSeeding(false);
     }
   };
+  // console.log(JSON.stringify(user, null, 2));
 
   return (
     <div className="space-y-12">
@@ -117,10 +120,10 @@ export default function HomePage() {
             <ShieldCheck className="h-20 w-20 text-primary" />
           </div>
           <CardTitle className="text-4xl md:text-5xl font-extrabold tracking-tight">
-            Welcome to <span className="text-primary">{KRATIA_CONFIG.FORUM_NAME}</span>!
+            {t('homepageWelcomeTitle', { forumName: KRATIA_CONFIG.FORUM_NAME })}
           </CardTitle>
           <CardDescription className="mt-4 text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-            A new era of community-driven forums with direct democracy. Your voice shapes our space.
+            {t('homepageWelcomeDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -128,12 +131,12 @@ export default function HomePage() {
              <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-4">
                 <Button size="lg" asChild>
                   <Link href="/auth/signup">
-                    <UserPlus className="mr-2 h-5 w-5" /> Join the Community
+                    <UserPlus className="mr-2 h-5 w-5" /> {t('homepageJoinCommunity')}
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" asChild>
                   <Link href="/auth/login">
-                    <LogIn className="mr-2 h-5 w-5" /> Member Login
+                    <LogIn className="mr-2 h-5 w-5" /> {t('homepageMemberLogin')}
                   </Link>
                 </Button>
               </div>
@@ -146,11 +149,10 @@ export default function HomePage() {
           <CardHeader>
             <CardTitle className="flex items-center">
               <Database className="mr-2 h-6 w-6 text-primary"/>
-              Initialize Database
+              {t('seedDatabaseTitle')}
             </CardTitle>
             <CardDescription>
-              If this is a new setup or your database is empty, click here to populate it with mock data.
-              This button will disappear after successful seeding.
+              {t('seedDatabaseDescription')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -164,9 +166,9 @@ export default function HomePage() {
               ) : (
                 <Database className="mr-2 h-5 w-5" />
               )}
-              {isSeeding ? 'Seeding...' : seedCompleted ? 'Database Seeded' : 'Seed Database with Mock Data'}
+              {isSeeding ? t('seedingButton') : seedCompleted ? t('databaseSeededButton') : t('seedDatabaseButton')}
             </Button>
-            {seedCompleted && <p className="text-sm text-green-600 mt-2">Database has been seeded. Refresh if data isn't showing.</p>}
+            {seedCompleted && <p className="text-sm text-green-600 mt-2">{t('databaseSeededMessage')}</p>}
           </CardContent>
         </Card>
       )}
@@ -181,38 +183,36 @@ export default function HomePage() {
       <Card className="shadow-lg border-accent/30">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-2xl font-bold flex items-center text-accent">
-            <Vote className="mr-3 h-7 w-7"/> The Agora: Shape Our Future
+            <Vote className="mr-3 h-7 w-7"/> {t('homepageAgoraTitle')}
           </CardTitle>
           <Button asChild variant="default" className="bg-accent hover:bg-accent/90 text-accent-foreground">
             <Link href="/agora">
-              Enter Agora <Sparkles className="ml-2 h-4 w-4" />
+              {t('homepageEnterAgora')} <Sparkles className="ml-2 h-4 w-4" />
             </Link>
           </Button>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground">
-            Participate in binding votations, propose new initiatives, and contribute to the governance of Kratia. 
-            Your vote matters here.
+            {t('homepageAgoraDescription')}
           </p>
         </CardContent>
       </Card>
 
       <section aria-labelledby="forum-categories-title">
         <h2 id="forum-categories-title" className="text-3xl font-bold mb-6 text-center md:text-left">
-          Explore Our Communities
+          {t('homepageExploreCommunitiesTitle')}
         </h2>
-        {/* console.log(JSON.stringify(user, null, 2)) */}
         {isLoadingCategories && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="ml-4 text-muted-foreground">Loading forums...</p>
+            <p className="ml-4 text-muted-foreground">{t('loadingForums')}</p>
           </div>
         )}
         {categoriesError && !isLoadingCategories && (
           <Card className="border-destructive">
             <CardHeader>
               <CardTitle className="flex items-center text-destructive">
-                <AlertTriangle className="mr-2 h-5 w-5" /> Error Loading Forums
+                <AlertTriangle className="mr-2 h-5 w-5" /> {t('errorLoadingForums')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -226,14 +226,14 @@ export default function HomePage() {
         {!isLoadingCategories && !categoriesError && categories.length === 0 && !seedCompleted && (
              <Card>
                 <CardContent className="pt-6 text-center text-muted-foreground">
-                    <p>No forum categories found. Try seeding the database if it's a new setup.</p>
+                    <p>{t('noForumCategoriesAvailable')}</p>
                 </CardContent>
             </Card>
         )}
          {!isLoadingCategories && !categoriesError && categories.length === 0 && seedCompleted && (
              <Card>
                 <CardContent className="pt-6 text-center text-muted-foreground">
-                    <p>Database seeded, but no categories are showing. Please refresh the page or check Firestore console.</p>
+                    <p>{t('noForumCategoriesInfo')}</p>
                 </CardContent>
             </Card>
         )}
@@ -241,5 +241,3 @@ export default function HomePage() {
     </div>
   );
 }
-
-    
