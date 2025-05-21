@@ -1,7 +1,6 @@
 
 "use client"; // RootLayout is a Client Component for i18n initialization
 
-import type { Metadata } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 import './globals.css';
@@ -40,6 +39,7 @@ if (!i18n.isInitialized) {
       react: {
         useSuspense: false, // Recommended for App Router to avoid issues
       },
+      debug: process.env.NODE_ENV === 'development', // Enable debug mode in development
     });
 }
 
