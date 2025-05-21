@@ -138,20 +138,24 @@ export default function Header() {
                     <LogOut className="mr-2 h-4 w-4" />
                     Logout
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                   <div className="p-2">
-                      <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
-                      {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
-                          const userObject = mockAuthUsers[userKey as keyof typeof mockAuthUsers] as MockUser | undefined;
-                          if (!userObject) return null;
-                          const displayName = userObject.username || userKey;
-                          return (
-                              <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
-                               {displayName} ({userKey})
-                              </Button>
-                          );
-                      })}
-                  </div>
+                  {process.env.NODE_ENV === 'development' && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <div className="p-2">
+                        <p className="text-xs text-muted-foreground mb-1">Switch Role (Dev):</p>
+                        {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
+                            const userObject = mockAuthUsers[userKey as keyof typeof mockAuthUsers] as MockUser | undefined;
+                            if (!userObject) return null;
+                            const displayName = userObject.username || userKey;
+                            return (
+                                <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
+                                 {displayName} ({userKey})
+                                </Button>
+                            );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </>
@@ -250,9 +254,11 @@ export default function Header() {
                   </div>
                 )}
               </div>
-              <div className="overflow-y-auto">
-                <UserRoleSwitcher />
-              </div>
+              {process.env.NODE_ENV === 'development' && (
+                <div className="overflow-y-auto">
+                  <UserRoleSwitcher />
+                </div>
+              )}
             </SheetContent>
           </Sheet>
         </div>
@@ -260,4 +266,3 @@ export default function Header() {
     </header>
   );
 }
-

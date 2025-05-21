@@ -9,12 +9,13 @@ import Link from 'next/link';
 import { ShieldCheck, LogIn, UserPlus, Vote, Sparkles, Loader2, AlertTriangle, Database } from 'lucide-react';
 import { KRATIA_CONFIG } from '@/lib/config';
 import { useMockAuth } from '@/hooks/use-mock-auth';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import type { ForumCategory, Forum, User } from '@/lib/types';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, where, Timestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore'; // Removed unused: where, Timestamp, doc, getDoc
 import { seedDatabase } from '@/lib/seedDatabase';
 import { useToast } from '@/hooks/use-toast';
+import type { MockUser, UserRole } from '@/hooks/use-mock-auth'; // Added for handleOnboardingAccepted
 
 export default function HomePage() {
   const { user, loading: authLoading, syncUserWithFirestore } = useMockAuth();
@@ -26,47 +27,17 @@ export default function HomePage() {
   const [seedCompleted, setSeedCompleted] = useState(false);
   const { toast } = useToast();
 
-  // For debugging:
-  // useEffect(() => {
-  //    if (user) {
-  //     console.log("HomePage user from useMockAuth:", JSON.stringify(user, null, 2));
-  //   }
-  // }, [user]);
-
   const showOnboarding = user && user.username &&
                          user.isQuarantined &&
                          (user.onboardingAccepted === undefined || user.onboardingAccepted === false);
 
-
   const handleOnboardingAccepted = useCallback(async () => {
     if (user && syncUserWithFirestore) {
-      // The OnboardingMessage component updates Firestore directly.
-      // We need to ensure useMockAuth's internal state reflects this.
-      // syncUserWithFirestore should be called to refresh the user object in the hook.
-      const userRef = doc(db, "users", user.id);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const latestFirestoreData = userSnap.data() as User;
-        const userToSync: MockUser = { // Ensure MockUser type is used if available, or construct carefully
-          ...user, // current user state from hook
-          ...latestFirestoreData, // override with latest from FS
-          role: (latestFirestoreData.role || user.role || 'user') as UserRole,
-          status: latestFirestoreData.status || user.status || 'active',
-        };
-        await syncUserWithFirestore(userToSync); // This will update internalCurrentUser in useMockAuth
-      }
+      await syncUserWithFirestore(user as MockUser); // Ensure user type matches if syncUserWithFirestore expects MockUser
     }
   }, [user, syncUserWithFirestore]);
   
-  useEffect(() => {
-    if (typeof window !== 'undefined' && localStorage.getItem('db_seeded_kratia') === 'true') {
-      setSeedCompleted(true);
-    }
-    fetchCategoriesAndForums();
-  }, []);
-
-
-  const fetchCategoriesAndForums = async () => {
+  const fetchCategoriesAndForums = useCallback(async () => {
       setIsLoadingCategories(true);
       setCategoriesError(null);
       try {
@@ -102,7 +73,16 @@ export default function HomePage() {
       } finally {
         setIsLoadingCategories(false);
       }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Added empty dependency array if it doesn't depend on component props/state that change
+  
+  useEffect(() => {
+    if (typeof window !== 'undefined' && localStorage.getItem('db_seeded_kratia') === 'true') {
+      setSeedCompleted(true);
+    }
+    fetchCategoriesAndForums();
+  }, [fetchCategoriesAndForums]);
+
 
   const handleSeedDatabase = async () => {
     setIsSeeding(true);
@@ -116,7 +96,7 @@ export default function HomePage() {
       if (typeof window !== 'undefined') {
           localStorage.setItem('db_seeded_kratia', 'true');
       }
-      fetchCategoriesAndForums();
+      fetchCategoriesAndForums(); // Refresh categories and forums
     } catch (error) {
       console.error("Error seeding database:", error);
       toast({
@@ -161,7 +141,7 @@ export default function HomePage() {
         </CardContent>
       </Card>
 
-      {!seedCompleted && (
+      {process.env.NODE_ENV === 'development' && !seedCompleted && (
         <Card className="shadow-md border-dashed border-primary/50">
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -221,6 +201,7 @@ export default function HomePage() {
         <h2 id="forum-categories-title" className="text-3xl font-bold mb-6 text-center md:text-left">
           Explore Our Communities
         </h2>
+        {/* console.log(JSON.stringify(user, null, 2)) */}
         {isLoadingCategories && (
           <div className="flex justify-center items-center py-10">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -261,6 +242,4 @@ export default function HomePage() {
   );
 }
 
-// Added these imports to satisfy handleOnboardingAccepted if MockUser/UserRole were not globally available
-import type { MockUser, UserRole } from '@/hooks/use-mock-auth'; 
-import { useCallback } from 'react';
+    
