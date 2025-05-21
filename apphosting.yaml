@@ -9,11 +9,7 @@ runConfig:
 
 # Environment variables and secrets
 env:
-  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: AIzaSyAl4aSp-1RIZsnGDp_jKFP1BmSaEfdo2w4
-    availability:
-      - BUILD
-      - RUNTIME
+
   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
     value: kratia-forums.firebaseapp.com # Reemplaza con tu Auth Domain real
     availability:
@@ -43,6 +39,12 @@ env:
 
   - variable: GOOGLE_API_KEY
     secret: google-ai-api-key # Usa el nombre exacto del secreto que creaste en Secret Manager
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    secret: firebase-api-key # Usa el nombre exacto del secreto que creaste en Secret Manager
     availability:
       - BUILD
       - RUNTIME
