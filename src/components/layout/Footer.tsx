@@ -1,17 +1,17 @@
 
-"use client"; 
+"use client";
 
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'react-i18next'; // Changed from next-i18next
 
 export default function Footer() {
   const { t } = useTranslation('common');
 
   return (
     <footer className="bg-muted/50 border-t">
-      <div className="container mx-auto px-4 py-8 text-center text-muted-foreground">
-        <p className="text-sm">
+      <div className="container mx-auto px-4 py-8 text-center">
+        <p className="text-sm text-muted-foreground">
           &copy; {new Date().getFullYear()} {t('kratiaForumsTitle')}. {t('footerRights')}
         </p>
         <div className="mt-2">

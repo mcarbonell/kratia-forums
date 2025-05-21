@@ -12,10 +12,10 @@ import { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
-import { useTranslation } from 'next-i18next';
+import { useTranslation } from 'react-i18next'; // Changed from next-i18next
 
 export default function Header() {
-  const { user, loading, logout, switchToUser } = useMockAuth();
+  const { user, loading, logout, switchToUser, mockAuthUsers } = useMockAuth(); // mockAuthUsers is now returned by the hook
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const { t, i18n } = useTranslation('common');
@@ -35,7 +35,7 @@ export default function Header() {
         setUnreadNotificationsCount(0);
       });
     } else {
-      setUnreadNotificationsCount(0); 
+      setUnreadNotificationsCount(0);
     }
     return () => {
       if (unsubscribe) {
@@ -54,13 +54,13 @@ export default function Header() {
   const UserRoleSwitcher = () => (
     <div className="mt-4 p-2 border-t">
       <p className="text-sm font-semibold mb-2">{t('switchRoleDev')}</p>
-      {preparedMockAuthUsers && Object.keys(preparedMockAuthUsers).map(userKey => {
-        const userObject = preparedMockAuthUsers[userKey as keyof typeof preparedMockAuthUsers] as MockUser | undefined;
-        if (!userObject) return null;
+      {/* Ensure mockAuthUsers is defined before trying to get its keys */}
+      {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
+        const userObject = mockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
+        if (!userObject) return null; // Should not happen if mockAuthUsers is well-defined
         const displayName = userObject.username || userKey;
         return (
             <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start mb-1 text-xs h-7" onClick={() => { switchToUser(userKey); if(isMobile()) setMobileMenuOpen(false); }}>
-             {/* Intentionally not translating "Switch to" as it's dev only */}
              Switch to {displayName} ({userKey})
             </Button>
         );
@@ -143,19 +143,22 @@ export default function Header() {
                   {process.env.NODE_ENV === 'development' && (
                     <>
                       <DropdownMenuSeparator />
-                      <div className="p-2">
-                        <p className="text-xs text-muted-foreground mb-1">{t('switchRoleDev')}</p>
-                        {preparedMockAuthUsers && Object.keys(preparedMockAuthUsers).map(userKey => {
-                            const userObject = preparedMockAuthUsers[userKey as keyof typeof preparedMockAuthUsers] as MockUser | undefined;
-                            if (!userObject) return null;
-                            const displayName = userObject.username || userKey;
-                            return (
-                                <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
-                                 Switch to {displayName} ({userKey})
-                                </Button>
-                            );
-                        })}
-                      </div>
+                       {/* Ensure mockAuthUsers is defined before trying to get its keys */}
+                        {mockAuthUsers && Object.keys(mockAuthUsers).length > 0 && (
+                            <div className="p-2">
+                                <p className="text-xs text-muted-foreground mb-1">{t('switchRoleDev')}</p>
+                                {Object.keys(mockAuthUsers).map(userKey => {
+                                    const userObject = mockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
+                                    if (!userObject) return null;
+                                    const displayName = userObject.username || userKey;
+                                    return (
+                                        <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start text-xs h-7" onClick={() => switchToUser(userKey)}>
+                                        Switch to {displayName} ({userKey})
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </>
                   )}
                 </DropdownMenuContent>
