@@ -6,16 +6,17 @@ import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, Sh
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user/UserAvatar';
-import { useMockAuth, type MockUser, preparedMockAuthUsers } from '@/hooks/use-mock-auth';
+import { useMockAuth, type MockUser, preparedMockAuthUsers } from '@/hooks/use-mock-auth'; // preparedMockAuthUsers is directly available
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
-import { useTranslation } from 'react-i18next'; // Changed from next-i18next
+// import { useTranslation } from 'next-i18next'; // REMOVED
+import { useTranslation } from 'react-i18next'; // ADDED
 
 export default function Header() {
-  const { user, loading, logout, switchToUser, mockAuthUsers } = useMockAuth(); // mockAuthUsers is now returned by the hook
+  const { user, loading, logout, switchToUser } = useMockAuth(); 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const { t, i18n } = useTranslation('common');
@@ -54,10 +55,9 @@ export default function Header() {
   const UserRoleSwitcher = () => (
     <div className="mt-4 p-2 border-t">
       <p className="text-sm font-semibold mb-2">{t('switchRoleDev')}</p>
-      {/* Ensure mockAuthUsers is defined before trying to get its keys */}
-      {mockAuthUsers && Object.keys(mockAuthUsers).map(userKey => {
-        const userObject = mockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
-        if (!userObject) return null; // Should not happen if mockAuthUsers is well-defined
+      {preparedMockAuthUsers && Object.keys(preparedMockAuthUsers).map(userKey => {
+        const userObject = preparedMockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
+        if (!userObject) return null; 
         const displayName = userObject.username || userKey;
         return (
             <Button key={userKey} variant="ghost" size="sm" className="w-full justify-start mb-1 text-xs h-7" onClick={() => { switchToUser(userKey); if(isMobile()) setMobileMenuOpen(false); }}>
@@ -78,6 +78,11 @@ export default function Header() {
       </Link>
     </Button>
   ));
+  
+  // const showDevTools = process.env.NODE_ENV === 'development';
+  // Temporary always true for testing
+  const showDevTools = true;
+
 
   return (
     <header className="bg-card border-b sticky top-0 z-50">
@@ -140,15 +145,14 @@ export default function Header() {
                     <LogOut className="mr-2 h-4 w-4" />
                     {t('navLogout')}
                   </DropdownMenuItem>
-                  {process.env.NODE_ENV === 'development' && (
+                  {showDevTools && (
                     <>
                       <DropdownMenuSeparator />
-                       {/* Ensure mockAuthUsers is defined before trying to get its keys */}
-                        {mockAuthUsers && Object.keys(mockAuthUsers).length > 0 && (
+                        {preparedMockAuthUsers && Object.keys(preparedMockAuthUsers).length > 0 && (
                             <div className="p-2">
                                 <p className="text-xs text-muted-foreground mb-1">{t('switchRoleDev')}</p>
-                                {Object.keys(mockAuthUsers).map(userKey => {
-                                    const userObject = mockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
+                                {Object.keys(preparedMockAuthUsers).map(userKey => {
+                                    const userObject = preparedMockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
                                     if (!userObject) return null;
                                     const displayName = userObject.username || userKey;
                                     return (
@@ -258,7 +262,7 @@ export default function Header() {
                   </div>
                 )}
               </div>
-              {process.env.NODE_ENV === 'development' && (
+              {showDevTools && (
                 <div className="overflow-y-auto">
                   <UserRoleSwitcher />
                 </div>

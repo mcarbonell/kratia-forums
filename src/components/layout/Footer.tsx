@@ -3,7 +3,8 @@
 
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
-import { useTranslation } from 'react-i18next'; // Changed from next-i18next
+// import { useTranslation } from 'next-i18next'; // REMOVED
+import { useTranslation } from 'react-i18next'; // ADDED
 
 export default function Footer() {
   const { t } = useTranslation('common');
