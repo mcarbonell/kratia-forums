@@ -1,10 +1,10 @@
 
 // @ts-check
-const { i18n } = require('./next-i18next.config.js');
+// const { i18n } = require('./next-i18next.config.js'); // No longer importing this for nextConfig.i18n
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  i18n, // Add this back
+  // i18n, // REMOVED: This was causing Next.js to expect locale-prefixed routes
   output: 'standalone',
   typescript: {
     ignoreBuildErrors: true,

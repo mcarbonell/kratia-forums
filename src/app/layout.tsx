@@ -1,7 +1,7 @@
 
-"use client"; // Convert to Client Component
+"use client"; // RootLayout is a Client Component for i18n initialization
 
-import type { Metadata } from 'next'; // Metadata is not used in client component layouts
+import type { Metadata } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 import './globals.css';
@@ -18,20 +18,18 @@ import { useEffect } from 'react';
 import enCommonTranslations from '../../public/locales/en/common.json';
 import esCommonTranslations from '../../public/locales/es/common.json';
 
+const resources = {
+  en: { common: enCommonTranslations },
+  es: { common: esCommonTranslations },
+};
+
 // Initialize i18next directly - run once
 if (!i18n.isInitialized) {
   i18n
     .use(initReactI18next) // passes i18n down to react-i18next
     .init({
-      resources: {
-        en: {
-          common: enCommonTranslations
-        },
-        es: {
-          common: esCommonTranslations
-        }
-      },
-      lng: 'en', // Default language
+      resources,
+      lng: 'en', // Default language, will be changed by useEffect if needed
       fallbackLng: 'en', // Fallback language
       supportedLngs: ['en', 'es'], // Supported languages
       defaultNS: 'common',
@@ -40,7 +38,7 @@ if (!i18n.isInitialized) {
         escapeValue: false, // react already safes from xss
       },
       react: {
-        useSuspense: false,
+        useSuspense: false, // Recommended for App Router to avoid issues
       },
     });
 }
@@ -54,28 +52,30 @@ if (!i18n.isInitialized) {
 
 export default function RootLayout({
   children,
-  params, // params might not be directly useful here for i18n without path-based routing
 }: Readonly<{
   children: React.ReactNode;
-  params?: { locale?: string }; // This locale isn't used by i18next directly here
 }>) {
-
   useEffect(() => {
-    // For App Router, language detection often relies on browser settings or a language switcher
-    // The params?.locale might not be automatically populated unless you have [locale] in your path
-    const detectedLng = typeof window !== 'undefined' ? (localStorage.getItem('i18nextLng') || navigator.language.split('-')[0]) : 'en';
-    if (i18n.isInitialized && i18n.language !== detectedLng && i18n.languages.includes(detectedLng)) {
-      i18n.changeLanguage(detectedLng);
-    } else if (i18n.isInitialized && !i18n.languages.includes(detectedLng) && i18n.language !== 'en') {
-      // Fallback to 'en' if detectedLng is not supported
-      i18n.changeLanguage('en');
+    // Language detection and setting logic
+    const detectedLng = typeof window !== 'undefined' 
+      ? (localStorage.getItem('i18nextLng') || navigator.language.split('-')[0]) 
+      : 'en';
+
+    if (i18n.isInitialized) {
+      if (i18n.language !== detectedLng && i18n.languages.includes(detectedLng)) {
+        i18n.changeLanguage(detectedLng).catch(err => console.error("Error changing language:", err));
+      } else if (!i18n.languages.includes(detectedLng) && i18n.language !== 'en') {
+        // Fallback to 'en' if detectedLng is not supported and current lang isn't already 'en'
+        i18n.changeLanguage('en').catch(err => console.error("Error changing language to fallback:", err));
+      }
     }
   }, []); // Run once on mount
 
   // Ensure i18n is initialized before rendering
   if (!i18n.isInitialized) {
     // You could render a loading state here, or null
-    return null;
+    // For now, returning null to avoid rendering before i18n is ready
+    return null; 
   }
 
   return (
