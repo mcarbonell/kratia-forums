@@ -1,5 +1,5 @@
 
-"use client"; // Convert to client component to use useTranslation
+"use client"; 
 
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
@@ -15,7 +15,7 @@ export default function Footer() {
           &copy; {new Date().getFullYear()} {t('kratiaForumsTitle')}. {t('footerRights')}
         </p>
         <div className="mt-2">
-          <Link href="/constitution" className="text-sm hover:text-primary transition-colors inline-flex items-center">
+          <Link href="/constitution" className="text-sm text-primary hover:text-primary/80 transition-colors inline-flex items-center">
             <FileText className="mr-1 h-4 w-4" />
             {t('footerConstitutionLink')}
           </Link>
