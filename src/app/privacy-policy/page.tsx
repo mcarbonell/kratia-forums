@@ -51,12 +51,6 @@ We use the information we collect or receive:
 * **To protect our Services.**
 * **To enforce our terms, conditions and policies for business purposes, to comply with legal and regulatory requirements or in connection with our contract.**
 * **To respond to legal requests and prevent harm.**
-* **Fulfill and manage your orders.**
-* **Administer prize draws and competitions.**
-* **To deliver and facilitate delivery of services to the user.**
-* **To respond to user inquiries/offer support to users.**
-* **To send you marketing and promotional communications.**
-* **Deliver targeted advertising to you.**
 
 **3. WILL YOUR INFORMATION BE SHARED WITH ANYONE?**
 
@@ -101,15 +95,11 @@ Yes, we will update this notice as necessary to stay compliant with relevant law
 
 **12. HOW CAN YOU CONTACT US ABOUT THIS NOTICE?**
 
-If you have questions or comments about this notice, you may email us at [Your Contact Email Address] or by post to:
-[Your Company Name, if applicable]
-[Your Address, if applicable]
-[City, State, Zip/Postal Code]
-[Country]
+If you have questions or comments about this notice, you may email us at info {at} kratia {dot} net.
 
 **13. HOW CAN YOU REVIEW, UPDATE, OR DELETE THE DATA WE COLLECT FROM YOU?**
 
-Based on the applicable laws of your country, you may have the right to request access to the personal information we collect from you, change that information, or delete it in some circumstances. To request to review, update, or delete your personal information, please submit a request form by clicking here [Link to a Data Request Form or Contact Page].
+Based on the applicable laws of your country, you may have the right to request access to the personal information we collect from you, change that information, or delete it in some circumstances. To request to review, update, or delete your personal information, please send us an email to privacy {at} kratia {dot} net.
   `;
 
   return (
