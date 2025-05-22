@@ -1,1 +1,20 @@
-{}
+
+{
+  "hosting": {
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "apphosting": {
+          "backendId": "kratia-forums",
+          "region": "europe-west4"
+        }
+      }
+    ]
+  }
+}
