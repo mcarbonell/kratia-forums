@@ -3,8 +3,7 @@
 
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
-// import { useTranslation } from 'next-i18next'; // REMOVED
-import { useTranslation } from 'react-i18next'; // ADDED
+import { useTranslation } from 'react-i18next'; 
 
 export default function Footer() {
   const { t } = useTranslation('common');
@@ -15,10 +14,14 @@ export default function Footer() {
         <p className="text-sm text-muted-foreground">
           &copy; {new Date().getFullYear()} {t('kratiaForumsTitle')}. {t('footerRights')}
         </p>
-        <div className="mt-2">
+        <div className="mt-2 space-x-4">
           <Link href="/constitution" className="text-sm text-primary hover:text-primary/80 transition-colors inline-flex items-center">
             <FileText className="mr-1 h-4 w-4" />
             {t('footerConstitutionLink')}
+          </Link>
+          <Link href="/privacy-policy" className="text-sm text-primary hover:text-primary/80 transition-colors inline-flex items-center">
+            <FileText className="mr-1 h-4 w-4" />
+            {t('footerPrivacyPolicyLink')}
           </Link>
         </div>
       </div>
