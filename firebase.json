@@ -11,7 +11,7 @@
       {
         "source": "**",
         "apphosting": {
-          "backendId": "kratia-forums",
+          "backendId": "kratia",
           "region": "europe-west4"
         }
       }
