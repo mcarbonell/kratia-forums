@@ -39,16 +39,9 @@ if (!i18n.isInitialized) {
       react: {
         useSuspense: false, // Recommended for App Router to avoid issues
       },
-      debug: process.env.NODE_ENV === 'development', // Enable debug mode in development
+      debug: process.env.NODE_ENV === 'development',
     });
 }
-
-// Metadata should be in a <Head /> component or page.tsx for App Router
-// For a client RootLayout, dynamic metadata is tricky. Static metadata is better.
-// export const metadata: Metadata = {
-//   title: 'Kratia Forums',
-//   description: 'Forums with direct democracy for self-regulated communities.',
-// };
 
 export default function RootLayout({
   children,
@@ -65,16 +58,12 @@ export default function RootLayout({
       if (i18n.language !== detectedLng && i18n.languages.includes(detectedLng)) {
         i18n.changeLanguage(detectedLng).catch(err => console.error("Error changing language:", err));
       } else if (!i18n.languages.includes(detectedLng) && i18n.language !== 'en') {
-        // Fallback to 'en' if detectedLng is not supported and current lang isn't already 'en'
         i18n.changeLanguage('en').catch(err => console.error("Error changing language to fallback:", err));
       }
     }
-  }, []); // Run once on mount
+  }, []);
 
-  // Ensure i18n is initialized before rendering
   if (!i18n.isInitialized) {
-    // You could render a loading state here, or null
-    // For now, returning null to avoid rendering before i18n is ready
     return null; 
   }
 
@@ -85,6 +74,16 @@ export default function RootLayout({
             <title>Kratia Forums</title>
             <meta name="description" content="Forums with direct democracy for self-regulated communities." />
             <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="16x16"/>
+            {/* PWA Manifest Link */}
+            <link rel="manifest" href="/manifest.json" />
+            {/* Theme color for browser UI */}
+            <meta name="theme-color" content="#3498db" />
+            {/* Apple-specific PWA settings */}
+            <meta name="apple-mobile-web-app-capable" content="yes" />
+            <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+            <meta name="apple-mobile-web-app-title" content="Kratia Forums" />
+            {/* You can add Apple touch icons here if needed */}
+            {/* e.g., <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" /> */}
         </head>
         <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased flex flex-col min-h-screen`}>
           <Header />
