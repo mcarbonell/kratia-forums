@@ -11,17 +11,17 @@ import { useMockAuth, type LoginResult } from "@/hooks/use-mock-auth";
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { auth } from "@/lib/firebase"; 
-import { signInWithEmailAndPassword } from "firebase/auth"; 
+import { auth, GoogleAuthProvider } from "@/lib/firebase";
+import { signInWithEmailAndPassword, signInWithPopup, type UserCredential, type FirebaseError } from "firebase/auth";
 
 export default function LoginPage() {
-  const { loginAndSetUserFromFirestore, logout } = useMockAuth(); 
+  const { loginAndSetUserFromFirestore, logout } = useMockAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [authError, setAuthError] = useState<{type: 'sanctioned' | 'pending_admission' | 'email_not_verified', username?: string; endDate?: string; userEmail?: string} | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Corrected line
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -38,7 +38,7 @@ export default function LoginPage() {
         setIsSubmitting(false);
         return;
       }
-      
+
       if (!firebaseUser.emailVerified) {
         setAuthError({ type: 'email_not_verified', userEmail: firebaseUser.email || email });
         setIsSubmitting(false);
@@ -46,7 +46,7 @@ export default function LoginPage() {
       }
 
       const firestoreCheckResult: LoginResult = await loginAndSetUserFromFirestore(firebaseUser.uid, firebaseUser.email || undefined);
-        
+
       if (firestoreCheckResult.success) {
         router.push('/');
       } else {
@@ -55,22 +55,14 @@ export default function LoginPage() {
         } else if (firestoreCheckResult.reason === 'pending_admission') {
           setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
         } else if (firestoreCheckResult.reason === 'not_found_in_firestore') {
-          setError("Login failed. User profile not found after authentication. Please contact support.");
-          console.error("Login failed (Firestore check): User UID not found in users collection after Firebase Auth success.", firebaseUser.uid);
-        } else if (firestoreCheckResult.reason === 'auth_error') {
-           setError("Login failed. An authentication-related error occurred with the user profile.");
-           console.error("Login failed (Firestore check): Auth error with profile for UID.", firebaseUser.uid);
-        } else if (firestoreCheckResult.reason === 'unknown_firestore_status') {
-           setError("Login failed. User profile has an unrecognized status.");
-            console.error("Login failed (Firestore check): Unknown profile status for UID.", firebaseUser.uid, "Status:", firestoreCheckResult.user?.status);
-        }
-         else {
-          setError("Login failed after authentication. User profile issue."); 
+           setError("Login failed. User profile not found after authentication. Please contact support.");
+        } else {
+          setError("Login failed after authentication. User profile issue.");
           console.error("Login failed (Firestore check), reason:", firestoreCheckResult.reason, "for UID:", firebaseUser.uid);
         }
       }
     } catch (err: any) {
-      console.error("Firebase Auth Login error:", err.code, err.message);
+      console.error("Firebase Auth Email/Password Login error:", err.code, err.message);
       let specificError = "Login failed. Please check your credentials.";
       switch (err.code) {
         case 'auth/user-not-found':
@@ -79,12 +71,12 @@ export default function LoginPage() {
         case 'auth/wrong-password':
           specificError = "Incorrect password. Please try again.";
           break;
+        case 'auth/invalid-credential':
+            specificError = "Invalid credentials. Please check your email and password.";
+            break;
         case 'auth/invalid-email':
           specificError = "The email address is not valid.";
           break;
-        case 'auth/invalid-credential':
-           specificError = "Invalid credentials. Please check your email and password.";
-           break;
         case 'auth/too-many-requests':
             specificError = "Too many login attempts. Please try again later or reset your password.";
             break;
@@ -96,6 +88,55 @@ export default function LoginPage() {
       setIsSubmitting(false);
     }
   };
+
+  const handleGoogleSignIn = async () => {
+    setError("");
+    setAuthError(null);
+    setIsSubmitting(true);
+    const provider = new GoogleAuthProvider();
+    try {
+      const userCredential = await signInWithPopup(auth, provider);
+      const firebaseUser = userCredential.user;
+
+      if (!firebaseUser) {
+        setError("Google Sign-In failed. Please try again.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const firestoreCheckResult: LoginResult = await loginAndSetUserFromFirestore(
+        firebaseUser.uid,
+        firebaseUser.email,
+        firebaseUser.displayName,
+        firebaseUser.photoURL
+      );
+
+      if (firestoreCheckResult.success) {
+        router.push('/');
+      } else {
+        if (firestoreCheckResult.reason === 'sanctioned') {
+          setAuthError({type: 'sanctioned', username: firestoreCheckResult.username, endDate: firestoreCheckResult.sanctionEndDate});
+        } else if (firestoreCheckResult.reason === 'pending_admission') {
+          setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
+        } else {
+          setError("Google Sign-In completed, but user profile has an issue. Reason: " + (firestoreCheckResult.reason || 'Unknown'));
+          console.error("Google Sign-In: Firestore check failed, reason:", firestoreCheckResult.reason, "for UID:", firebaseUser.uid);
+        }
+      }
+    } catch (error: any) {
+      console.error("Google Sign-In Error:", error);
+      if (error.code === 'auth/popup-closed-by-user') {
+        setError("Google Sign-In was cancelled.");
+      } else if (error.code === 'auth/account-exists-with-different-credential') {
+        setError("An account already exists with this email address using a different sign-in method.");
+      } else {
+        setError("Failed to sign in with Google. Please try again.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
   const handleContinueAsVisitor = () => {
     logout();
@@ -135,12 +176,12 @@ export default function LoginPage() {
         </CardHeader>
         {!authError && (
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
-                  type="email" 
+                  type="email"
                   placeholder="you@example.com"
                   required
                   value={email}
@@ -170,6 +211,24 @@ export default function LoginPage() {
                 {isSubmitting ? "Logging in..." : "Login"}
               </Button>
             </form>
+            <div className="mt-4 relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  Or continue with
+                </span>
+              </div>
+            </div>
+            <Button variant="outline" className="w-full mt-4" onClick={handleGoogleSignIn} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> :
+                <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
+                  <path fill="currentColor" d="M488 261.8C488 403.3 381.5 512 244 512 110.3 512 0 399.9 0 256S110.3 0 244 0c76.3 0 141.2 30.3 191.5 78.4l-69.9 69.9C333.7 117.2 292.5 96 244 96c-89.6 0-162.8 72.1-162.8 160s73.2 160 162.8 160c98.1 0 137.5-60.3 142.9-92.2h-142.9v-90.1h244c2.7 14.7 4.2 30.3 4.2 46.1z"></path>
+                </svg>
+              }
+              Sign in with Google
+            </Button>
             <div className="mt-6 text-center text-sm">
               Don&apos;t have an account?{" "}
               <Link href="/auth/signup" className="underline font-medium text-primary hover:text-primary/80">
@@ -189,4 +248,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
