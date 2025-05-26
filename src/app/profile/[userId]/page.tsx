@@ -12,29 +12,30 @@ import type { User as KratiaUser, Thread, Post } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { format, formatDistanceToNow } from 'date-fns';
+import { es as esLocale } from 'date-fns/locale/es';
+import { enUS as enUSLocale } from 'date-fns/locale/en-US';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { KRATIA_CONFIG } from '@/lib/config';
 import { useTranslation } from 'react-i18next';
 
-// Helper function for timestamp conversion
-const formatFirestoreTimestampToReadable = (timestamp: any): string | undefined => {
+const formatFirestoreTimestampToReadable = (timestamp: any, currentLang: string): string | undefined => {
   if (!timestamp) return undefined;
+  const locale = currentLang.startsWith('es') ? esLocale : enUSLocale;
   if (typeof timestamp === 'string') {
     const d = new Date(timestamp);
-    if (!isNaN(d.getTime())) return format(d, "PPPp");
+    if (!isNaN(d.getTime())) return format(d, "PPPp", { locale });
     return undefined;
   }
   if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-    return format(timestamp.toDate(), "PPPp");
+    return format(timestamp.toDate(), "PPPp", { locale });
   }
   if (timestamp instanceof Date) {
-    return format(timestamp, "PPPp");
+    return format(timestamp, "PPPp", { locale });
   }
   return undefined;
 };
 
-// Define a more specific type for posts that will include forumId
 type PostWithForumId = Post & { forumId?: string };
 
 export default function UserProfilePage() {
@@ -42,7 +43,7 @@ export default function UserProfilePage() {
   const router = useRouter();
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const userId = params.userId as string;
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
 
   const [profileUser, setProfileUser] = useState<KratiaUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,7 +76,6 @@ export default function UserProfilePage() {
           const userData = { id: userSnap.id, ...userSnap.data(), status: userSnap.data().status || 'active' } as KratiaUser;
           setProfileUser(userData);
 
-          // Fetch recent threads
           setIsLoadingThreads(true);
           const threadsQuery = query(
             collection(db, "threads"),
@@ -87,7 +87,6 @@ export default function UserProfilePage() {
           setRecentThreads(threadsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Thread)));
           setIsLoadingThreads(false);
 
-          // Fetch recent posts
           setIsLoadingPosts(true);
           const postsQuery = query(
             collection(db, "posts"),
@@ -139,6 +138,20 @@ export default function UserProfilePage() {
     fetchUserProfileAndActivity();
   }, [userId, t]);
 
+  const timeAgo = (dateString?: string) => {
+    if (!dateString) return t('common.time.someTimeAgo');
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return t('common.time.invalidDate');
+        return formatDistanceToNow(date, { 
+            addSuffix: true,
+            locale: i18n.language.startsWith('es') ? esLocale : enUSLocale
+        });
+    } catch (e) {
+        return t('common.time.aWhileBack');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
@@ -164,11 +177,11 @@ export default function UserProfilePage() {
   }
   
   const registrationDateFormatted = profileUser.registrationDate 
-    ? formatDistanceToNow(new Date(profileUser.registrationDate), { addSuffix: true }) 
+    ? timeAgo(profileUser.registrationDate)
     : t('profileView.unknown');
 
   const sanctionEndDateFormatted = profileUser.sanctionEndDate
-    ? formatFirestoreTimestampToReadable(profileUser.sanctionEndDate)
+    ? formatFirestoreTimestampToReadable(profileUser.sanctionEndDate, i18n.language)
     : t('profileView.notApplicable');
 
   const isOwnProfile = loggedInUser?.id === profileUser.id;
@@ -316,7 +329,7 @@ export default function UserProfilePage() {
                           {thread.title}
                         </Link>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {t('profileView.recentActivity.created')} {formatDistanceToNow(new Date(thread.createdAt), { addSuffix: true })}
+                          {t('profileView.recentActivity.created')} {timeAgo(thread.createdAt)}
                         </p>
                       </li>
                     ))}
@@ -333,9 +346,9 @@ export default function UserProfilePage() {
                 ) : recentPosts.length > 0 ? (
                   <ul className="space-y-3">
                     {recentPosts.map(post => {
-                      const postLink = (post.forumId && post.forumId !== 'unknown')
+                      const postLink = (post.forumId && post.forumId !== 'unknown' && post.threadId) // Added check for post.threadId
                         ? `/forums/${post.forumId}/threads/${post.threadId}#post-${post.id}`
-                        : `/forums/unknown/threads/${post.threadId}#post-${post.id}`; 
+                        : (post.threadId ? `/forums/unknown/threads/${post.threadId}#post-${post.id}` : '#'); // Fallback if threadId itself is missing
 
                       return (
                         <li key={post.id} className="p-3 border rounded-md hover:bg-muted/30 transition-colors">
@@ -343,7 +356,7 @@ export default function UserProfilePage() {
                             "{post.content.substring(0, 70)}{post.content.length > 70 ? '...' : ''}"
                           </Link>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {t('profileView.recentActivity.posted')} {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+                            {t('profileView.recentActivity.posted')} {timeAgo(post.createdAt)}
                           </p>
                         </li>
                       );
@@ -363,3 +376,4 @@ export default function UserProfilePage() {
   );
 }
 
+    

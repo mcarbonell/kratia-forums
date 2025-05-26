@@ -6,6 +6,8 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button';
 import type { Post, Poll, PollOption, User as KratiaUser, Thread } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
+import { es as esLocale } from 'date-fns/locale/es';
+import { enUS as enUSLocale } from 'date-fns/locale/en-US';
 import { ThumbsUp, MessageSquare, Edit2, Trash2, BarChartBig, Vote as VoteIcon, Loader2, Save, XCircle } from 'lucide-react';
 import UserAvatar from '../user/UserAvatar';
 import { useState, useEffect, type ChangeEvent } from 'react';
@@ -34,7 +36,7 @@ interface PostItemProps {
 export default function PostItem({ post: initialPost, isFirstPost = false, threadPoll, onPollUpdate, threadId, forumId, onPostDeleted }: PostItemProps) {
   const { user } = useMockAuth();
   const { toast } = useToast();
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
 
   const [post, setPost] = useState<Post>(initialPost);
   const [currentPoll, setCurrentPoll] = useState<Poll | undefined>(threadPoll);
@@ -70,13 +72,15 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     }
   }, [threadPoll, user]);
 
-
   const timeAgo = (dateString?: string) => {
     if (!dateString) return t('common.time.someTimeAgo');
     try {
         const date = new Date(dateString);
         if (isNaN(date.getTime())) return t('common.time.invalidDate');
-        return formatDistanceToNow(date, { addSuffix: true });
+        return formatDistanceToNow(date, { 
+            addSuffix: true,
+            locale: i18n.language.startsWith('es') ? esLocale : enUSLocale 
+        });
     } catch (e) {
         return t('common.time.aWhileBack');
     }
@@ -175,22 +179,28 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         const emojiReactionData = serverReactions[emoji] || { userIds: [] };
         const userHasReacted = emojiReactionData.userIds.includes(user.id);
         let newEmojiUserIds;
-        let karmaChangeForAuthor = 0;
+        let karmaChangeForAuthor = 0; 
         let reactionChangeForAuthor = 0;
-        if (userHasReacted) {
-          newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
-          karmaChangeForAuthor = -1; reactionChangeForAuthor = -1;
+
+        if (post.author.id !== user.id) { // Only change karma if not self-reaction (already handled above)
+            if (userHasReacted) {
+              newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
+              karmaChangeForAuthor = -1; reactionChangeForAuthor = -1;
+            } else {
+              newEmojiUserIds = [...emojiReactionData.userIds, user.id];
+              karmaChangeForAuthor = 1; reactionChangeForAuthor = 1;
+            }
         } else {
-          newEmojiUserIds = [...emojiReactionData.userIds, user.id];
-          karmaChangeForAuthor = 1; reactionChangeForAuthor = 1;
+            newEmojiUserIds = emojiReactionData.userIds; // No change if self-reaction attempt
         }
+        
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
         const newReactionsField = { ...serverReactions };
         if (newEmojiUserIds.length === 0) delete newReactionsField[emoji];
         else newReactionsField[emoji] = updatedReactionsForEmoji;
         transaction.update(postRef, { reactions: newReactionsField });
         
-        if (post.author.id && post.author.id !== 'unknown' && post.author.id !== user.id) {
+        if (post.author.id && post.author.id !== 'unknown' && post.author.id !== user.id && (karmaChangeForAuthor !== 0 || reactionChangeForAuthor !== 0)) {
             transaction.update(postAuthorUserRef, {
                 karma: increment(karmaChangeForAuthor),
                 totalReactionsReceived: increment(reactionChangeForAuthor),
@@ -471,3 +481,5 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     </>
   );
 }
+
+    

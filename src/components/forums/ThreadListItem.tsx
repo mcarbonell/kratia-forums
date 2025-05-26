@@ -6,6 +6,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { MessageSquare, UserCircle, Clock, Lock, Pin } from 'lucide-react';
 import type { Thread } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
+import { es as esLocale } from 'date-fns/locale/es';
+import { enUS as enUSLocale } from 'date-fns/locale/en-US';
 import { useTranslation } from 'react-i18next';
 
 interface ThreadListItemProps {
@@ -14,11 +16,20 @@ interface ThreadListItemProps {
 }
 
 export default function ThreadListItem({ thread, forumId }: ThreadListItemProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
 
   const timeAgo = (dateString?: string) => {
-    if (!dateString) return t('common.notAvailable');
-    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+    if (!dateString) return t('common.time.notAvailable'); // Using a more specific key
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return t('common.time.invalidDate');
+      return formatDistanceToNow(date, { 
+        addSuffix: true,
+        locale: i18n.language.startsWith('es') ? esLocale : enUSLocale
+      });
+    } catch (e) {
+      return t('common.time.aWhileBack');
+    }
   };
 
   return (
@@ -58,10 +69,13 @@ export default function ThreadListItem({ thread, forumId }: ThreadListItemProps)
         <div className="flex-shrink-0 text-right text-sm text-muted-foreground ml-auto pl-4">
           <div className="flex items-center">
             <MessageSquare className="mr-1 h-4 w-4" />
-            {thread.postCount} {t('threadListItem.posts', { count: thread.postCount })}
+            {/* Removed explicit thread.postCount here as t() handles it */}
+            {t('threadListItem.posts', { count: thread.postCount || 0 })}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+    

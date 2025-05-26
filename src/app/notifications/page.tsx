@@ -13,6 +13,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, BellRing, MailWarning, CheckCheck, Inbox } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { es as esLocale } from 'date-fns/locale/es';
+import { enUS as enUSLocale } from 'date-fns/locale/en-US';
 import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from 'react-i18next';
 import { KRATIA_CONFIG } from '@/lib/config';
@@ -25,7 +27,7 @@ interface NotificationWithId extends NotificationType {
 export default function NotificationsPage() {
   const { user, loading: authLoading, syncUserWithFirestore } = useMockAuth();
   const { toast } = useToast();
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const [notifications, setNotifications] = useState<NotificationWithId[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +91,7 @@ export default function NotificationsPage() {
         description: t('notificationsPage.toast.markAllReadSuccessDesc'),
         action: <CheckCheck className="text-green-500" />
       });
-      if (user && syncUserWithFirestore) { // Refresh header count via useMockAuth sync
+      if (user && syncUserWithFirestore) { 
         await syncUserWithFirestore(user);
       }
     } catch (err) {
@@ -113,7 +115,7 @@ export default function NotificationsPage() {
 
   const getActorAvatar = (actor: NotificationType['actor']) => {
     if (actor.id === 'system' && actor.avatarUrl === '/kratia-logo.png') {
-      return '/kratia-logo.png'; // Or your actual logo path
+      return '/kratia-logo.png'; 
     }
     return actor.avatarUrl;
   };
@@ -158,7 +160,10 @@ export default function NotificationsPage() {
     try {
         const date = new Date(dateString);
         if (isNaN(date.getTime())) return t('common.time.invalidDate');
-        return formatDistanceToNow(date, { addSuffix: true });
+        return formatDistanceToNow(date, { 
+            addSuffix: true,
+            locale: i18n.language.startsWith('es') ? esLocale : enUSLocale
+        });
     } catch (e) {
         return t('common.time.aWhileBack');
     }

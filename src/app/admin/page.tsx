@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle, FolderKanban, Trash2 } from 'lucide-react';
 import UserAvatar from '@/components/user/UserAvatar';
 import { formatDistanceToNow } from 'date-fns';
+import { es as esLocale } from 'date-fns/locale/es';
+import { enUS as enUSLocale } from 'date-fns/locale/en-US';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from 'react-i18next';
@@ -22,7 +24,7 @@ import { useTranslation } from 'react-i18next';
 export default function AdminPage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const { toast } = useToast();
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const [users, setUsers] = useState<KratiaUser[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
   const [categories, setCategories] = useState<ForumCategory[]>([]);
@@ -132,7 +134,10 @@ export default function AdminPage() {
 
   const formatRegistrationDate = (dateString?: string) => {
     if (!dateString) return t('adminPanel.notAvailable');
-    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+    return formatDistanceToNow(new Date(dateString), { 
+        addSuffix: true,
+        locale: i18n.language.startsWith('es') ? esLocale : enUSLocale
+    });
   };
 
 
@@ -180,7 +185,7 @@ export default function AdminPage() {
                         </Link>
                     </TableCell>
                     <TableCell>{user.email}</TableCell>
-                    <TableCell><Badge variant={user.role === 'admin' || user.role === 'founder' ? 'default' : 'secondary'}>{user.role}</Badge></TableCell>
+                    <TableCell><Badge variant={user.role === 'admin' || user.role === 'founder' ? 'default' : 'secondary'}>{t(`roles.${user.role?.replace('_','')}`, user.role)}</Badge></TableCell>
                     <TableCell className="text-right">{user.karma || 0}</TableCell>
                     <TableCell>{formatRegistrationDate(user.registrationDate)}</TableCell>
                     <TableCell className="text-center">
@@ -320,4 +325,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
     
