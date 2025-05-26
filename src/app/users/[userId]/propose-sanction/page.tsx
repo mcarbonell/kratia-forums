@@ -18,8 +18,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, ShieldAlert, Frown, CornerUpLeft, Send, Ban } from 'lucide-react';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
 import { KRATIA_CONFIG } from '@/lib/config';
+import { useTranslation } from 'react-i18next';
 
 const AGORA_FORUM_ID = 'agora';
 
@@ -35,6 +36,7 @@ export default function ProposeSanctionPage() {
   const router = useRouter();
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const { toast } = useToast();
+  const { t } = useTranslation('common');
   const targetUserId = params.userId as string;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,7 +50,7 @@ export default function ProposeSanctionPage() {
 
   useEffect(() => {
     if (!targetUserId) {
-      setPageError("Target User ID is missing.");
+      setPageError(t('proposeSanction.error.missingTargetId'));
       setIsLoadingTargetUser(false);
       return;
     }
@@ -61,17 +63,17 @@ export default function ProposeSanctionPage() {
         if (userSnap.exists()) {
           setTargetUser({ id: userSnap.id, ...userSnap.data() } as KratiaUser);
         } else {
-          setPageError("The user you are trying to propose a sanction for does not exist.");
+          setPageError(t('proposeSanction.error.targetUserNotFound'));
         }
       } catch (err) {
         console.error("Error fetching target user for sanction proposal:", err);
-        setPageError("Could not load target user details.");
+        setPageError(t('proposeSanction.error.loadTargetUserFail'));
       } finally {
         setIsLoadingTargetUser(false);
       }
     };
     fetchTargetUser();
-  }, [targetUserId]);
+  }, [targetUserId, t]);
 
   if (authLoading || isLoadingTargetUser) {
     return <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div>;
@@ -81,44 +83,42 @@ export default function ProposeSanctionPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Frown className="h-5 w-5" />
-        <AlertTitle>{pageError ? "Error" : "Target User Not Found"}</AlertTitle>
-        <AlertDescription>{pageError || "The user specified could not be found."}</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/"><CornerUpLeft className="mr-2 h-4 w-4" />Back to Homepage</Link></Button>
+        <AlertTitle>{pageError ? t('common.error') : t('proposeSanction.error.targetUserNotFoundTitle')}</AlertTitle>
+        <AlertDescription>{pageError || t('proposeSanction.error.targetUserNotFoundDesc')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/"><CornerUpLeft className="mr-2 h-4 w-4" />{t('common.backToHomepageButton')}</Link></Button>
       </Alert>
     );
   }
 
   if (!loggedInUser || loggedInUser.role === 'visitor' || loggedInUser.role === 'guest' || !loggedInUser.canVote || (loggedInUser.status !== 'active')) {
-    let description = "You do not have permission to propose a sanction.";
+    let description = t('proposeSanction.accessDenied.generic');
     if (loggedInUser) {
         if (loggedInUser.status === 'under_sanction_process') {
-        description = "You cannot propose sanctions while under a sanction process.";
+        description = t('proposeSanction.accessDenied.underSanction');
         } else if (loggedInUser.status === 'sanctioned') {
-        description = "You cannot propose sanctions while sanctioned.";
+        description = t('proposeSanction.accessDenied.sanctioned');
         } else if (!loggedInUser.canVote) {
-        description = "You do not have voting rights to propose sanctions.";
+        description = t('proposeSanction.accessDenied.noVotingRights');
         }
     }
-
 
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
+        <AlertTitle>{t('proposeSanction.accessDenied.title')}</AlertTitle>
         <AlertDescription>{description}</AlertDescription>
-        <Button asChild className="mt-4"><Link href={`/profile/${targetUserId}`}><CornerUpLeft className="mr-2 h-4 w-4" />Back to Profile</Link></Button>
+        <Button asChild className="mt-4"><Link href={`/profile/${targetUserId}`}><CornerUpLeft className="mr-2 h-4 w-4" />{t('profileView.backToProfileButton')}</Link></Button>
       </Alert>
     );
   }
-
 
   if (loggedInUser.id === targetUser.id) {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Invalid Action</AlertTitle>
-        <AlertDescription>You cannot propose a sanction against yourself.</AlertDescription>
-         <Button asChild className="mt-4"><Link href="/"><CornerUpLeft className="mr-2 h-4 w-4" />Back to Homepage</Link></Button>
+        <AlertTitle>{t('proposeSanction.error.cannotSanctionSelfTitle')}</AlertTitle>
+        <AlertDescription>{t('proposeSanction.error.cannotSanctionSelfDesc')}</AlertDescription>
+         <Button asChild className="mt-4"><Link href="/"><CornerUpLeft className="mr-2 h-4 w-4" />{t('common.backToHomepageButton')}</Link></Button>
       </Alert>
     );
   }
@@ -127,18 +127,19 @@ export default function ProposeSanctionPage() {
      return (
       <Alert variant="default" className="max-w-lg mx-auto border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
         <Ban className="h-5 w-5" />
-        <AlertTitle>User Status</AlertTitle>
-        <AlertDescription>This user is already {targetUser.status === 'sanctioned' ? 'sanctioned' : 'under a sanction process'}. No new sanction can be proposed at this time.</AlertDescription>
-        <Button asChild className="mt-4"><Link href={`/profile/${targetUserId}`}><CornerUpLeft className="mr-2 h-4 w-4" />Back to Profile</Link></Button>
+        <AlertTitle>{t('proposeSanction.error.userStatusTitle')}</AlertTitle>
+        <AlertDescription>
+          {targetUser.status === 'sanctioned' ? t('proposeSanction.error.userAlreadySanctioned') : t('proposeSanction.error.userUnderSanctionProcess')}
+        </AlertDescription>
+        <Button asChild className="mt-4"><Link href={`/profile/${targetUserId}`}><CornerUpLeft className="mr-2 h-4 w-4" />{t('profileView.backToProfileButton')}</Link></Button>
       </Alert>
     );
   }
 
-
   const onSubmit: SubmitHandler<SanctionProposalFormData> = async (data) => {
     setIsSubmitting(true);
     if (!loggedInUser || !targetUser) {
-      toast({ title: "Error", description: "Proposer or target user not found.", variant: "destructive" });
+      toast({ title: t('common.error'), description: t('proposeSanction.toast.userNotFoundOnSubmit'), variant: "destructive" });
       setIsSubmitting(false);
       return;
     }
@@ -147,7 +148,7 @@ export default function ProposeSanctionPage() {
     const now = Timestamp.now();
     const deadlineDate = new Date(now.toDate().getTime() + KRATIA_CONFIG.VOTATION_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
-    const votationTitle = `Votation: Sanction for ${data.duration} against ${targetUser.username}`;
+    const votationTitle = t('proposeSanction.votationTitle', { duration: data.duration, username: targetUser.username });
     
     try {
       const batch = writeBatch(db);
@@ -171,7 +172,7 @@ export default function ProposeSanctionPage() {
       const initialPostData: Omit<Post, 'id'> = {
         threadId: newAgoraThreadRef.id,
         author: proposerAuthorInfo,
-        content: `**Reason for Sanction Proposal against ${targetUser.username} (Duration: ${data.duration}):**\n\n${data.justification}`,
+        content: t('proposeSanction.initialPostContent', { username: targetUser.username, duration: data.duration, justification: data.justification }),
         createdAt: now.toDate().toISOString(),
         reactions: {},
       };
@@ -186,12 +187,13 @@ export default function ProposeSanctionPage() {
         karma: increment(2), 
         totalPostsByUser: increment(1),
         totalPostsInThreadsStartedByUser: increment(1),
+        totalThreadsStartedByUser: increment(1)
       });
 
       const votationData: Votation = {
         id: newVotationRef.id,
         title: votationTitle,
-        description: `Proposal to sanction user ${targetUser.username} for a duration of ${data.duration}.`,
+        description: t('proposeSanction.votationDescription', { username: targetUser.username, duration: data.duration }),
         justification: data.justification,
         proposerId: loggedInUser.id,
         proposerUsername: loggedInUser.username,
@@ -216,8 +218,8 @@ export default function ProposeSanctionPage() {
       await batch.commit();
 
       toast({
-        title: "Sanction Proposed!",
-        description: `The votation for sanctioning ${targetUser.username} has been created in the Agora.`,
+        title: t('proposeSanction.toast.successTitle'),
+        description: t('proposeSanction.toast.successDesc', { username: targetUser.username }),
       });
       reset();
       router.push(`/forums/${AGORA_FORUM_ID}/threads/${newAgoraThreadRef.id}`);
@@ -225,8 +227,8 @@ export default function ProposeSanctionPage() {
     } catch (error) {
       console.error("Error proposing sanction:", error);
       toast({
-        title: "Error",
-        description: "Failed to propose sanction. Please try again.",
+        title: t('common.error'),
+        description: t('proposeSanction.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -240,20 +242,20 @@ export default function ProposeSanctionPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <Ban className="mr-3 h-7 w-7 text-destructive" />
-            Propose Sanction for {targetUser.username}
+            {t('proposeSanction.pageTitle', { username: targetUser.username })}
           </CardTitle>
           <CardDescription>
-            Explain why you are proposing a sanction and for how long. This will create a public votation in the Agora.
+            {t('proposeSanction.pageDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="duration">Proposed Sanction Duration</Label>
+              <Label htmlFor="duration">{t('proposeSanction.form.durationLabel')}</Label>
               <Input
                 id="duration"
                 type="text"
-                placeholder="e.g., '7 days', '1 month', 'Permanent'"
+                placeholder={t('proposeSanction.form.durationPlaceholder')}
                 {...register("duration")}
                 className={errors.duration ? "border-destructive" : ""}
                 disabled={isSubmitting}
@@ -262,10 +264,10 @@ export default function ProposeSanctionPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="justification">Justification</Label>
+              <Label htmlFor="justification">{t('proposeSanction.form.justificationLabel')}</Label>
               <Textarea
                 id="justification"
-                placeholder="Clearly state your reasons, provide evidence or links to relevant posts if applicable."
+                placeholder={t('proposeSanction.form.justificationPlaceholder')}
                 rows={10}
                 {...register("justification")}
                 className={errors.justification ? "border-destructive" : ""}
@@ -276,15 +278,15 @@ export default function ProposeSanctionPage() {
             
             <Alert>
               <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Important Notice</AlertTitle>
+              <AlertTitle>{t('proposeSanction.importantNotice.title')}</AlertTitle>
               <AlertDescription>
-                Submitting this proposal will create a public votation in the Agora. The targeted user, {targetUser.username}, will be notified and will be able to respond in the votation thread.
+                {t('proposeSanction.importantNotice.description', { username: targetUser.username })}
               </AlertDescription>
             </Alert>
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
-                    Cancel
+                    {t('common.cancelButton')}
                 </Button>
                 <Button type="submit" variant="destructive" disabled={isSubmitting} className="min-w-[180px]">
                 {isSubmitting ? (
@@ -292,7 +294,7 @@ export default function ProposeSanctionPage() {
                 ) : (
                     <Send className="mr-2 h-4 w-4" />
                 )}
-                Submit Sanction Proposal
+                {t('proposeSanction.submitButton')}
                 </Button>
             </div>
           </form>
@@ -302,3 +304,4 @@ export default function ProposeSanctionPage() {
   );
 }
 
+    

@@ -12,6 +12,7 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import type { SiteSettings } from '@/lib/types';
 import { useMockAuth } from '@/hooks/use-mock-auth';
+import { useTranslation } from 'react-i18next';
 
 export default function ConstitutionPage() {
   const [constitutionText, setConstitutionText] = useState<string | null>(null);
@@ -19,6 +20,7 @@ export default function ConstitutionPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
+  const { t } = useTranslation('common');
 
   useEffect(() => {
     const fetchConstitution = async () => {
@@ -30,25 +32,25 @@ export default function ConstitutionPage() {
 
         if (docSnap.exists()) {
           const data = docSnap.data() as SiteSettings;
-          setConstitutionText(data.constitutionText || "The constitution text is not available.");
+          setConstitutionText(data.constitutionText || t('constitutionPage.error.textNotAvailable'));
           if (data.lastUpdated) {
             setLastUpdated(new Date(data.lastUpdated).toLocaleString());
           }
         } else {
-          setError("Constitution document not found in the database. Please ensure it has been seeded.");
-          setConstitutionText("The constitution is currently unavailable.");
+          setError(t('constitutionPage.error.notFound'));
+          setConstitutionText(t('constitutionPage.unavailable'));
         }
       } catch (err) {
         console.error("Error fetching constitution:", err);
-        setError("Failed to load the constitution. Please try again later.");
-        setConstitutionText("An error occurred while loading the constitution.");
+        setError(t('constitutionPage.error.loadFail'));
+        setConstitutionText(t('constitutionPage.error.loadingError'));
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchConstitution();
-  }, []);
+  }, [t]);
 
   const canProposeChange = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active';
 
@@ -56,7 +58,7 @@ export default function ConstitutionPage() {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Loading Constitution...</p>
+        <p className="ml-4 text-muted-foreground">{t('constitutionPage.loading')}</p>
       </div>
     );
   }
@@ -66,12 +68,12 @@ export default function ConstitutionPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold flex items-center">
           <FileText className="mr-3 h-8 w-8 text-primary" />
-          Normas y Condiciones (Constitución)
+          {t('constitutionPage.title')}
         </h1>
         {canProposeChange && (
           <Button asChild>
             <Link href="/agora/propose-constitution-change">
-              <Edit className="mr-2 h-5 w-5" /> Propose Change
+              <Edit className="mr-2 h-5 w-5" /> {t('constitutionPage.proposeChangeButton')}
             </Link>
           </Button>
         )}
@@ -80,15 +82,15 @@ export default function ConstitutionPage() {
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-5 w-5" />
-          <AlertTitle>Error Loading Constitution</AlertTitle>
+          <AlertTitle>{t('constitutionPage.error.errorTitle')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Constitución de Kratia Forums</CardTitle>
-          {lastUpdated && <p className="text-xs text-muted-foreground">Last updated: {lastUpdated}</p>}
+          <CardTitle>{t('constitutionPage.cardTitle')}</CardTitle>
+          {lastUpdated && <p className="text-xs text-muted-foreground">{t('constitutionPage.lastUpdated')}: {lastUpdated}</p>}
         </CardHeader>
         <CardContent>
           {constitutionText ? (
@@ -97,17 +99,19 @@ export default function ConstitutionPage() {
                 className="prose prose-sm sm:prose lg:prose-lg xl:prose-xl max-w-none dark:prose-invert whitespace-pre-line"
                 dangerouslySetInnerHTML={{
                   __html: constitutionText
-                            .replace(/^## (.*?)$/gm, '<h2>$1</h2>') // Headlines
-                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
-                            .replace(/\*(.*?)\*/g, '<em>$1</em>') // Italics
+                            .replace(/^## (.*?)$/gm, '<h2>$1</h2>') 
+                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                            .replace(/\*(.*?)\*/g, '<em>$1</em>') 
                 }}
               />
             </ScrollArea>
           ) : (
-            !error && <p>No constitution text available.</p>
+            !error && <p>{t('constitutionPage.noTextAvailable')}</p>
           )}
         </CardContent>
       </Card>
     </div>
   );
 }
+
+    
