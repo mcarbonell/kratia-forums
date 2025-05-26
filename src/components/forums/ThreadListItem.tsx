@@ -1,9 +1,12 @@
 
+"use client";
+
 import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { MessageSquare, UserCircle, Clock, Lock, Pin } from 'lucide-react';
 import type { Thread } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
+import { useTranslation } from 'react-i18next';
 
 interface ThreadListItemProps {
   thread: Thread;
@@ -11,8 +14,10 @@ interface ThreadListItemProps {
 }
 
 export default function ThreadListItem({ thread, forumId }: ThreadListItemProps) {
+  const { t } = useTranslation('common');
+
   const timeAgo = (dateString?: string) => {
-    if (!dateString) return 'N/A';
+    if (!dateString) return t('common.notAvailable');
     return formatDistanceToNow(new Date(dateString), { addSuffix: true });
   };
 
@@ -28,8 +33,8 @@ export default function ThreadListItem({ thread, forumId }: ThreadListItemProps)
         <div className="flex-grow min-w-0">
           <Link href={`/forums/${forumId}/threads/${thread.id}`} className="block">
             <h3 className="text-lg font-semibold text-primary hover:underline truncate flex items-center" title={thread.title}>
-              {thread.isSticky && <Pin className="mr-2 h-4 w-4 text-amber-500 flex-shrink-0" title="Sticky Thread"/>}
-              {thread.isLocked && <Lock className="mr-2 h-4 w-4 text-destructive flex-shrink-0" title="Thread Locked"/>}
+              {thread.isSticky && <Pin className="mr-2 h-4 w-4 text-amber-500 flex-shrink-0" title={t('threadListItem.tooltips.sticky')}/>}
+              {thread.isLocked && <Lock className="mr-2 h-4 w-4 text-destructive flex-shrink-0" title={t('threadListItem.tooltips.locked')}/>}
               {thread.title}
             </h3>
           </Link>
@@ -40,12 +45,12 @@ export default function ThreadListItem({ thread, forumId }: ThreadListItemProps)
             </Link>
             <span className="flex items-center">
               <Clock className="mr-1 h-3 w-3" />
-              Created: {timeAgo(thread.createdAt)}
+              {t('threadListItem.created')}: {timeAgo(thread.createdAt)}
             </span>
             {thread.lastReplyAt && (
               <span className="flex items-center">
                 <Clock className="mr-1 h-3 w-3" />
-                Last reply: {timeAgo(thread.lastReplyAt)}
+                {t('threadListItem.lastReply')}: {timeAgo(thread.lastReplyAt)}
               </span>
             )}
           </div>
@@ -53,7 +58,7 @@ export default function ThreadListItem({ thread, forumId }: ThreadListItemProps)
         <div className="flex-shrink-0 text-right text-sm text-muted-foreground ml-auto pl-4">
           <div className="flex items-center">
             <MessageSquare className="mr-1 h-4 w-4" />
-            {thread.postCount} post{thread.postCount !== 1 ? 's' : ''}
+            {thread.postCount} {t('threadListItem.posts', { count: thread.postCount })}
           </div>
         </div>
       </div>

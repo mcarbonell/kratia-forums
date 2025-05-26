@@ -13,9 +13,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
 import type { Post as PostType, User as KratiaUser, Thread, Notification } from '@/lib/types';
-import { Loader2, Send, MessageSquare } from 'lucide-react';
+import { Loader2, Send, MessageSquare, XCircle } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, doc, Timestamp, writeBatch, increment, getDoc } from 'firebase/firestore';
+import { useTranslation } from 'react-i18next';
+import { KRATIA_CONFIG } from '@/lib/config';
 
 const replySchema = z.object({
   content: z.string().min(5, "Reply must be at least 5 characters long.").max(10000, "Reply content is too long."),
@@ -33,6 +35,7 @@ interface ReplyFormProps {
 export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel }: ReplyFormProps) {
   const { user } = useMockAuth();
   const { toast } = useToast();
+  const { t } = useTranslation('common');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<ReplyFormData>({
@@ -49,7 +52,7 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
   const onSubmitHandler: SubmitHandler<ReplyFormData> = async (data) => {
     setIsSubmitting(true);
     if (!user) { 
-        toast({ title: "Error", description: "User not logged in.", variant: "destructive"});
+        toast({ title: t('common.error'), description: t('replyForm.toast.userNotLoggedIn'), variant: "destructive"});
         setIsSubmitting(false);
         return;
     }
@@ -61,7 +64,7 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
     };
     
     const now = Timestamp.fromDate(new Date());
-    const newPostRef = doc(collection(db, "posts")); // Define ref before batch
+    const newPostRef = doc(collection(db, "posts"));
 
     try {
       const batch = writeBatch(db);
@@ -78,7 +81,7 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
       const threadRef = doc(db, "threads", threadId);
       batch.update(threadRef, {
         postCount: increment(1),
-        lastReplyAt: now // Firestore Timestamp for server-side consistency if possible, or client-side now
+        lastReplyAt: now.toDate().toISOString()
       });
 
       const forumRef = doc(db, "forums", forumId);
@@ -86,20 +89,18 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
         postCount: increment(1)
       });
 
-      // Karma update for reply author
       const replyAuthorUserRef = doc(db, "users", authorInfo.id);
       batch.update(replyAuthorUserRef, {
         karma: increment(1),
         totalPostsByUser: increment(1),
       });
       
-      // Fetch thread to get its author for karma and notification
       const threadDocSnap = await getDoc(threadRef); 
       let threadData: Thread | null = null;
       if (threadDocSnap.exists()) {
         threadData = threadDocSnap.data() as Thread;
         const threadAuthorId = threadData.author.id;
-        if (threadAuthorId && threadAuthorId !== authorInfo.id) { // Don't update if self-replying for thread author karma
+        if (threadAuthorId && threadAuthorId !== authorInfo.id) {
             const threadAuthorUserRef = doc(db, "users", threadAuthorId);
             batch.update(threadAuthorUserRef, {
                 karma: increment(1),
@@ -110,9 +111,8 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
         console.warn(`Thread ${threadId} not found when attempting to update thread author karma or send notification.`);
       }
 
-      await batch.commit(); // Commit post and karma updates
+      await batch.commit();
       
-      // Create notification after batch commit to ensure post ID is available and post exists
       if (threadData && threadData.author.id !== authorInfo.id) {
         const truncatedThreadTitle = threadData.title.length > 50 
             ? `${threadData.title.substring(0, 47)}...` 
@@ -126,7 +126,7 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
             threadTitle: truncatedThreadTitle,
             postId: newPostRef.id,
             forumId: forumId,
-            message: `${authorInfo.username} replied to your thread "${truncatedThreadTitle}".`,
+            message: t('notifications.newReplyToYourThread', { actorName: authorInfo.username, threadTitle: truncatedThreadTitle }),
             link: `/forums/${forumId}/threads/${threadId}#post-${newPostRef.id}`,
             createdAt: now.toDate().toISOString(),
             isRead: false,
@@ -135,19 +135,18 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
       }
       
       toast({
-        title: "Reply Posted!",
-        description: "Your reply has been added to the thread.",
+        title: t('replyForm.toast.successTitle'),
+        description: t('replyForm.toast.successDesc'),
       });
       
-      // Pass the full post object with its new ID
       onReplySuccess({ ...newPostData, id: newPostRef.id, createdAt: newPostData.createdAt });
       reset(); 
 
     } catch (error) {
       console.error("Error posting reply:", error);
       toast({
-        title: "Error",
-        description: "Failed to post reply. Please try again.",
+        title: t('common.error'),
+        description: t('replyForm.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -155,32 +154,48 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
     }
   };
 
+  // Update Zod error messages to use t function
+  const localizedReplySchema = z.object({
+    content: z.string()
+      .min(5, t('replyForm.validation.contentMinLength'))
+      .max(10000, t('replyForm.validation.contentMaxLength')),
+  });
+  
+  // Re-initialize useForm with the localized schema
+  const { register: localizedRegister, handleSubmit: localizedHandleSubmit, formState: { errors: localizedErrors }, reset: localizedReset } = useForm<ReplyFormData>({
+    resolver: zodResolver(localizedReplySchema), // Use the new schema here
+    defaultValues: {
+        content: "",
+    }
+  });
+
+
   return (
     <Card className="mt-8 shadow-lg border-t-2 border-primary/40">
       <CardHeader>
         <CardTitle className="text-xl flex items-center">
             <MessageSquare className="mr-3 h-6 w-6 text-primary"/>
-            Post Your Reply
+            {t('replyForm.title')}
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmitHandler)} className="space-y-6">
+        <form onSubmit={localizedHandleSubmit(onSubmitHandler)} className="space-y-6">
           <div>
-            <Label htmlFor={`reply-content-${threadId}`} className="sr-only">Your Reply</Label>
+            <Label htmlFor={`reply-content-${threadId}`} className="sr-only">{t('replyForm.contentLabel')}</Label>
             <Textarea
               id={`reply-content-${threadId}`}
-              placeholder={`Share your thoughts, ${user.username}...`}
+              placeholder={t('replyForm.contentPlaceholder', { username: user.username })}
               rows={6}
-              {...register("content")}
-              className={errors.content ? "border-destructive focus-visible:ring-destructive" : ""}
+              {...localizedRegister("content")}
+              className={localizedErrors.content ? "border-destructive focus-visible:ring-destructive" : ""}
               disabled={isSubmitting}
             />
-            {errors.content && <p className="text-sm text-destructive mt-2">{errors.content.message}</p>}
+            {localizedErrors.content && <p className="text-sm text-destructive mt-2">{localizedErrors.content.message}</p>}
           </div>
           <div className="flex flex-col sm:flex-row justify-end items-center gap-3 pt-2">
             {onCancel && (
                  <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-                    Cancel
+                    <XCircle className="mr-2 h-4 w-4" />{t('common.cancelButton')}
                 </Button>
             )}
             <Button type="submit" disabled={isSubmitting} className="min-w-[150px] w-full sm:w-auto">
@@ -189,7 +204,7 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
               ) : (
                 <Send className="mr-2 h-5 w-5" />
               )}
-              Post Reply
+              {t('replyForm.submitButton')}
             </Button>
           </div>
         </form>
