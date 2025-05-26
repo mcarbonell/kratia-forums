@@ -14,8 +14,8 @@ import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, Timestamp, getDocs, QueryOrderByConstraint, limit, startAfter, type DocumentSnapshot } from 'firebase/firestore';
 import { KRATIA_CONFIG } from '@/lib/config';
+import { useTranslation } from 'react-i18next';
 
-// Helper function for timestamp conversion
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
   if (!timestamp) {
     return undefined;
@@ -29,7 +29,6 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
     if (!isNaN(parsedDate.getTime())) {
         return parsedDate.toISOString();
     }
-    // console.warn('[formatFirestoreTimestamp] Unparseable string timestamp:', timestamp);
     return undefined;
   }
   if (timestamp.toDate && typeof timestamp.toDate === 'function') {
@@ -41,7 +40,6 @@ const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
   if (typeof timestamp === 'number') {
     return new Date(timestamp).toISOString();
   }
-  // console.warn('[formatFirestoreTimestamp] Unknown timestamp format:', timestamp);
   return undefined;
 };
 
@@ -51,6 +49,7 @@ export default function ForumPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useMockAuth();
   const forumId = params.forumId as string;
+  const { t } = useTranslation('common');
 
   const [forum, setForum] = useState<Forum | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -64,7 +63,7 @@ export default function ForumPage() {
 
   useEffect(() => {
     if (!forumId) {
-      setError("Forum ID is missing.");
+      setError(t('forumPage.error.missingId'));
       setIsLoading(false);
       setHasMoreThreads(false);
       return;
@@ -73,17 +72,16 @@ export default function ForumPage() {
     const fetchInitialData = async () => {
       setIsLoading(true);
       setError(null);
-      setThreads([]); // Reset threads on initial load or forumId change
+      setThreads([]); 
       setLastVisibleThreadSnapshot(null);
       setHasMoreThreads(true);
 
       try {
-        // Fetch forum details
         const forumRef = doc(db, "forums", forumId);
         const forumSnap = await getDoc(forumRef);
 
         if (!forumSnap.exists()) {
-          setError("Forum not found.");
+          setError(t('forumPage.error.notFound'));
           setForum(null);
           setHasMoreThreads(false);
           setIsLoading(false);
@@ -97,7 +95,6 @@ export default function ForumPage() {
             postCount: forumData.postCount || 0,
         } as Forum);
 
-        // Fetch first page of threads
         const orderByConstraints: QueryOrderByConstraint[] = [
           orderBy("isSticky", "desc"),
           orderBy("lastReplyAt", "desc")
@@ -117,7 +114,7 @@ export default function ForumPage() {
             ...data,
             createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
             lastReplyAt: formatFirestoreTimestamp(data.lastReplyAt),
-            author: data.author || { username: 'Unknown', id: '' },
+            author: data.author || { username: t('common.unknownUser'), id: '' },
             postCount: data.postCount || 0,
             isSticky: data.isSticky || false,
           } as Thread;
@@ -135,7 +132,7 @@ export default function ForumPage() {
 
       } catch (err: any) {
         console.error(`Error fetching forum ${forumId} and its threads:`, err);
-        setError("Failed to load forum details or threads. Please try again. " + err.message);
+        setError(t('forumPage.error.loadFail', { message: err.message }));
         setHasMoreThreads(false);
       } finally {
         setIsLoading(false);
@@ -143,7 +140,8 @@ export default function ForumPage() {
     };
 
     fetchInitialData();
-  }, [forumId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forumId, t]); // Added t to dependencies
 
   const handleLoadMoreThreads = async () => {
     if (!lastVisibleThreadSnapshot || !hasMoreThreads || isLoadingMore) {
@@ -170,7 +168,7 @@ export default function ForumPage() {
           ...data,
           createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
           lastReplyAt: formatFirestoreTimestamp(data.lastReplyAt),
-          author: data.author || { username: 'Unknown', id: '' },
+          author: data.author || { username: t('common.unknownUser'), id: '' },
           postCount: data.postCount || 0,
           isSticky: data.isSticky || false,
         } as Thread;
@@ -185,7 +183,7 @@ export default function ForumPage() {
       }
     } catch (err) {
       console.error("Error loading more threads:", err);
-      setError("Failed to load more threads. Please try again.");
+      setError(t('forumPage.error.loadMoreFail'));
     } finally {
       setIsLoadingMore(false);
     }
@@ -193,38 +191,38 @@ export default function ForumPage() {
 
   const canCreateThread = user && user.role !== 'visitor' && user.role !== 'guest' && user.status === 'active';
 
-  if (authLoading || (isLoading && threads.length === 0)) { // Show main loader only if no threads are displayed yet
+  if (authLoading || (isLoading && threads.length === 0)) { 
     return (
       <div className="space-y-8 py-10 text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
-        <p className="text-muted-foreground">Loading forum...</p>
+        <p className="text-muted-foreground">{t('forumPage.loadingForum')}</p>
       </div>
     );
   }
 
-  if (error && threads.length === 0) { // Show main error only if no threads are displayed yet
+  if (error && threads.length === 0) { 
     return (
       <Alert variant="destructive">
         <Frown className="h-5 w-5" />
-        <AlertTitle>Error</AlertTitle>
+        <AlertTitle>{t('common.error')}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
         <Button onClick={() => router.push('/forums')} className="mt-4">
-          Back to Forums List
+          {t('forumPage.backToForumsButton')}
         </Button>
       </Alert>
     );
   }
 
-  if (!forum && !isLoading) { // If not loading and forum is still null (e.g., not found)
+  if (!forum && !isLoading) { 
      return (
       <Alert variant="destructive">
         <Frown className="h-5 w-5" />
-        <AlertTitle>Forum Not Found</AlertTitle>
+        <AlertTitle>{t('forumPage.error.notFoundTitle')}</AlertTitle>
         <AlertDescription>
-          The forum you are looking for does not exist or could not be loaded.
+          {t('forumPage.error.notFoundDesc')}
         </AlertDescription>
         <Button onClick={() => router.push('/forums')} className="mt-4">
-          Back to Forums List
+          {t('forumPage.backToForumsButton')}
         </Button>
       </Alert>
     );
@@ -240,12 +238,12 @@ export default function ForumPage() {
               <MessageSquareText className="mr-3 h-8 w-8 text-primary" />
               {forum.name}
             </h1>
-            {forum.description && <p className="text-muted-foreground mt-1">{forum.description}</p>}
+            {forum.description && <p className="text-muted-foreground mt-1">{t(forum.description)}</p>}
           </div>
           {canCreateThread && (
             <Button asChild>
               <Link href={`/forums/${forumId}/new-thread`}>
-                <PlusCircle className="mr-2 h-5 w-5" /> Create New Thread
+                <PlusCircle className="mr-2 h-5 w-5" /> {t('forumPage.createNewThreadButton')}
               </Link>
             </Button>
           )}
@@ -257,7 +255,7 @@ export default function ForumPage() {
           <CardHeader>
             <CardTitle className="flex items-center">
               <ListChecks className="mr-2 h-6 w-6" />
-              Threads
+              {t('forumPage.threadsTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -268,26 +266,26 @@ export default function ForumPage() {
             </div>
           </CardContent>
         </Card>
-      ) : !isLoading && ( // Only show "No threads yet" if not loading and threads array is empty
+      ) : !isLoading && ( 
         <Card>
           <CardHeader>
              <CardTitle className="flex items-center">
                 <ListChecks className="mr-2 h-6 w-6" />
-                Threads
+                {t('forumPage.threadsTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-center py-10">
               <Frown className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-xl font-semibold text-muted-foreground">No threads yet.</p>
-              {forum && <p className="text-muted-foreground">Be the first to start a discussion in {forum.name}!</p>}
+              <p className="text-xl font-semibold text-muted-foreground">{t('forumPage.noThreadsYet')}</p>
+              {forum && <p className="text-muted-foreground">{t('forumPage.beTheFirst', { forumName: forum.name })}</p>}
               {!canCreateThread && user && (user.role === 'visitor' || user.role === 'guest') && (
-                 <p className="mt-2 text-sm text-amber-600">You need to be a registered member to create threads.</p>
+                 <p className="mt-2 text-sm text-amber-600">{t('forumPage.loginToCreateThread')}</p>
               )}
                {canCreateThread && (
                  <Button asChild className="mt-6">
                     <Link href={`/forums/${forumId}/new-thread`}>
-                        <PlusCircle className="mr-2 h-5 w-5" /> Create First Thread
+                        <PlusCircle className="mr-2 h-5 w-5" /> {t('forumPage.createFirstThreadButton')}
                     </Link>
                  </Button>
                 )}
@@ -304,18 +302,18 @@ export default function ForumPage() {
             ) : (
               <PlusCircle className="mr-2 h-5 w-5" />
             )}
-            Load More Threads
+            {t('forumPage.loadMoreThreadsButton')}
           </Button>
         </div>
       )}
-       {error && threads.length > 0 && ( // Display subsequent loading errors without hiding content
+       {error && threads.length > 0 && ( 
             <Alert variant="destructive" className="mt-4">
                 <Frown className="h-5 w-5" />
-                <AlertTitle>Error Loading More Threads</AlertTitle>
+                <AlertTitle>{t('forumPage.error.loadMoreFailTitle')}</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
             </Alert>
         )}
     </div>
   );
 }
-
+    

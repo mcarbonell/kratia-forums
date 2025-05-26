@@ -20,6 +20,7 @@ import { Loader2, ShieldAlert, Edit3, Send, Frown, ListPlus, Ban } from 'lucide-
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, doc, getDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
+import { useTranslation } from 'react-i18next';
 
 
 const newThreadSchema = z.object({
@@ -70,6 +71,7 @@ export default function NewThreadPage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const { toast } = useToast();
   const forumId = params.forumId as string;
+  const { t } = useTranslation('common');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [forum, setForum] = useState<Forum | null>(null);
@@ -92,7 +94,7 @@ export default function NewThreadPage() {
 
   useEffect(() => {
     if (!forumId) {
-      setForumError("Forum ID is missing.");
+      setForumError(t('newThreadPage.error.missingForumId'));
       setIsLoadingForum(false);
       return;
     }
@@ -105,17 +107,18 @@ export default function NewThreadPage() {
         if (forumSnap.exists()) {
           setForum({ id: forumSnap.id, ...forumSnap.data(), isPublic: forumSnap.data().isPublic === undefined ? true : forumSnap.data().isPublic } as Forum);
         } else {
-          setForumError("The forum you are trying to post in does not exist.");
+          setForumError(t('newThreadPage.error.forumNotFound'));
         }
       } catch (err) {
         console.error("Error fetching forum for new thread page:", err);
-        setForumError("Could not load forum details.");
+        setForumError(t('newThreadPage.error.loadFail'));
       } finally {
         setIsLoadingForum(false);
       }
     };
     fetchForum();
-  }, [forumId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forumId, t]); // Added t to dependencies
 
 
   if (authLoading || isLoadingForum) {
@@ -126,16 +129,16 @@ export default function NewThreadPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
+        <AlertTitle>{t('newThreadPage.accessDenied.title')}</AlertTitle>
         <AlertDescription>
-          You must be logged in as a member to create a new thread.
+          {t('newThreadPage.accessDenied.mustBeLoggedIn')}
         </AlertDescription>
         <div className="mt-4">
           <Button asChild variant="outline" className="mr-2">
-            <Link href="/auth/login">Login</Link>
+            <Link href="/auth/login">{t('login.loginButton')}</Link>
           </Button>
           <Button asChild>
-            <Link href={`/forums/${forumId}`}>Back to Forum</Link>
+            <Link href={`/forums/${forumId}`}>{t('newThreadPage.backToForumButton')}</Link>
           </Button>
         </div>
       </Alert>
@@ -146,12 +149,12 @@ export default function NewThreadPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Ban className="h-5 w-5" />
-        <AlertTitle>Action Restricted</AlertTitle>
+        <AlertTitle>{t('newThreadPage.restricted.title')}</AlertTitle>
         <AlertDescription>
-          You cannot create new threads while under a sanction process. You can defend yourself in your sanction votation thread.
+          {t('newThreadPage.restricted.underSanction')}
         </AlertDescription>
         <Button asChild className="mt-4">
-          <Link href={`/forums/${forumId}`}>Back to Forum</Link>
+          <Link href={`/forums/${forumId}`}>{t('newThreadPage.backToForumButton')}</Link>
         </Button>
       </Alert>
     );
@@ -161,12 +164,12 @@ export default function NewThreadPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Ban className="h-5 w-5" />
-        <AlertTitle>Action Restricted</AlertTitle>
+        <AlertTitle>{t('newThreadPage.restricted.title')}</AlertTitle>
         <AlertDescription>
-           You are sanctioned and cannot create new threads.
+           {t('newThreadPage.restricted.sanctioned')}
         </AlertDescription>
         <Button asChild className="mt-4">
-          <Link href={`/forums/${forumId}`}>Back to Forum</Link>
+          <Link href={`/forums/${forumId}`}>{t('newThreadPage.backToForumButton')}</Link>
         </Button>
       </Alert>
     );
@@ -176,12 +179,12 @@ export default function NewThreadPage() {
      return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Frown className="h-5 w-5" />
-        <AlertTitle>{forumError ? "Error" : "Forum Not Found"}</AlertTitle>
+        <AlertTitle>{forumError ? t('common.error') : t('newThreadPage.error.forumNotFoundTitle')}</AlertTitle>
         <AlertDescription>
-          {forumError || "The forum you are trying to post in does not exist."}
+          {forumError || t('newThreadPage.error.forumNotFoundDesc')}
         </AlertDescription>
          <Button asChild className="mt-4">
-            <Link href="/forums">Back to Forums List</Link>
+            <Link href="/forums">{t('newThreadPage.backToForumsListButton')}</Link>
           </Button>
       </Alert>
     );
@@ -191,7 +194,7 @@ export default function NewThreadPage() {
   const onSubmit: SubmitHandler<NewThreadFormData> = async (data) => {
     setIsSubmitting(true);
     if (!loggedInUser || !forum) { 
-        toast({ title: "Error", description: "User or Forum not found.", variant: "destructive" });
+        toast({ title: t('common.error'), description: t('newThreadPage.toast.userOrForumNotFound'), variant: "destructive" });
         setIsSubmitting(false);
         return;
     }
@@ -221,11 +224,11 @@ export default function NewThreadPage() {
 
       if (pollOptions.length >= 2) {
         pollToSave = {
-          id: `poll_${Date.now()}`, // Consider a more robust ID generation if needed
+          id: `poll_${Date.now()}`, 
           question: data.pollQuestion.trim(),
           options: pollOptions,
           totalVotes: 0,
-          voters: {}, // Initialize voters map
+          voters: {},
         };
       }
     }
@@ -242,9 +245,9 @@ export default function NewThreadPage() {
         createdAt: now.toDate().toISOString(),
         lastReplyAt: now.toDate().toISOString(),
         postCount: 1,
-        isSticky: false, // New threads are not sticky by default
+        isSticky: false, 
         isLocked: false,
-        isPublic: forum.isPublic === undefined ? true : forum.isPublic, // Inherit from forum
+        isPublic: forum.isPublic === undefined ? true : forum.isPublic, 
         ...(pollToSave && { poll: pollToSave }), 
       };
       batch.set(newThreadRef, newThreadData);
@@ -267,17 +270,17 @@ export default function NewThreadPage() {
 
       const userRef = doc(db, "users", authorInfo.id);
       batch.update(userRef, {
-        karma: increment(2), // +1 for thread, +1 for first post
+        karma: increment(2), 
         totalPostsByUser: increment(1),
         totalPostsInThreadsStartedByUser: increment(1),
-        totalThreadsStartedByUser: increment(1) // New field
+        totalThreadsStartedByUser: increment(1) 
       });
 
       await batch.commit();
 
       toast({
-        title: "Thread Created!",
-        description: "Your new thread has been successfully posted.",
+        title: t('newThreadPage.toast.successTitle'),
+        description: t('newThreadPage.toast.successDesc'),
       });
       reset();
       router.push(`/forums/${forum.id}/threads/${newThreadRef.id}`);
@@ -285,8 +288,8 @@ export default function NewThreadPage() {
     } catch (error) {
       console.error("Error creating thread:", error);
       toast({
-        title: "Error",
-        description: "Failed to create thread. Please try again.",
+        title: t('common.error'),
+        description: t('newThreadPage.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -300,20 +303,20 @@ export default function NewThreadPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <Edit3 className="mr-3 h-7 w-7 text-primary" />
-            Create New Thread in {forum.name}
+            {t('newThreadPage.title', { forumName: forum.name })}
           </CardTitle>
           <CardDescription>
-            Share your thoughts and start a new discussion. You can optionally add a poll.
+            {t('newThreadPage.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="title">Thread Title</Label>
+              <Label htmlFor="title">{t('newThreadPage.form.titleLabel')}</Label>
               <Input
                 id="title"
                 type="text"
-                placeholder="Enter a descriptive title for your thread"
+                placeholder={t('newThreadPage.form.titlePlaceholder')}
                 {...register("title")}
                 className={errors.title ? "border-destructive" : ""}
                 disabled={isSubmitting}
@@ -322,10 +325,10 @@ export default function NewThreadPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="content">Your Post</Label>
+              <Label htmlFor="content">{t('newThreadPage.form.postLabel')}</Label>
               <Textarea
                 id="content"
-                placeholder="Write the content of your first post here..."
+                placeholder={t('newThreadPage.form.postPlaceholder')}
                 rows={10}
                 {...register("content")}
                 className={errors.content ? "border-destructive" : ""}
@@ -351,18 +354,18 @@ export default function NewThreadPage() {
                     )}
                   />
                   <Label htmlFor="addPoll" className="font-medium text-base flex items-center">
-                     <ListPlus className="mr-2 h-5 w-5 text-primary" /> Add a Poll to this Thread
+                     <ListPlus className="mr-2 h-5 w-5 text-primary" /> {t('newThreadPage.form.addPollLabel')}
                   </Label>
                 </div>
-                <CardDescription className="pl-6 text-xs">Create a non-binding poll for your thread.</CardDescription>
+                <CardDescription className="pl-6 text-xs">{t('newThreadPage.form.addPollDesc')}</CardDescription>
               </CardHeader>
               {addPollWatched && (
                 <CardContent className="space-y-4 p-4 pt-0">
                   <div className="space-y-2">
-                    <Label htmlFor="pollQuestion">Poll Question</Label>
+                    <Label htmlFor="pollQuestion">{t('newThreadPage.form.pollQuestionLabel')}</Label>
                     <Input
                       id="pollQuestion"
-                      placeholder="What do you want to ask?"
+                      placeholder={t('newThreadPage.form.pollQuestionPlaceholder')}
                       {...register("pollQuestion")}
                       className={errors.pollQuestion ? "border-destructive" : ""}
                       disabled={isSubmitting}
@@ -372,10 +375,10 @@ export default function NewThreadPage() {
 
                   {[1, 2, 3, 4].map(i => (
                     <div key={`pollOpt${i}`} className="space-y-1">
-                      <Label htmlFor={`pollOption${i}`}>{`Option ${i}`}{i > 2 ? " (Optional)" : ""}</Label>
+                      <Label htmlFor={`pollOption${i}`}>{t('newThreadPage.form.pollOptionLabel', { number: i })}{i > 2 ? ` (${t('common.optional')})` : ""}</Label>
                       <Input
                         id={`pollOption${i}`}
-                        placeholder={`Enter text for option ${i}`}
+                        placeholder={t('newThreadPage.form.pollOptionPlaceholder', { number: i })}
                         {...register(`pollOption${i}` as keyof NewThreadFormData)}
                         className={errors?.[`pollOption${i}` as keyof typeof errors] ? "border-destructive" : ""}
                         disabled={isSubmitting}
@@ -390,7 +393,7 @@ export default function NewThreadPage() {
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
                 <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
-                    Cancel
+                    {t('common.cancelButton')}
                 </Button>
                 <Button type="submit" disabled={isSubmitting || !loggedInUser || !forum} className="min-w-[120px]">
                 {isSubmitting ? (
@@ -398,7 +401,7 @@ export default function NewThreadPage() {
                 ) : (
                     <Send className="mr-2 h-4 w-4" />
                 )}
-                Post Thread
+                {t('newThreadPage.postThreadButton')}
                 </Button>
             </div>
           </form>
@@ -407,4 +410,4 @@ export default function NewThreadPage() {
     </div>
   );
 }
-
+    
