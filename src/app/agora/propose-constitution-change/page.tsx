@@ -7,6 +7,7 @@ import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,7 +28,7 @@ const AGORA_FORUM_ID = 'agora';
 const constitutionProposalSchema = z.object({
   proposalTitle: z.string().min(10, "Proposal title must be at least 10 characters.").max(150, "Proposal title cannot exceed 150 characters."),
   justification: z.string().min(50, "Justification must be at least 50 characters long.").max(5000, "Justification is too long."),
-  proposedConstitutionText: z.string().min(100, "Proposed constitution text must be substantial."), // Basic check for non-empty
+  proposedConstitutionText: z.string().min(100, "Proposed constitution text must be substantial."), 
 });
 
 type ConstitutionProposalFormData = z.infer<typeof constitutionProposalSchema>;
@@ -36,6 +37,7 @@ export default function ProposeConstitutionChangePage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const { t } = useTranslation('common');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentConstitution, setCurrentConstitution] = useState<string | null>(null);
@@ -56,21 +58,21 @@ export default function ProposeConstitutionChangePage() {
           const data = docSnap.data() as SiteSettings;
           const text = data.constitutionText || "";
           setCurrentConstitution(text);
-          setValue("proposedConstitutionText", text); // Pre-fill the textarea
+          setValue("proposedConstitutionText", text); 
         } else {
-          setPageError("Current constitution not found. Cannot propose changes.");
+          setPageError(t('proposeConstitution.error.notFound'));
           setCurrentConstitution("");
         }
       } catch (err) {
         console.error("Error fetching current constitution:", err);
-        setPageError("Failed to load current constitution. Please try again.");
+        setPageError(t('proposeConstitution.error.loadFail'));
         setCurrentConstitution("");
       } finally {
         setIsLoadingConstitution(false);
       }
     };
     fetchCurrentConstitution();
-  }, [setValue]);
+  }, [setValue, t]);
 
   const canPropose = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active';
 
@@ -82,9 +84,9 @@ export default function ProposeConstitutionChangePage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to propose constitution changes. You must be logged in, have voting rights, and an active status.</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/agora"><CornerUpLeft className="mr-2 h-4 w-4" />Back to Agora</Link></Button>
+        <AlertTitle>{t('proposeConstitution.accessDenied.title')}</AlertTitle>
+        <AlertDescription>{t('proposeConstitution.accessDenied.description')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/agora"><CornerUpLeft className="mr-2 h-4 w-4" />{t('proposeConstitution.backToAgoraButton')}</Link></Button>
       </Alert>
     );
   }
@@ -93,20 +95,20 @@ export default function ProposeConstitutionChangePage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Frown className="h-5 w-5" />
-        <AlertTitle>Error</AlertTitle>
+        <AlertTitle>{t('common.error')}</AlertTitle>
         <AlertDescription>{pageError}</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/agora"><CornerUpLeft className="mr-2 h-4 w-4" />Back to Agora</Link></Button>
+        <Button asChild className="mt-4"><Link href="/agora"><CornerUpLeft className="mr-2 h-4 w-4" />{t('proposeConstitution.backToAgoraButton')}</Link></Button>
       </Alert>
     );
   }
 
   const onSubmit: SubmitHandler<ConstitutionProposalFormData> = async (data) => {
     if (!loggedInUser) {
-      toast({ title: "Error", description: "User not logged in.", variant: "destructive" });
+      toast({ title: t('common.error'), description: t('proposeConstitution.toast.notLoggedIn'), variant: "destructive" });
       return;
     }
     if (data.proposedConstitutionText.trim() === (currentConstitution || "").trim()) {
-      toast({ title: "No Changes Detected", description: "Your proposed constitution text is identical to the current one.", variant: "default" });
+      toast({ title: t('proposeConstitution.toast.noChanges.title'), description: t('proposeConstitution.toast.noChanges.description'), variant: "default" });
       return;
     }
     setIsSubmitting(true);
@@ -118,13 +120,13 @@ export default function ProposeConstitutionChangePage() {
     };
     const now = Timestamp.now();
     const deadlineDate = new Date(now.toDate().getTime() + KRATIA_CONFIG.VOTATION_DURATION_DAYS * 24 * 60 * 60 * 1000);
-    const agoraThreadTitle = `Votation: ${data.proposalTitle}`;
+    const agoraThreadTitle = t('proposeConstitution.votationThreadTitlePrefix') + data.proposalTitle;
 
     try {
       const batch = writeBatch(db);
       const newVotationRef = doc(collection(db, "votations"));
       const newAgoraThreadRef = doc(collection(db, "threads"));
-      const newPostRef = doc(collection(db, "posts")); // Define newPostRef here
+      const newPostRef = doc(collection(db, "posts")); 
 
       const agoraThreadData: Omit<Thread, 'id'> & { relatedVotationId: string } = {
         forumId: AGORA_FORUM_ID,
@@ -139,13 +141,13 @@ export default function ProposeConstitutionChangePage() {
       batch.set(newAgoraThreadRef, agoraThreadData);
 
       const initialPostContent = `
-**Proposal Title:** ${data.proposalTitle}
+**${t('proposeConstitution.post.proposalTitleLabel')}:** ${data.proposalTitle}
 
-**Justification for Changes:**
+**${t('proposeConstitution.post.justificationLabel')}:**
 ${data.justification}
 
 ---
-**Full Proposed Constitution Text:**
+**${t('proposeConstitution.post.proposedTextLabel')}:**
 *(Please review the complete text below for the proposed changes)*
 \n\n
 ${data.proposedConstitutionText}
@@ -157,12 +159,12 @@ ${data.proposedConstitutionText}
         createdAt: now.toDate().toISOString(),
         reactions: {},
       };
-      batch.set(newPostRef, initialPostData); // This is line ~277, should be correct now
+      batch.set(newPostRef, initialPostData); 
 
       const agoraForumRef = doc(db, "forums", AGORA_FORUM_ID);
       batch.update(agoraForumRef, { threadCount: increment(1), postCount: increment(1) });
       batch.update(doc(db, "users", loggedInUser.id), { 
-        karma: increment(2), // For thread and first post
+        karma: increment(2), 
         totalPostsByUser: increment(1),
         totalPostsInThreadsStartedByUser: increment(1),
         totalThreadsStartedByUser: increment(1) 
@@ -171,7 +173,7 @@ ${data.proposedConstitutionText}
       const votationData: Votation = {
         id: newVotationRef.id,
         title: agoraThreadTitle,
-        description: `Proposal to change the site constitution. Justification: ${data.justification.substring(0, 100)}...`,
+        description: t('proposeConstitution.votationDescription', {justification: data.justification.substring(0, 100)}),
         justification: data.justification,
         proposerId: loggedInUser.id,
         proposerUsername: loggedInUser.username,
@@ -191,8 +193,8 @@ ${data.proposedConstitutionText}
       await batch.commit();
 
       toast({
-        title: "Constitution Change Proposed!",
-        description: `The votation for "${data.proposalTitle}" has been created in the Agora.`,
+        title: t('proposeConstitution.toast.success.title'),
+        description: t('proposeConstitution.toast.success.description', { proposalTitle: data.proposalTitle }),
       });
       reset();
       router.push(`/forums/${AGORA_FORUM_ID}/threads/${newAgoraThreadRef.id}`);
@@ -200,8 +202,8 @@ ${data.proposedConstitutionText}
     } catch (error) {
       console.error("Error proposing constitution change:", error);
       toast({
-        title: "Error",
-        description: "Failed to propose constitution change. Please try again.",
+        title: t('common.error'),
+        description: t('proposeConstitution.toast.error.description'),
         variant: "destructive",
       });
     } finally {
@@ -215,19 +217,19 @@ ${data.proposedConstitutionText}
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <FileText className="mr-3 h-7 w-7 text-primary" />
-            Propose Constitution Change
+            {t('proposeConstitution.pageTitle')}
           </CardTitle>
           <CardDescription>
-            Propose modifications to the Kratia Forums "Normas y Condiciones". Your proposal will create a public votation in the Agora.
+            {t('proposeConstitution.pageDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="proposalTitle">Proposal Title</Label>
+              <Label htmlFor="proposalTitle">{t('proposeConstitution.form.proposalTitleLabel')}</Label>
               <Input
                 id="proposalTitle"
-                placeholder="e.g., Update Article 3 on Karma Calculation"
+                placeholder={t('proposeConstitution.form.proposalTitlePlaceholder')}
                 {...register("proposalTitle")}
                 className={errors.proposalTitle ? "border-destructive" : ""}
                 disabled={isSubmitting}
@@ -236,10 +238,10 @@ ${data.proposedConstitutionText}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="justification">Justification for Changes</Label>
+              <Label htmlFor="justification">{t('proposeConstitution.form.justificationLabel')}</Label>
               <Textarea
                 id="justification"
-                placeholder="Explain why these changes are needed and what their impact will be."
+                placeholder={t('proposeConstitution.form.justificationPlaceholder')}
                 rows={5}
                 {...register("justification")}
                 className={errors.justification ? "border-destructive" : ""}
@@ -249,10 +251,10 @@ ${data.proposedConstitutionText}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="proposedConstitutionText">Proposed New Constitution Text</Label>
+              <Label htmlFor="proposedConstitutionText">{t('proposeConstitution.form.proposedTextLabel')}</Label>
               <Textarea
                 id="proposedConstitutionText"
-                placeholder="Paste the entire constitution text here, with your proposed modifications."
+                placeholder={t('proposeConstitution.form.proposedTextPlaceholder')}
                 rows={20}
                 {...register("proposedConstitutionText")}
                 className={errors.proposedConstitutionText ? "border-destructive" : ""}
@@ -260,25 +262,25 @@ ${data.proposedConstitutionText}
               />
               {errors.proposedConstitutionText && <p className="text-sm text-destructive">{errors.proposedConstitutionText.message}</p>}
               <p className="text-xs text-muted-foreground">
-                Tip: Copy the current constitution text, paste it here, and then make your edits.
+                {t('proposeConstitution.form.proposedTextHelp')}
               </p>
             </div>
 
             <Alert>
               <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Important Notice</AlertTitle>
+              <AlertTitle>{t('proposeConstitution.importantNotice.title')}</AlertTitle>
               <AlertDescription>
-                Submitting this proposal will create a public votation in the Agora. Ensure your proposed text is complete and accurately reflects all intended changes.
+                {t('proposeConstitution.importantNotice.description')}
               </AlertDescription>
             </Alert>
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
               <Button type="button" variant="outline" onClick={() => router.back()} disabled={isSubmitting}>
-                <CornerUpLeft className="mr-2 h-4 w-4" /> Cancel
+                <CornerUpLeft className="mr-2 h-4 w-4" /> {t('common.cancelButton')}
               </Button>
               <Button type="submit" variant="default" disabled={isSubmitting || isLoadingConstitution} className="min-w-[200px]">
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                Submit Constitution Proposal
+                {isSubmitting ? t('proposeConstitution.submittingButton') : t('proposeConstitution.submitButton')}
               </Button>
             </div>
           </form>
@@ -287,5 +289,4 @@ ${data.proposedConstitutionText}
     </div>
   );
 }
-
     

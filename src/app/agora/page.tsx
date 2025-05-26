@@ -13,6 +13,7 @@ import type { Forum, Thread, Votation, VotationStatus } from '@/lib/types';
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, collection, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { useTranslation } from 'react-i18next';
 
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
   if (!timestamp) return undefined;
@@ -40,6 +41,7 @@ interface ThreadWithVotationStatus extends Thread {
 export default function AgoraPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useMockAuth();
+  const { t } = useTranslation('common');
   const agoraForumId = 'agora'; 
 
   const [forum, setForum] = useState<Forum | null>(null);
@@ -56,7 +58,7 @@ export default function AgoraPage() {
         const forumSnap = await getDoc(forumRef);
 
         if (!forumSnap.exists()) {
-          setError("Agora forum not found. Please ensure it exists in Firestore with ID 'agora'.");
+          setError(t('agoraPage.error.agoraForumNotFound'));
           setForum(null);
           setIsLoading(false);
           return;
@@ -81,7 +83,7 @@ export default function AgoraPage() {
             ...data,
             createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
             lastReplyAt: formatFirestoreTimestamp(data.lastReplyAt),
-            author: data.author || { username: 'Unknown', id: '' },
+            author: data.author || { username: t('common.unknownUser'), id: '' },
             postCount: data.postCount || 0,
             isLocked: data.isLocked || false,
             isSticky: data.isSticky || false,
@@ -117,29 +119,27 @@ export default function AgoraPage() {
           if (aIsActive && !bIsActive) return -1;
           if (!aIsActive && bIsActive) return 1;
 
-          // Both active or both not (or one/both don't have votation status)
-          // Prioritize sticky threads within each group
           if (a.isSticky && !b.isSticky) return -1;
           if (!a.isSticky && b.isSticky) return 1;
 
-          // Then sort by lastReplyAt
           const dateA = a.lastReplyAt ? new Date(a.lastReplyAt).getTime() : 0;
           const dateB = b.lastReplyAt ? new Date(b.lastReplyAt).getTime() : 0;
-          return dateB - dateA; // Descending
+          return dateB - dateA; 
         });
         
         setThreads(fetchedThreads);
 
       } catch (err) {
         console.error(`Error fetching Agora (${agoraForumId}) data:`, err);
-        setError("Failed to load Agora details or votations. Please try again.");
+        setError(t('agoraPage.error.loadFail'));
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchAgoraData();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t]); // Added t to dependencies
 
   const canProposeVotation = user && user.role !== 'visitor' && user.role !== 'guest' && user.status === 'active' && user.canVote;
 
@@ -148,7 +148,7 @@ export default function AgoraPage() {
     return (
       <div className="space-y-8 py-10 text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
-        <p className="text-muted-foreground">Loading Agora...</p>
+        <p className="text-muted-foreground">{t('agoraPage.loading')}</p>
       </div>
     );
   }
@@ -157,10 +157,10 @@ export default function AgoraPage() {
     return (
       <Alert variant="destructive">
         <Frown className="h-5 w-5" />
-        <AlertTitle>Error</AlertTitle>
+        <AlertTitle>{t('common.error')}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
         <Button onClick={() => router.push('/')} className="mt-4">
-          Back to Homepage
+          {t('common.backToHomepageButton')}
         </Button>
       </Alert>
     );
@@ -170,12 +170,12 @@ export default function AgoraPage() {
      return (
       <Alert variant="destructive">
         <Frown className="h-5 w-5" />
-        <AlertTitle>Agora Not Found</AlertTitle>
+        <AlertTitle>{t('agoraPage.error.agoraForumNotFoundTitle')}</AlertTitle>
         <AlertDescription>
-          The Agora forum could not be loaded. It might not be configured correctly.
+          {t('agoraPage.error.agoraForumNotFoundDesc')}
         </AlertDescription>
         <Button onClick={() => router.push('/')} className="mt-4">
-          Back to Homepage
+          {t('common.backToHomepageButton')}
         </Button>
       </Alert>
     );
@@ -188,25 +188,25 @@ export default function AgoraPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center">
             <Vote className="mr-3 h-8 w-8 text-primary" />
-            The Agora - Community Votations
+            {t('agoraPage.title')}
           </h1>
-          {forum.description && <p className="text-muted-foreground mt-1">{forum.description}</p>}
+          {forum.description && <p className="text-muted-foreground mt-1">{t(forum.description)}</p>}
         </div>
         {canProposeVotation && (
           <Button asChild>
             <Link href={`/forums/${agoraForumId}/new-thread`}>
-              <PlusCircle className="mr-2 h-5 w-5" /> Propose New Votation
+              <PlusCircle className="mr-2 h-5 w-5" /> {t('agoraPage.proposeVotationButton')}
             </Link>
           </Button>
         )}
          {!canProposeVotation && user && (user.role !== 'visitor' && user.role !== 'guest') && (
             <Alert variant="default" className="mt-2 text-sm">
                 <Vote className="h-4 w-4" />
-                <AlertTitle>Proposal Rights Required</AlertTitle>
+                <AlertTitle>{t('agoraPage.proposalRightsRequired.title')}</AlertTitle>
                 <AlertDescription>
-                {user.status === 'under_sanction_process' && "You cannot propose votations while under a sanction process."}
-                {user.status === 'sanctioned' && "You cannot propose votations while sanctioned."}
-                {user.status === 'active' && (!user.canVote) && "You need voting rights to propose new votations."}
+                {user.status === 'under_sanction_process' && t('agoraPage.proposalRightsRequired.underSanction')}
+                {user.status === 'sanctioned' && t('agoraPage.proposalRightsRequired.sanctioned')}
+                {user.status === 'active' && (!user.canVote) && t('agoraPage.proposalRightsRequired.noVotingRights')}
                 </AlertDescription>
             </Alert>
         )}
@@ -217,7 +217,7 @@ export default function AgoraPage() {
           <CardHeader>
             <CardTitle className="flex items-center">
               <ListChecks className="mr-2 h-6 w-6" />
-              Active & Past Votations
+              {t('agoraPage.activeAndPastVotations')}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -233,23 +233,23 @@ export default function AgoraPage() {
           <CardHeader>
              <CardTitle className="flex items-center">
                 <ListChecks className="mr-2 h-6 w-6" />
-                Votations
+                {t('agoraPage.votationsTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-center py-10">
               <Frown className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-xl font-semibold text-muted-foreground">No votations yet.</p>
+              <p className="text-xl font-semibold text-muted-foreground">{t('agoraPage.noVotationsYet')}</p>
               <p className="text-muted-foreground">
-                Be the first to propose a votation in the Agora!
+                {t('agoraPage.beTheFirst')}
               </p>
               {!canProposeVotation && user && (user.role === 'visitor' || user.role === 'guest') && (
-                 <p className="mt-2 text-sm text-amber-600">You need to be a registered member with voting rights to propose votations.</p>
+                 <p className="mt-2 text-sm text-amber-600">{t('agoraPage.loginToPropose')}</p>
               )}
                {canProposeVotation && (
                  <Button asChild className="mt-6">
                     <Link href={`/forums/${agoraForumId}/new-thread`}>
-                        <PlusCircle className="mr-2 h-5 w-5" /> Propose First Votation
+                        <PlusCircle className="mr-2 h-5 w-5" /> {t('agoraPage.proposeFirstVotationButton')}
                     </Link>
                  </Button>
                 )}
