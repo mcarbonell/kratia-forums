@@ -1,15 +1,26 @@
 
 export type UserStatus = 'active' | 'under_sanction_process' | 'sanctioned' | 'pending_admission' | 'pending_email_verification';
 
+export interface UserNotificationSetting {
+  web: boolean;
+  // email?: boolean; // Future
+  // push?: boolean; // Future
+}
+
+export interface UserNotificationPreferences {
+  newReplyToMyThread?: UserNotificationSetting;
+  votationConcludedProposer?: UserNotificationSetting;
+}
+
 export interface User {
   id: string;
   username: string;
   email: string;
-  avatarUrl?: string;
+  avatarUrl?: string | null; // Allow null for explicit removal
   registrationDate?: string; // ISO date string
   karma?: number;
-  location?: string;
-  aboutMe?: string;
+  location?: string | null;
+  aboutMe?: string | null;
   presentation?: string; // For admission requests
   isQuarantined?: boolean; // True if user is new and hasn't met criteria
   canVote?: boolean; // True if user is a "Usuario Normal"
@@ -18,9 +29,10 @@ export interface User {
   totalPostsInThreadsStartedByUser?: number;
   totalThreadsStartedByUser?: number;
   status?: UserStatus;
-  sanctionEndDate?: string; // ISO date string, if sanctioned
+  sanctionEndDate?: string | null; // ISO date string, if sanctioned
   role?: 'guest' | 'user' | 'normal_user' | 'admin' | 'founder' | 'visitor';
   onboardingAccepted?: boolean;
+  notificationPreferences?: UserNotificationPreferences;
 }
 
 export interface Post {
@@ -29,10 +41,10 @@ export interface Post {
   author: Pick<User, 'id' | 'username' | 'avatarUrl'>;
   content: string;
   createdAt: string; // ISO date string
-  updatedAt?: string; // ISO date string
+  updatedAt?: string | null; // ISO date string
   reactions: Record<string, { userIds: string[] }>;
   isEdited?: boolean;
-  lastEditedBy?: Pick<User, 'id' | 'username'>;
+  lastEditedBy?: Pick<User, 'id' | 'username'> | null;
 }
 
 export interface Thread {
@@ -41,14 +53,14 @@ export interface Thread {
   title: string;
   author: Pick<User, 'id' | 'username' | 'avatarUrl'>;
   createdAt: string; // ISO date string
-  lastReplyAt?: string; // ISO date string
+  lastReplyAt?: string | null; // ISO date string
   postCount: number;
   isSticky?: boolean;
   isLocked?: boolean;
   isPublic?: boolean; // Visible to non-logged-in users
   tags?: string[];
-  poll?: Poll;
-  relatedVotationId?: string;
+  poll?: Poll | null;
+  relatedVotationId?: string | null;
 }
 
 export interface Forum {
@@ -114,12 +126,12 @@ export interface Votation {
   sanctionDuration?: string;
   
   proposedConstitutionText?: string;
-  proposedForumCategoryName?: string;
-
+  
   // For new forum proposals
   proposedForumName?: string;
   proposedForumDescription?: string;
   proposedForumCategoryId?: string;
+  proposedForumCategoryName?: string;
   proposedForumIsPublic?: boolean;
 
   options: VotationOptionTally;
@@ -147,8 +159,8 @@ export interface PrivateMessage {
 
 export type NotificationType = 
   | 'new_reply_to_your_thread' 
-  | 'votation_concluded' 
-  | 'post_reaction';
+  | 'votation_concluded' // Used for proposer notification
+  | 'post_reaction'; // Generic reaction, could be specialized
 
 export interface Notification {
   id: string;
@@ -159,7 +171,7 @@ export interface Notification {
   threadTitle?: string; // Can be truncated
   postId?: string; // e.g., The ID of the new reply
   forumId?: string;
-  votationId?: string;
+  votationId?: string; // Redundant if threadId is for votation thread
   votationTitle?: string; // Can be truncated
   votationOutcome?: VotationStatus; // Store the outcome of the votation
   reactionEmoji?: string;
