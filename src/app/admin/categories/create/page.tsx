@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,11 +32,16 @@ export default function CreateCategoryPage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const { t } = useTranslation('common');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pageError, setPageError] = useState<string | null>(null); // For critical page errors
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors }, reset } = useForm<CategoryFormData>({
     resolver: zodResolver(categorySchema),
+    defaultValues: {
+        name: '',
+        description: ''
+    }
   });
 
   const isAdminOrFounder = loggedInUser?.role === 'admin' || loggedInUser?.role === 'founder';
@@ -52,20 +58,20 @@ export default function CreateCategoryPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to create categories.</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+        <AlertTitle>{t('adminCreateCategory.accessDeniedTitle')}</AlertTitle>
+        <AlertDescription>{t('adminCreateCategory.accessDeniedDesc')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminCreateCategory.backToAdminButton')}</Link></Button>
       </Alert>
     );
   }
   
-  if (pageError) { // Display critical page errors
+  if (pageError) {
      return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Frown className="h-5 w-5" />
-        <AlertTitle>Error</AlertTitle>
+        <AlertTitle>{t('adminCreateCategory.errorTitle')}</AlertTitle>
         <AlertDescription>{pageError}</AlertDescription>
-         <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+         <Button asChild className="mt-4"><Link href="/admin">{t('adminCreateCategory.backToAdminButton')}</Link></Button>
       </Alert>
     );
   }
@@ -79,15 +85,15 @@ export default function CreateCategoryPage() {
       };
       await addDoc(collection(db, "categories"), newCategoryData);
       toast({
-        title: "Category Created!",
-        description: `Category "${data.name}" has been successfully created.`,
+        title: t('adminCreateCategory.toast.successTitle'),
+        description: t('adminCreateCategory.toast.successDesc', { categoryName: data.name }),
       });
       router.push('/admin');
     } catch (error) {
       console.error("Error creating category:", error);
       toast({
-        title: "Error Creating Category",
-        description: "Could not create the category. Please try again.",
+        title: t('adminCreateCategory.toast.errorTitle'),
+        description: t('adminCreateCategory.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -101,46 +107,46 @@ export default function CreateCategoryPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <PlusCircle className="mr-3 h-7 w-7 text-primary" />
-            Create New Category
+            {t('adminCreateCategory.title')}
           </CardTitle>
           <CardDescription>
-            Fill in the details below to add a new category for forums.
+            {t('adminCreateCategory.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="name">Category Name</Label>
+              <Label htmlFor="name">{t('adminCreateCategory.nameLabel')}</Label>
               <Input
                 id="name"
                 {...register("name")}
                 className={errors.name ? "border-destructive" : ""}
                 disabled={isSubmitting}
-                placeholder="e.g., General Discussion, Technical Support"
+                placeholder={t('adminCreateCategory.namePlaceholder')}
               />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description (Optional)</Label>
+              <Label htmlFor="description">{t('adminCreateCategory.descriptionLabel')}</Label>
               <Textarea
                 id="description"
                 {...register("description")}
                 rows={4}
                 className={errors.description ? "border-destructive" : ""}
                 disabled={isSubmitting}
-                placeholder="A brief description of what this category is about."
+                placeholder={t('adminCreateCategory.descriptionPlaceholder')}
               />
               {errors.description && <p className="text-sm text-destructive">{errors.description.message}</p>}
             </div>
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => router.push('/admin')} disabled={isSubmitting}>
-                <CornerUpLeft className="mr-2 h-4 w-4" /> Cancel
+                <CornerUpLeft className="mr-2 h-4 w-4" /> {t('adminCreateCategory.cancelButton')}
               </Button>
               <Button type="submit" disabled={isSubmitting} className="min-w-[150px]">
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
-                Create Category
+                {isSubmitting ? t('adminCreateCategory.creatingButton') : t('adminCreateCategory.createButton')}
               </Button>
             </div>
           </form>
@@ -149,5 +155,4 @@ export default function CreateCategoryPage() {
     </div>
   );
 }
-
     

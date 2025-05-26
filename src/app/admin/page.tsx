@@ -10,21 +10,23 @@ import { collection, getDocs, orderBy, query, deleteDoc, doc } from 'firebase/fi
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
 import { Loader2, ShieldAlert, Users, LayoutList, ExternalLink, BadgeAlert, PlusCircle, FolderKanban, Trash2 } from 'lucide-react';
 import UserAvatar from '@/components/user/UserAvatar';
 import { formatDistanceToNow } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from 'react-i18next';
 
 export default function AdminPage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const { toast } = useToast();
+  const { t } = useTranslation('common');
   const [users, setUsers] = useState<KratiaUser[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
   const [categories, setCategories] = useState<ForumCategory[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState(true); // Combined loading state
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [forumToDelete, setForumToDelete] = useState<Forum | null>(null);
 
@@ -51,36 +53,36 @@ export default function AdminPage() {
       setCategories(categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ForumCategory)));
     } catch (err) {
       console.error("Error fetching admin data:", err);
-      setError("Failed to load admin data. Please try again.");
+      setError(t('adminPanel.error.fetchData'));
     } finally {
       setIsLoadingData(false);
     }
   };
   
   useEffect(() => {
-    if (isAdminOrFounder) { // Only fetch if authorized
+    if (isAdminOrFounder) {
         fetchData();
-    } else if (!authLoading) { // If auth is done and user is not admin, stop loading
+    } else if (!authLoading) {
         setIsLoadingData(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loggedInUser, isAdminOrFounder]); // Removed authLoading, let isAdminOrFounder handle loading stop for non-admins
+  }, [loggedInUser, isAdminOrFounder, t]);
 
   const handleDeleteForum = async () => {
     if (!forumToDelete) return;
     try {
       await deleteDoc(doc(db, "forums", forumToDelete.id));
       toast({
-        title: "Forum Deleted",
-        description: `Forum "${forumToDelete.name}" has been successfully deleted.`,
+        title: t('adminPanel.toast.forumDeletedTitle'),
+        description: t('adminPanel.toast.forumDeletedDesc', { forumName: forumToDelete.name }),
       });
       setForums(forums.filter(forum => forum.id !== forumToDelete.id)); 
       setForumToDelete(null); 
     } catch (err) {
       console.error("Error deleting forum:", err);
       toast({
-        title: "Error Deleting Forum",
-        description: "Could not delete the forum. Please try again.",
+        title: t('adminPanel.toast.errorDeletingForumTitle'),
+        description: t('adminPanel.toast.errorDeletingForumDesc'),
         variant: "destructive",
       });
       setForumToDelete(null);
@@ -91,7 +93,7 @@ export default function AdminPage() {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Loading admin panel...</p>
+        <p className="ml-4 text-muted-foreground">{t('adminPanel.loadingAdminPanel')}</p>
       </div>
     );
   }
@@ -100,12 +102,10 @@ export default function AdminPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>
-          You do not have permission to view the admin panel. This area is restricted to administrators and founders.
-        </AlertDescription>
+        <AlertTitle>{t('adminPanel.accessDeniedTitle')}</AlertTitle>
+        <AlertDescription>{t('adminPanel.accessDeniedDesc')}</AlertDescription>
         <Button asChild className="mt-4">
-          <Link href="/">Go to Homepage</Link>
+          <Link href="/">{t('adminPanel.goToHomepageButton')}</Link>
         </Button>
       </Alert>
     );
@@ -115,7 +115,7 @@ export default function AdminPage() {
      return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Loading users, forums, and categories...</p>
+        <p className="ml-4 text-muted-foreground">{t('adminPanel.loadingData')}</p>
       </div>
     );
   }
@@ -124,14 +124,14 @@ export default function AdminPage() {
     return (
       <Alert variant="destructive">
         <BadgeAlert className="h-5 w-5" />
-        <AlertTitle>Error Loading Data</AlertTitle>
+        <AlertTitle>{t('adminPanel.errorLoadingDataTitle')}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
   }
 
   const formatRegistrationDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
+    if (!dateString) return t('adminPanel.notAvailable');
     return formatDistanceToNow(new Date(dateString), { addSuffix: true });
   };
 
@@ -141,15 +141,15 @@ export default function AdminPage() {
       <CardHeader className="px-0">
         <CardTitle className="text-3xl font-bold flex items-center">
           <ShieldAlert className="mr-3 h-8 w-8 text-primary" />
-          Admin Panel
+          {t('adminPanel.title')}
         </CardTitle>
-        <CardDescription>Manage users, forums, categories, and other settings for Kratia Forums.</CardDescription>
+        <CardDescription>{t('adminPanel.description')}</CardDescription>
       </CardHeader>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center text-xl">
-            <Users className="mr-2 h-6 w-6" /> User Management ({users.length})
+            <Users className="mr-2 h-6 w-6" /> {t('adminPanel.userManagement.title')} ({users.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -159,13 +159,13 @@ export default function AdminPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[80px]">Avatar</TableHead>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="text-right">Karma</TableHead>
-                  <TableHead>Registered</TableHead>
-                  <TableHead className="text-center">Actions</TableHead>
+                  <TableHead className="w-[80px]">{t('adminPanel.userManagement.table.avatar')}</TableHead>
+                  <TableHead>{t('adminPanel.userManagement.table.username')}</TableHead>
+                  <TableHead>{t('adminPanel.userManagement.table.email')}</TableHead>
+                  <TableHead>{t('adminPanel.userManagement.table.role')}</TableHead>
+                  <TableHead className="text-right">{t('adminPanel.userManagement.table.karma')}</TableHead>
+                  <TableHead>{t('adminPanel.userManagement.table.registered')}</TableHead>
+                  <TableHead className="text-center">{t('adminPanel.userManagement.table.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -185,7 +185,7 @@ export default function AdminPage() {
                     <TableCell>{formatRegistrationDate(user.registrationDate)}</TableCell>
                     <TableCell className="text-center">
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/admin/users/edit/${user.id}`}>Edit</Link>
+                        <Link href={`/admin/users/edit/${user.id}`}>{t('adminPanel.userManagement.editButton')}</Link>
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -193,7 +193,7 @@ export default function AdminPage() {
               </TableBody>
             </Table>
           ) : (
-            <p className="text-muted-foreground">No users found.</p>
+            <p className="text-muted-foreground">{t('adminPanel.userManagement.noUsersFound')}</p>
           )}
         </CardContent>
       </Card>
@@ -201,11 +201,11 @@ export default function AdminPage() {
        <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center text-xl">
-            <FolderKanban className="mr-2 h-6 w-6" /> Category Management ({categories.length})
+            <FolderKanban className="mr-2 h-6 w-6" /> {t('adminPanel.categoryManagement.title')} ({categories.length})
           </CardTitle>
           <Button asChild>
             <Link href="/admin/categories/create">
-              <PlusCircle className="mr-2 h-5 w-5" /> Create New Category
+              <PlusCircle className="mr-2 h-5 w-5" /> {t('adminPanel.categoryManagement.createButton')}
             </Link>
           </Button>
         </CardHeader>
@@ -216,19 +216,19 @@ export default function AdminPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="max-w-md truncate">Description</TableHead>
-                  <TableHead className="text-center">Actions</TableHead>
+                  <TableHead>{t('adminPanel.categoryManagement.table.name')}</TableHead>
+                  <TableHead className="max-w-md truncate">{t('adminPanel.categoryManagement.table.description')}</TableHead>
+                  <TableHead className="text-center">{t('adminPanel.categoryManagement.table.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {categories.map((category) => (
                   <TableRow key={category.id}>
                     <TableCell className="font-medium">{category.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-md truncate" title={category.description}>{category.description || 'N/A'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-md truncate" title={category.description}>{category.description || t('adminPanel.notAvailable')}</TableCell>
                     <TableCell className="text-center">
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/admin/categories/edit/${category.id}`}>Edit</Link>
+                        <Link href={`/admin/categories/edit/${category.id}`}>{t('adminPanel.categoryManagement.editButton')}</Link>
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -236,7 +236,7 @@ export default function AdminPage() {
               </TableBody>
             </Table>
           ) : (
-            <p className="text-muted-foreground">No categories found. You can create one to start organizing forums.</p>
+            <p className="text-muted-foreground">{t('adminPanel.categoryManagement.noCategoriesFound')}</p>
           )}
         </CardContent>
       </Card>
@@ -244,11 +244,11 @@ export default function AdminPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center text-xl">
-            <LayoutList className="mr-2 h-6 w-6" /> Forum Management ({forums.length})
+            <LayoutList className="mr-2 h-6 w-6" /> {t('adminPanel.forumManagement.title')} ({forums.length})
           </CardTitle>
           <Button asChild>
             <Link href="/admin/forums/create">
-              <PlusCircle className="mr-2 h-5 w-5" /> Create New Forum
+              <PlusCircle className="mr-2 h-5 w-5" /> {t('adminPanel.forumManagement.createButton')}
             </Link>
           </Button>
         </CardHeader>
@@ -259,12 +259,12 @@ export default function AdminPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="max-w-xs truncate">Description</TableHead>
-                  <TableHead>Category ID</TableHead>
-                  <TableHead className="text-right">Threads</TableHead>
-                  <TableHead className="text-right">Posts</TableHead>
-                  <TableHead className="text-center">Actions</TableHead>
+                  <TableHead>{t('adminPanel.forumManagement.table.name')}</TableHead>
+                  <TableHead className="max-w-xs truncate">{t('adminPanel.forumManagement.table.description')}</TableHead>
+                  <TableHead>{t('adminPanel.forumManagement.table.category')}</TableHead>
+                  <TableHead className="text-right">{t('adminPanel.forumManagement.table.threads')}</TableHead>
+                  <TableHead className="text-right">{t('adminPanel.forumManagement.table.posts')}</TableHead>
+                  <TableHead className="text-center">{t('adminPanel.forumManagement.table.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -274,17 +274,17 @@ export default function AdminPage() {
                          <Link href={`/forums/${forum.id}`} className="hover:underline text-primary">
                             {forum.name} <ExternalLink className="inline-block h-3 w-3 ml-1"/>
                          </Link>
-                         {forum.isAgora && <Badge variant="outline" className="ml-2 border-blue-500 text-blue-600">Agora</Badge>}
+                         {forum.isAgora && <Badge variant="outline" className="ml-2 border-blue-500 text-blue-600">{t('adminPanel.forumManagement.agoraBadge')}</Badge>}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-xs truncate" title={forum.description}>{forum.description}</TableCell>
-                    <TableCell>{forum.categoryId || 'N/A'}</TableCell>
+                    <TableCell>{categories.find(c => c.id === forum.categoryId)?.name || forum.categoryId || t('adminPanel.notAvailable')}</TableCell>
                     <TableCell className="text-right">{forum.threadCount || 0}</TableCell>
                     <TableCell className="text-right">{forum.postCount || 0}</TableCell>
                     <TableCell className="text-center space-x-2">
                         <Button asChild variant="outline" size="sm">
-                            <Link href={`/admin/forums/edit/${forum.id}`}>Edit</Link>
+                            <Link href={`/admin/forums/edit/${forum.id}`}>{t('adminPanel.forumManagement.editButton')}</Link>
                         </Button>
-                        <Button variant="destructive" size="sm" onClick={() => setForumToDelete(forum)}>
+                        <Button variant="destructive" size="sm" onClick={() => setForumToDelete(forum)} title={t('adminPanel.forumManagement.deleteButtonTooltip')}>
                            <Trash2 className="h-4 w-4"/>
                         </Button>
                     </TableCell>
@@ -293,7 +293,7 @@ export default function AdminPage() {
               </TableBody>
             </Table>
           ) : (
-            <p className="text-muted-foreground">No forums found.</p>
+            <p className="text-muted-foreground">{t('adminPanel.forumManagement.noForumsFound')}</p>
           )}
         </CardContent>
       </Card>
@@ -301,18 +301,17 @@ export default function AdminPage() {
       <AlertDialog open={!!forumToDelete} onOpenChange={(open) => !open && setForumToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogTitle>{t('adminPanel.deleteForumDialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the forum
-              <span className="font-semibold"> "{forumToDelete?.name}"</span>.
-              Associated threads and posts will <span className="font-bold text-destructive">NOT</span> be deleted and will become orphaned.
-              Consider archiving or re-categorizing threads first if needed.
+              {t('adminPanel.deleteForumDialog.descriptionLine1', { forumName: forumToDelete?.name || "" })}
+              <br />
+              {t('adminPanel.deleteForumDialog.descriptionLine2')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setForumToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setForumToDelete(null)}>{t('adminPanel.deleteForumDialog.cancelButton')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteForum} className="bg-destructive hover:bg-destructive/90">
-              Yes, delete forum
+              {t('adminPanel.deleteForumDialog.confirmButton')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -321,5 +320,4 @@ export default function AdminPage() {
     </div>
   );
 }
-
     

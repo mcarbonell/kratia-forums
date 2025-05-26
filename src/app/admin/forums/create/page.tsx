@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useForm, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,7 +29,7 @@ const forumSchema = z.object({
   description: z.string().min(10, "Description must be at least 10 characters.").max(500, "Description cannot exceed 500 characters."),
   categoryId: z.string().min(1, "You must select a category."),
   isPublic: z.boolean().default(true),
-  isAgora: z.boolean().default(false), // Usually disabled for manual creation
+  isAgora: z.boolean().default(false),
 });
 
 type ForumFormData = z.infer<typeof forumSchema>;
@@ -37,6 +38,7 @@ export default function CreateForumPage() {
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const { t } = useTranslation('common');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [categories, setCategories] = useState<ForumCategory[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
@@ -47,6 +49,9 @@ export default function CreateForumPage() {
     defaultValues: {
       isPublic: true,
       isAgora: false,
+      name: '',
+      description: '',
+      categoryId: ''
     },
   });
 
@@ -65,17 +70,17 @@ export default function CreateForumPage() {
         const fetchedCategories = categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ForumCategory));
         setCategories(fetchedCategories);
         if (fetchedCategories.length === 0) {
-            setPageError("No categories found. Please create a category before creating a forum.");
+            setPageError(t('adminCreateForum.error.noCategories'));
         }
       } catch (err) {
         console.error("Error fetching categories:", err);
-        setPageError("Failed to load categories. Please try again.");
+        setPageError(t('adminCreateForum.error.fetchCategoriesFail'));
       } finally {
         setIsLoadingCategories(false);
       }
     };
     fetchCategories();
-  }, [isAdminOrFounder]);
+  }, [isAdminOrFounder, t]);
 
   if (authLoading || (isAdminOrFounder && isLoadingCategories)) {
     return (
@@ -89,9 +94,9 @@ export default function CreateForumPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to create forums.</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+        <AlertTitle>{t('adminCreateForum.accessDeniedTitle')}</AlertTitle>
+        <AlertDescription>{t('adminCreateForum.accessDeniedDesc')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminCreateForum.backToAdminButton')}</Link></Button>
       </Alert>
     );
   }
@@ -100,9 +105,9 @@ export default function CreateForumPage() {
      return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Frown className="h-5 w-5" />
-        <AlertTitle>Error</AlertTitle>
+        <AlertTitle>{t('adminCreateForum.errorTitle')}</AlertTitle>
         <AlertDescription>{pageError}</AlertDescription>
-         <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+         <Button asChild className="mt-4"><Link href="/admin">{t('adminCreateForum.backToAdminButton')}</Link></Button>
       </Alert>
     );
   }
@@ -115,21 +120,21 @@ export default function CreateForumPage() {
         description: data.description,
         categoryId: data.categoryId,
         isPublic: data.isPublic,
-        isAgora: false, // Forcing to false, as 'agora' is special
+        isAgora: false, 
         threadCount: 0,
         postCount: 0,
       };
       await addDoc(collection(db, "forums"), newForumData);
       toast({
-        title: "Forum Created!",
-        description: `Forum "${data.name}" has been successfully created.`,
+        title: t('adminCreateForum.toast.successTitle'),
+        description: t('adminCreateForum.toast.successDesc', { forumName: data.name }),
       });
       router.push('/admin');
     } catch (error) {
       console.error("Error creating forum:", error);
       toast({
-        title: "Error Creating Forum",
-        description: "Could not create the forum. Please try again.",
+        title: t('adminCreateForum.toast.errorTitle'),
+        description: t('adminCreateForum.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -143,41 +148,41 @@ export default function CreateForumPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <PlusCircle className="mr-3 h-7 w-7 text-primary" />
-            Create New Forum
+            {t('adminCreateForum.title')}
           </CardTitle>
           <CardDescription>
-            Fill in the details below to add a new forum to Kratia.
+            {t('adminCreateForum.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="name">Forum Name</Label>
+              <Label htmlFor="name">{t('adminCreateForum.nameLabel')}</Label>
               <Input
                 id="name"
                 {...register("name")}
                 className={errors.name ? "border-destructive" : ""}
                 disabled={isSubmitting}
-                placeholder="e.g., Introductions, Tech Talk"
+                placeholder={t('adminCreateForum.namePlaceholder')}
               />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{t('adminCreateForum.descriptionLabel')}</Label>
               <Textarea
                 id="description"
                 {...register("description")}
                 rows={4}
                 className={errors.description ? "border-destructive" : ""}
                 disabled={isSubmitting}
-                placeholder="A brief description of what this forum is about."
+                placeholder={t('adminCreateForum.descriptionPlaceholder')}
               />
               {errors.description && <p className="text-sm text-destructive">{errors.description.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="categoryId">Category</Label>
+              <Label htmlFor="categoryId">{t('adminCreateForum.categoryLabel')}</Label>
               <Controller
                 name="categoryId"
                 control={control}
@@ -188,7 +193,7 @@ export default function CreateForumPage() {
                     disabled={isSubmitting || categories.length === 0}
                   >
                     <SelectTrigger className={errors.categoryId ? "border-destructive" : ""}>
-                      <SelectValue placeholder="Select a category" />
+                      <SelectValue placeholder={t('adminCreateForum.categoryPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map(cat => (
@@ -216,25 +221,25 @@ export default function CreateForumPage() {
                 )}
                />
               <Label htmlFor="isPublic" className="font-normal">
-                Publicly visible (guests can view threads and posts)
+                {t('adminCreateForum.isPublicLabel')}
               </Label>
             </div>
 
-            <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed" title="The 'Agora' forum is special and cannot be created or modified through this form.">
+            <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed" title={t('adminCreateForum.isAgoraTooltip')}>
               <Checkbox id="isAgora" checked={false} disabled={true} />
               <Label htmlFor="isAgora" className="font-normal text-muted-foreground">
-                Is Agora Forum (Special Votation Forum - Disabled)
+                {t('adminCreateForum.isAgoraLabel')}
               </Label>
             </div>
 
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => router.push('/admin')} disabled={isSubmitting}>
-                <CornerUpLeft className="mr-2 h-4 w-4" /> Cancel
+                <CornerUpLeft className="mr-2 h-4 w-4" /> {t('adminCreateForum.cancelButton')}
               </Button>
               <Button type="submit" disabled={isSubmitting || categories.length === 0} className="min-w-[150px]">
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
-                Create Forum
+                {isSubmitting ? t('adminCreateForum.creatingButton') : t('adminCreateForum.createButton')}
               </Button>
             </div>
           </form>
@@ -243,3 +248,4 @@ export default function CreateForumPage() {
     </div>
   );
 }
+

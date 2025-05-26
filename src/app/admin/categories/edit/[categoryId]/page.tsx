@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,6 +32,7 @@ type CategoryFormData = z.infer<typeof categorySchema>;
 export default function EditCategoryPage() {
   const params = useParams();
   const router = useRouter();
+  const { t } = useTranslation('common');
   const categoryId = params.categoryId as string;
 
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
@@ -50,7 +52,7 @@ export default function EditCategoryPage() {
   useEffect(() => {
     if (!categoryId || !isAdminOrFounder) {
       setIsLoadingData(false);
-      if (!categoryId) setPageError("Category ID is missing.");
+      if (!categoryId) setPageError(t('adminEditCategory.error.missingId'));
       return;
     }
 
@@ -64,23 +66,23 @@ export default function EditCategoryPage() {
         if (categorySnap.exists()) {
           const categoryData = { id: categorySnap.id, ...categorySnap.data() } as ForumCategory;
           setCurrentCategory(categoryData);
-          reset({ // Pre-fill form
+          reset({
             name: categoryData.name,
             description: categoryData.description || "",
           });
         } else {
-          setPageError("Category not found.");
+          setPageError(t('adminEditCategory.error.notFound'));
           setCurrentCategory(null);
         }
       } catch (err) {
         console.error("Error fetching category for edit page:", err);
-        setPageError("Failed to load category data. Please try again.");
+        setPageError(t('adminEditCategory.error.loadFail'));
       } finally {
         setIsLoadingData(false);
       }
     };
     fetchData();
-  }, [categoryId, isAdminOrFounder, reset]);
+  }, [categoryId, isAdminOrFounder, reset, t]);
 
 
   if (authLoading || isLoadingData) {
@@ -95,9 +97,9 @@ export default function EditCategoryPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to edit categories.</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+        <AlertTitle>{t('adminEditCategory.accessDeniedTitle')}</AlertTitle>
+        <AlertDescription>{t('adminEditCategory.accessDeniedDesc')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminEditCategory.backToAdminButton')}</Link></Button>
       </Alert>
     );
   }
@@ -106,9 +108,9 @@ export default function EditCategoryPage() {
     return (
      <Alert variant="destructive" className="max-w-lg mx-auto">
        <Frown className="h-5 w-5" />
-       <AlertTitle>{pageError ? "Error" : "Category Not Found"}</AlertTitle>
-       <AlertDescription>{pageError || "The category you are trying to edit could not be found."}</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+       <AlertTitle>{pageError ? t('adminEditCategory.errorTitle') : t('adminEditCategory.notFoundTitle')}</AlertTitle>
+       <AlertDescription>{pageError || t('adminEditCategory.error.genericNotFound')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminEditCategory.backToAdminButton')}</Link></Button>
      </Alert>
    );
  }
@@ -125,15 +127,15 @@ export default function EditCategoryPage() {
 
       await updateDoc(categoryRef, dataToUpdate);
       toast({
-        title: "Category Updated!",
-        description: `Category "${data.name}" has been successfully updated.`,
+        title: t('adminEditCategory.toast.successTitle'),
+        description: t('adminEditCategory.toast.successDesc', { categoryName: data.name }),
       });
       router.push('/admin');
     } catch (error) {
       console.error("Error updating category:", error);
       toast({
-        title: "Error Updating Category",
-        description: "Could not update the category. Please try again.",
+        title: t('adminEditCategory.toast.errorTitle'),
+        description: t('adminEditCategory.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -147,16 +149,16 @@ export default function EditCategoryPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <Edit3 className="mr-3 h-7 w-7 text-primary" />
-            Edit Category: {currentCategory.name}
+            {t('adminEditCategory.title', { categoryName: currentCategory.name })}
           </CardTitle>
           <CardDescription>
-            Modify the details of this category.
+            {t('adminEditCategory.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="name">Category Name</Label>
+              <Label htmlFor="name">{t('adminEditCategory.nameLabel')}</Label>
               <Input
                 id="name"
                 {...register("name")}
@@ -167,7 +169,7 @@ export default function EditCategoryPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description (Optional)</Label>
+              <Label htmlFor="description">{t('adminEditCategory.descriptionLabel')}</Label>
               <Textarea
                 id="description"
                 {...register("description")}
@@ -180,11 +182,11 @@ export default function EditCategoryPage() {
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => router.push('/admin')} disabled={isSubmitting}>
-                 <CornerUpLeft className="mr-2 h-4 w-4" /> Cancel
+                 <CornerUpLeft className="mr-2 h-4 w-4" /> {t('adminEditCategory.cancelButton')}
               </Button>
               <Button type="submit" disabled={isSubmitting} className="min-w-[150px]">
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save Changes
+                {t('adminEditCategory.saveButton')}
               </Button>
             </div>
           </form>
@@ -193,5 +195,4 @@ export default function EditCategoryPage() {
     </div>
   );
 }
-
     

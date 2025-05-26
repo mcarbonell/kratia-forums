@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useForm, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,7 +29,7 @@ const forumSchema = z.object({
   description: z.string().min(10, "Description must be at least 10 characters.").max(500, "Description cannot exceed 500 characters."),
   categoryId: z.string().min(1, "You must select a category."),
   isPublic: z.boolean().default(true),
-  isAgora: z.boolean().default(false), // Read-only display
+  isAgora: z.boolean().default(false), 
 });
 
 type ForumFormData = z.infer<typeof forumSchema>;
@@ -36,6 +37,7 @@ type ForumFormData = z.infer<typeof forumSchema>;
 export default function EditForumPage() {
   const params = useParams();
   const router = useRouter();
+  const { t } = useTranslation('common');
   const forumId = params.forumId as string;
 
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
@@ -56,7 +58,7 @@ export default function EditForumPage() {
   useEffect(() => {
     if (!forumId || !isAdminOrFounder) {
       setIsLoadingData(false);
-      if (!forumId) setPageError("Forum ID is missing.");
+      if (!forumId) setPageError(t('adminEditForum.error.missingId'));
       return;
     }
 
@@ -64,24 +66,22 @@ export default function EditForumPage() {
       setIsLoadingData(true);
       setPageError(null);
       try {
-        // Fetch categories
         const categoriesQuery = query(collection(db, "categories"), orderBy("name"));
         const categoriesSnapshot = await getDocs(categoriesQuery);
         const fetchedCategories = categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ForumCategory));
         setCategories(fetchedCategories);
 
         if (fetchedCategories.length === 0) {
-             setPageError("No categories found. Cannot edit forum category properly.");
+             setPageError(t('adminEditForum.error.noCategories'));
         }
 
-        // Fetch forum to edit
         const forumRef = doc(db, "forums", forumId);
         const forumSnap = await getDoc(forumRef);
 
         if (forumSnap.exists()) {
           const forumData = { id: forumSnap.id, ...forumSnap.data() } as Forum;
           setCurrentForum(forumData);
-          reset({ // Pre-fill form
+          reset({ 
             name: forumData.name,
             description: forumData.description,
             categoryId: forumData.categoryId || "",
@@ -89,18 +89,18 @@ export default function EditForumPage() {
             isAgora: forumData.isAgora || false,
           });
         } else {
-          setPageError("Forum not found.");
+          setPageError(t('adminEditForum.error.notFound'));
           setCurrentForum(null);
         }
       } catch (err) {
         console.error("Error fetching data for edit forum page:", err);
-        setPageError("Failed to load forum or category data. Please try again.");
+        setPageError(t('adminEditForum.error.loadFail'));
       } finally {
         setIsLoadingData(false);
       }
     };
     fetchData();
-  }, [forumId, isAdminOrFounder, reset]);
+  }, [forumId, isAdminOrFounder, reset, t]);
 
 
   if (authLoading || isLoadingData) {
@@ -115,9 +115,9 @@ export default function EditForumPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to edit forums.</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+        <AlertTitle>{t('adminEditForum.accessDeniedTitle')}</AlertTitle>
+        <AlertDescription>{t('adminEditForum.accessDeniedDesc')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminEditForum.backToAdminButton')}</Link></Button>
       </Alert>
     );
   }
@@ -126,9 +126,9 @@ export default function EditForumPage() {
     return (
      <Alert variant="destructive" className="max-w-lg mx-auto">
        <Frown className="h-5 w-5" />
-       <AlertTitle>{pageError ? "Error" : "Forum Not Found"}</AlertTitle>
-       <AlertDescription>{pageError || "The forum you are trying to edit could not be found."}</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+       <AlertTitle>{pageError ? t('adminEditForum.errorTitle') : t('adminEditForum.notFoundTitle')}</AlertTitle>
+       <AlertDescription>{pageError || t('adminEditForum.error.genericNotFound')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminEditForum.backToAdminButton')}</Link></Button>
      </Alert>
    );
  }
@@ -138,7 +138,6 @@ export default function EditForumPage() {
     setIsSubmitting(true);
     try {
       const forumRef = doc(db, "forums", currentForum.id);
-      // isAgora is not editable for existing forums to prevent accidental changes to special Agora forum
       const dataToUpdate: Partial<Forum> = {
         name: data.name,
         description: data.description,
@@ -148,15 +147,15 @@ export default function EditForumPage() {
 
       await updateDoc(forumRef, dataToUpdate);
       toast({
-        title: "Forum Updated!",
-        description: `Forum "${data.name}" has been successfully updated.`,
+        title: t('adminEditForum.toast.successTitle'),
+        description: t('adminEditForum.toast.successDesc', { forumName: data.name }),
       });
       router.push('/admin');
     } catch (error) {
       console.error("Error updating forum:", error);
       toast({
-        title: "Error Updating Forum",
-        description: "Could not update the forum. Please try again.",
+        title: t('adminEditForum.toast.errorTitle'),
+        description: t('adminEditForum.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -170,16 +169,16 @@ export default function EditForumPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <Edit3 className="mr-3 h-7 w-7 text-primary" />
-            Edit Forum: {currentForum.name}
+            {t('adminEditForum.title', { forumName: currentForum.name })}
           </CardTitle>
           <CardDescription>
-            Modify the details of this forum.
+            {t('adminEditForum.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="name">Forum Name</Label>
+              <Label htmlFor="name">{t('adminEditForum.nameLabel')}</Label>
               <Input
                 id="name"
                 {...register("name")}
@@ -190,7 +189,7 @@ export default function EditForumPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{t('adminEditForum.descriptionLabel')}</Label>
               <Textarea
                 id="description"
                 {...register("description")}
@@ -202,18 +201,18 @@ export default function EditForumPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="categoryId">Category</Label>
+              <Label htmlFor="categoryId">{t('adminEditForum.categoryLabel')}</Label>
               <Controller
                 name="categoryId"
                 control={control}
                 render={({ field }) => (
                   <Select
                     onValueChange={field.onChange}
-                    value={field.value} // Use value for controlled component
+                    value={field.value} 
                     disabled={isSubmitting || categories.length === 0}
                   >
                     <SelectTrigger className={errors.categoryId ? "border-destructive" : ""}>
-                      <SelectValue placeholder="Select a category" />
+                      <SelectValue placeholder={t('adminEditForum.categoryPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map(cat => (
@@ -241,11 +240,11 @@ export default function EditForumPage() {
                 )}
                />
               <Label htmlFor="isPublic" className="font-normal">
-                Publicly visible (guests can view threads and posts)
+                {t('adminEditForum.isPublicLabel')}
               </Label>
             </div>
 
-            <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed" title="The 'Agora' status of a forum cannot be changed after creation.">
+            <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed" title={t('adminEditForum.isAgoraTooltip')}>
                <Controller
                 name="isAgora"
                 control={control}
@@ -254,18 +253,18 @@ export default function EditForumPage() {
                 )}
                 />
               <Label htmlFor="isAgora" className="font-normal text-muted-foreground">
-                Is Agora Forum (Read-only)
+                {t('adminEditForum.isAgoraLabel')}
               </Label>
             </div>
 
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => router.push('/admin')} disabled={isSubmitting}>
-                 <CornerUpLeft className="mr-2 h-4 w-4" /> Cancel
+                 <CornerUpLeft className="mr-2 h-4 w-4" /> {t('adminEditForum.cancelButton')}
               </Button>
               <Button type="submit" disabled={isSubmitting || categories.length === 0} className="min-w-[150px]">
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save Changes
+                {t('adminEditForum.saveButton')}
               </Button>
             </div>
           </form>
@@ -274,3 +273,4 @@ export default function EditForumPage() {
     </div>
   );
 }
+

@@ -8,6 +8,7 @@ import { useForm, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { format, parseISO } from 'date-fns';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,8 +26,8 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { Loader2, UserCog, ShieldAlert, Save, CornerUpLeft, Frown, Info } from 'lucide-react';
 import UserAvatar from '@/components/user/UserAvatar';
 
-const userStatusSchema = z.enum(['active', 'under_sanction_process', 'sanctioned']);
-const userRoleSchema = z.enum(['guest', 'user', 'normal_user', 'admin']); // Exclude 'visitor' and 'founder' from admin assignment
+const userStatusSchema = z.enum(['active', 'under_sanction_process', 'sanctioned', 'pending_admission', 'pending_email_verification']);
+const userRoleSchema = z.enum(['guest', 'user', 'normal_user', 'admin']); 
 
 const adminEditUserSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters.").max(50),
@@ -48,9 +49,6 @@ const adminEditUserSchema = z.object({
       path: ["sanctionEndDate"],
     });
   }
-  if (data.status !== 'sanctioned' && data.sanctionEndDate && data.sanctionEndDate.trim() !== '') {
-     // Clear sanctionEndDate if status is not 'sanctioned' - this will be handled in onSubmit
-  }
 });
 
 type AdminEditUserFormData = z.infer<typeof adminEditUserSchema>;
@@ -58,6 +56,7 @@ type AdminEditUserFormData = z.infer<typeof adminEditUserSchema>;
 export default function AdminEditUserPage() {
   const params = useParams();
   const router = useRouter();
+  const { t } = useTranslation('common');
   const targetUserId = params.userId as string;
 
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
@@ -73,13 +72,12 @@ export default function AdminEditUserPage() {
   });
 
   const watchedStatus = watch("status");
-
   const isAdminOrFounder = loggedInUser?.role === 'admin' || loggedInUser?.role === 'founder';
 
   useEffect(() => {
     if (!targetUserId || !isAdminOrFounder) {
       setIsLoadingData(false);
-      if (!targetUserId) setPageError("User ID is missing.");
+      if (!targetUserId) setPageError(t('adminEditUser.error.missingId'));
       return;
     }
 
@@ -96,7 +94,7 @@ export default function AdminEditUserPage() {
           reset({
             username: userData.username,
             email: userData.email,
-            role: (userData.role === 'founder' || userData.role === 'visitor') ? 'user' : userData.role as z.infer<typeof userRoleSchema> , // Prevent assigning founder/visitor
+            role: (userData.role === 'founder' || userData.role === 'visitor') ? 'user' : userData.role as z.infer<typeof userRoleSchema> ,
             avatarUrl: userData.avatarUrl || "",
             location: userData.location || "",
             aboutMe: userData.aboutMe || "",
@@ -107,18 +105,18 @@ export default function AdminEditUserPage() {
             isQuarantined: userData.isQuarantined || false,
           });
         } else {
-          setPageError("User not found.");
+          setPageError(t('adminEditUser.error.notFound'));
           setUserToEdit(null);
         }
       } catch (err) {
         console.error("Error fetching user data for admin edit:", err);
-        setPageError("Failed to load user data. Please try again.");
+        setPageError(t('adminEditUser.error.loadFail'));
       } finally {
         setIsLoadingData(false);
       }
     };
     fetchData();
-  }, [targetUserId, isAdminOrFounder, reset]);
+  }, [targetUserId, isAdminOrFounder, reset, t]);
 
 
   if (authLoading || isLoadingData) {
@@ -133,9 +131,9 @@ export default function AdminEditUserPage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to edit users.</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+        <AlertTitle>{t('adminEditUser.accessDeniedTitle')}</AlertTitle>
+        <AlertDescription>{t('adminEditUser.accessDeniedDesc')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminEditUser.backToAdminButton')}</Link></Button>
       </Alert>
     );
   }
@@ -144,9 +142,9 @@ export default function AdminEditUserPage() {
     return (
      <Alert variant="destructive" className="max-w-lg mx-auto">
        <Frown className="h-5 w-5" />
-       <AlertTitle>{pageError ? "Error" : "User Not Found"}</AlertTitle>
-       <AlertDescription>{pageError || "The user you are trying to edit could not be found."}</AlertDescription>
-        <Button asChild className="mt-4"><Link href="/admin">Back to Admin Panel</Link></Button>
+       <AlertTitle>{pageError ? t('adminEditUser.errorTitle') : t('adminEditUser.notFoundTitle')}</AlertTitle>
+       <AlertDescription>{pageError || t('adminEditUser.error.genericNotFound')}</AlertDescription>
+        <Button asChild className="mt-4"><Link href="/admin">{t('adminEditUser.backToAdminButton')}</Link></Button>
      </Alert>
    );
  }
@@ -154,21 +152,14 @@ export default function AdminEditUserPage() {
   const onSubmit: SubmitHandler<AdminEditUserFormData> = async (data) => {
     if (!userToEdit) return;
 
-    // Prevent admin from demoting/promoting a founder or making themselves not an admin if they are the only one
     if (userToEdit.role === 'founder' && data.role !== 'founder') {
-        toast({title: "Action Not Allowed", description: "The 'founder' role cannot be changed.", variant: "destructive"});
+        toast({title: t('adminEditUser.toast.founderRoleImmutableTitle'), description: t('adminEditUser.toast.founderRoleImmutableDesc'), variant: "destructive"});
         return;
     }
     if (loggedInUser?.id === userToEdit.id && userToEdit.role === 'founder' && data.role !== 'founder') {
-         toast({title: "Action Not Allowed", description: "Founders cannot change their own role.", variant: "destructive"});
+         toast({title: t('adminEditUser.toast.founderCannotChangeOwnRoleTitle'), description: t('adminEditUser.toast.founderCannotChangeOwnRoleDesc'), variant: "destructive"});
         return;
     }
-     // Basic check: if trying to demote self from admin and no other admins/founders exist (this is simplified)
-    if (loggedInUser?.id === userToEdit.id && loggedInUser.role === 'admin' && data.role !== 'admin' /* && check for other admins could be added */) {
-        // For simplicity, we might just prevent admins from demoting themselves entirely if needed, or add a proper check.
-        // toast({title: "Caution", description: "Consider implications of changing your own admin role.", variant: "default"});
-    }
-
 
     setIsSubmitting(true);
     try {
@@ -176,7 +167,7 @@ export default function AdminEditUserPage() {
       const dataToUpdate: Partial<KratiaUser> = {
         username: data.username,
         email: data.email,
-        role: data.role as UserRole, // Cast as UserRole which includes founder and visitor for storage
+        role: data.role as UserRole, 
         avatarUrl: data.avatarUrl || null,
         location: data.location || null,
         aboutMe: data.aboutMe || null,
@@ -189,15 +180,15 @@ export default function AdminEditUserPage() {
 
       await updateDoc(userRef, dataToUpdate);
       toast({
-        title: "User Updated!",
-        description: `User "${data.username}" has been successfully updated.`,
+        title: t('adminEditUser.toast.successTitle'),
+        description: t('adminEditUser.toast.successDesc', { username: data.username }),
       });
       router.push('/admin');
     } catch (error) {
       console.error("Error updating user:", error);
       toast({
-        title: "Error Updating User",
-        description: "Could not update the user. Please try again.",
+        title: t('adminEditUser.toast.errorTitle'),
+        description: t('adminEditUser.toast.errorDesc'),
         variant: "destructive",
       });
     } finally {
@@ -207,7 +198,7 @@ export default function AdminEditUserPage() {
   
   const registrationDateFormatted = userToEdit.registrationDate 
     ? format(parseISO(userToEdit.registrationDate), "PPPp")
-    : 'N/A';
+    : t('adminEditUser.notAvailable');
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -217,10 +208,10 @@ export default function AdminEditUserPage() {
                 <div>
                     <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
                         <UserCog className="mr-3 h-7 w-7 text-primary" />
-                        Edit User: {userToEdit.username}
+                        {t('adminEditUser.title', { username: userToEdit.username })}
                     </CardTitle>
                     <CardDescription>
-                        Modify the details for this user. Changes are applied directly.
+                        {t('adminEditUser.description')}
                     </CardDescription>
                 </div>
                 <UserAvatar user={userToEdit} size="lg" />
@@ -230,41 +221,41 @@ export default function AdminEditUserPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                    <Label htmlFor="userId">User ID</Label>
+                    <Label htmlFor="userId">{t('adminEditUser.userIdLabel')}</Label>
                     <Input id="userId" value={userToEdit.id} readOnly disabled className="bg-muted/30" />
                 </div>
                 <div>
-                    <Label htmlFor="registrationDate">Registered</Label>
+                    <Label htmlFor="registrationDate">{t('adminEditUser.registeredLabel')}</Label>
                     <Input id="registrationDate" value={registrationDateFormatted} readOnly disabled className="bg-muted/30" />
                 </div>
 
                 <div>
-                    <Label htmlFor="username">Username</Label>
+                    <Label htmlFor="username">{t('adminEditUser.usernameLabel')}</Label>
                     <Input id="username" {...register("username")} className={errors.username ? "border-destructive" : ""} disabled={isSubmitting} />
                     {errors.username && <p className="text-sm text-destructive">{errors.username.message}</p>}
                 </div>
                 <div>
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{t('adminEditUser.emailLabel')}</Label>
                     <Input id="email" type="email" {...register("email")} className={errors.email ? "border-destructive" : ""} disabled={isSubmitting} />
                     {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-                    <p className="text-xs text-muted-foreground mt-1">Changing email may affect user login if email is the primary identifier.</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t('adminEditUser.emailChangeNote')}</p>
                 </div>
                 <div>
-                    <Label htmlFor="role">Role</Label>
+                    <Label htmlFor="role">{t('adminEditUser.roleLabel')}</Label>
                     <Controller
                         name="role"
                         control={control}
                         render={({ field }) => (
                         <Select onValueChange={field.onChange} value={field.value} disabled={isSubmitting || userToEdit.role === 'founder'}>
                             <SelectTrigger className={errors.role ? "border-destructive" : ""}>
-                            <SelectValue placeholder="Select a role" />
+                            <SelectValue placeholder={t('adminEditUser.rolePlaceholder')} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="guest">Guest</SelectItem>
-                                <SelectItem value="user">User (Standard)</SelectItem>
-                                <SelectItem value="normal_user">Normal User (Voting Rights)</SelectItem>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                {userToEdit.role === 'founder' && <SelectItem value="founder" disabled>Founder (Cannot be changed)</SelectItem>}
+                                <SelectItem value="guest">{t('roles.guest')}</SelectItem>
+                                <SelectItem value="user">{t('roles.user')}</SelectItem>
+                                <SelectItem value="normal_user">{t('roles.normal_user')}</SelectItem>
+                                <SelectItem value="admin">{t('roles.admin')}</SelectItem>
+                                {userToEdit.role === 'founder' && <SelectItem value="founder" disabled>{t('roles.founder')} ({t('adminEditUser.roleFounderImmutable')})</SelectItem>}
                             </SelectContent>
                         </Select>
                         )}
@@ -272,25 +263,27 @@ export default function AdminEditUserPage() {
                     {errors.role && <p className="text-sm text-destructive">{errors.role.message}</p>}
                 </div>
                  <div>
-                    <Label htmlFor="karma">Karma</Label>
+                    <Label htmlFor="karma">{t('adminEditUser.karmaLabel')}</Label>
                     <Input id="karma" type="number" {...register("karma")} className={errors.karma ? "border-destructive" : ""} disabled={isSubmitting} />
                     {errors.karma && <p className="text-sm text-destructive">{errors.karma.message}</p>}
                 </div>
 
                 <div>
-                    <Label htmlFor="status">Status</Label>
+                    <Label htmlFor="status">{t('adminEditUser.statusLabel')}</Label>
                      <Controller
                         name="status"
                         control={control}
                         render={({ field }) => (
                         <Select onValueChange={field.onChange} value={field.value} disabled={isSubmitting}>
                             <SelectTrigger className={errors.status ? "border-destructive" : ""}>
-                            <SelectValue placeholder="Select status" />
+                            <SelectValue placeholder={t('adminEditUser.statusPlaceholder')} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="active">Active</SelectItem>
-                                <SelectItem value="under_sanction_process">Under Sanction Process</SelectItem>
-                                <SelectItem value="sanctioned">Sanctioned</SelectItem>
+                                <SelectItem value="active">{t('userStatus.active')}</SelectItem>
+                                <SelectItem value="under_sanction_process">{t('userStatus.under_sanction_process')}</SelectItem>
+                                <SelectItem value="sanctioned">{t('userStatus.sanctioned')}</SelectItem>
+                                <SelectItem value="pending_admission">{t('userStatus.pending_admission')}</SelectItem>
+                                <SelectItem value="pending_email_verification">{t('userStatus.pending_email_verification')}</SelectItem>
                             </SelectContent>
                         </Select>
                         )}
@@ -300,7 +293,7 @@ export default function AdminEditUserPage() {
 
                {watchedStatus === 'sanctioned' && (
                  <div>
-                    <Label htmlFor="sanctionEndDate">Sanction End Date</Label>
+                    <Label htmlFor="sanctionEndDate">{t('adminEditUser.sanctionEndDateLabel')}</Label>
                     <Input 
                         id="sanctionEndDate" 
                         type="datetime-local" 
@@ -314,49 +307,49 @@ export default function AdminEditUserPage() {
             </div>
 
             <div className="space-y-2">
-                <Label htmlFor="avatarUrl">Avatar URL</Label>
+                <Label htmlFor="avatarUrl">{t('adminEditUser.avatarUrlLabel')}</Label>
                 <Input id="avatarUrl" {...register("avatarUrl")} className={errors.avatarUrl ? "border-destructive" : ""} disabled={isSubmitting} placeholder="https://example.com/avatar.png"/>
                 {errors.avatarUrl && <p className="text-sm text-destructive">{errors.avatarUrl.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
-              <Input id="location" {...register("location")} className={errors.location ? "border-destructive" : ""} disabled={isSubmitting} placeholder="City, Country"/>
+              <Label htmlFor="location">{t('adminEditUser.locationLabel')}</Label>
+              <Input id="location" {...register("location")} className={errors.location ? "border-destructive" : ""} disabled={isSubmitting} placeholder={t('adminEditUser.locationPlaceholder')}/>
               {errors.location && <p className="text-sm text-destructive">{errors.location.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="aboutMe">About Me</Label>
-              <Textarea id="aboutMe" {...register("aboutMe")} rows={3} className={errors.aboutMe ? "border-destructive" : ""} disabled={isSubmitting} placeholder="A brief description about the user."/>
+              <Label htmlFor="aboutMe">{t('adminEditUser.aboutMeLabel')}</Label>
+              <Textarea id="aboutMe" {...register("aboutMe")} rows={3} className={errors.aboutMe ? "border-destructive" : ""} disabled={isSubmitting} placeholder={t('adminEditUser.aboutMePlaceholder')}/>
               {errors.aboutMe && <p className="text-sm text-destructive">{errors.aboutMe.message}</p>}
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 <div className="flex items-center space-x-2">
                     <Controller name="canVote" control={control} render={({ field }) => (<Checkbox id="canVote" checked={field.value} onCheckedChange={field.onChange} disabled={isSubmitting} ref={field.ref}/> )}/>
-                    <Label htmlFor="canVote" className="font-normal">Can Vote</Label>
+                    <Label htmlFor="canVote" className="font-normal">{t('adminEditUser.canVoteLabel')}</Label>
                 </div>
                 <div className="flex items-center space-x-2">
                      <Controller name="isQuarantined" control={control} render={({ field }) => (<Checkbox id="isQuarantined" checked={field.value} onCheckedChange={field.onChange} disabled={isSubmitting} ref={field.ref}/> )}/>
-                    <Label htmlFor="isQuarantined" className="font-normal">Is Quarantined</Label>
+                    <Label htmlFor="isQuarantined" className="font-normal">{t('adminEditUser.isQuarantinedLabel')}</Label>
                 </div>
             </div>
 
-            <Alert variant="default" className="mt-4">
+            <Alert variant="default">
                 <Info className="h-4 w-4" />
-                <AlertTitle>Administrative Action</AlertTitle>
+                <AlertTitle>{t('adminEditUser.adminActionAlertTitle')}</AlertTitle>
                 <AlertDescription>
-                    Changes made here directly modify user data. Use with caution. User sanctioning should ideally follow the community votation process via the Agora.
+                    {t('adminEditUser.adminActionAlertDesc')}
                 </AlertDescription>
             </Alert>
 
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => router.push('/admin')} disabled={isSubmitting}>
-                 <CornerUpLeft className="mr-2 h-4 w-4" /> Cancel
+                 <CornerUpLeft className="mr-2 h-4 w-4" /> {t('adminEditUser.cancelButton')}
               </Button>
               <Button type="submit" disabled={isSubmitting} className="min-w-[150px]">
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save User Changes
+                {isSubmitting ? t('adminEditUser.savingButton') : t('adminEditUser.saveButton')}
               </Button>
             </div>
           </form>
@@ -365,3 +358,4 @@ export default function AdminEditUserPage() {
     </div>
   );
 }
+
