@@ -12,17 +12,19 @@ import { UserPlus, ShieldCheck, Loader2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
-import { db, auth, GoogleAuthProvider } from "@/lib/firebase"; // Import GoogleAuthProvider
-import { createUserWithEmailAndPassword, sendEmailVerification, signInWithPopup } from "firebase/auth"; // Import signInWithPopup
+import { db, auth, GoogleAuthProvider } from "@/lib/firebase";
+import { createUserWithEmailAndPassword, sendEmailVerification, signInWithPopup } from "firebase/auth";
 import { doc, setDoc, Timestamp } from "firebase/firestore";
 import type { User } from "@/lib/types";
 import { KRATIA_CONFIG } from "@/lib/config";
-import { useMockAuth } from "@/hooks/use-mock-auth"; // Import useMockAuth
+import { useMockAuth } from "@/hooks/use-mock-auth";
+import { useTranslation } from 'react-i18next';
 
 export default function SignupPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { loginAndSetUserFromFirestore } = useMockAuth(); // Get the function from the hook
+  const { loginAndSetUserFromFirestore } = useMockAuth();
+  const { t } = useTranslation('common');
 
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -40,17 +42,17 @@ export default function SignupPage() {
     setIsSubmitting(true);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError(t('signup.error.passwordsDontMatch'));
       setIsSubmitting(false);
       return;
     }
     if (presentation.trim().length < 50) {
-      setError("Your presentation must be at least 50 characters long.");
+      setError(t('signup.error.presentationTooShort'));
       setIsSubmitting(false);
       return;
     }
     if (!agreedToTerms) {
-      setError("You must agree to the Normas y Condiciones to sign up.");
+      setError(t('signup.error.mustAgreeToTerms'));
       setIsSubmitting(false);
       return;
     }
@@ -72,9 +74,9 @@ export default function SignupPage() {
         karma: 0,
         presentation: presentation,
         canVote: false,
-        isQuarantined: true,
-        status: 'pending_email_verification',
-        role: 'guest',
+        isQuarantined: true, // New users start quarantined until admission process or other criteria
+        status: 'pending_email_verification', // NEW STATUS
+        role: 'guest', // Initial role until admitted
         totalPostsByUser: 0,
         totalReactionsReceived: 0,
         totalPostsInThreadsStartedByUser: 0,
@@ -84,31 +86,31 @@ export default function SignupPage() {
       await setDoc(userDocRef, newUserFirestoreData);
 
       toast({
-        title: "Registration Step 1 Complete!",
-        description: "Please check your email to verify your account. After verification, log in to complete your admission request.",
+        title: t('signup.toast.step1CompleteTitle'),
+        description: t('signup.toast.step1CompleteDesc'),
       });
       router.push(`/auth/confirm?status=email_verification_sent&email=${encodeURIComponent(email)}`);
     } catch (err: any) {
       console.error("Error during email/password signup:", err);
-      let errorMessage = "Failed to sign up. Please try again.";
+      let errorMessage = t('signup.error.genericFail');
       if (err.code) {
         switch (err.code) {
           case 'auth/email-already-in-use':
-            errorMessage = "This email address is already in use. Please use a different email or log in.";
+            errorMessage = t('signup.error.emailInUse');
             break;
           case 'auth/weak-password':
-            errorMessage = "The password is too weak. Please use a stronger password (at least 6 characters).";
+            errorMessage = t('signup.error.weakPassword');
             break;
           case 'auth/invalid-email':
-            errorMessage = "The email address is not valid.";
+            errorMessage = t('signup.error.invalidEmail');
             break;
           default:
-             errorMessage = `An error occurred: ${err.message || 'Unknown error'}`;
+             errorMessage = t('signup.error.default', { message: err.message || 'Unknown error' });
         }
       }
       setError(errorMessage);
       toast({
-        title: "Signup Error",
+        title: t('signup.toast.errorTitle'),
         description: errorMessage,
         variant: "destructive",
       });
@@ -120,13 +122,13 @@ export default function SignupPage() {
   const handleGoogleSignUp = async () => {
     setError("");
     if (presentation.trim().length < 50) {
-      setError("Your presentation must be at least 50 characters long to sign up with Google.");
-      toast({ title: "Presentation Required", description: "Please provide a presentation of at least 50 characters.", variant: "destructive" });
+      setError(t('signup.error.presentationTooShortGoogle'));
+      toast({ title: t('signup.toast.presentationRequiredTitle'), description: t('signup.toast.presentationRequiredDesc'), variant: "destructive" });
       return;
     }
     if (!agreedToTerms) {
-      setError("You must agree to the Normas y Condiciones to sign up with Google.");
-      toast({ title: "Agreement Required", description: "Please agree to the Normas y Condiciones.", variant: "destructive" });
+      setError(t('signup.error.mustAgreeToTermsGoogle'));
+      toast({ title: t('signup.toast.agreementRequiredTitle'), description: t('signup.toast.agreementRequiredDesc'), variant: "destructive" });
       return;
     }
 
@@ -137,40 +139,38 @@ export default function SignupPage() {
       const firebaseUser = userCredential.user;
 
       if (!firebaseUser) {
-        setError("Google Sign-Up failed. Please try again.");
+        setError(t('signup.error.googleSignupFailed'));
         setIsGoogleSubmitting(false);
         return;
       }
 
-      // Pass presentation to loginAndSetUserFromFirestore if available
       const result = await loginAndSetUserFromFirestore(
         firebaseUser.uid,
         firebaseUser.email,
         firebaseUser.displayName,
         firebaseUser.photoURL,
-        presentation // Pass presentation here
+        presentation 
       );
 
-      if (result.success) { // Should not happen for a new signup, as status will be pending_admission
+      if (result.success) { 
         router.push('/');
       } else if (result.reason === 'pending_admission') {
         router.push(`/auth/confirm?status=application_submitted`);
       } else if (result.reason === 'sanctioned') {
-         setError(`User ${result.username} is sanctioned. Cannot complete signup.`);
-         // Optionally, redirect to login page to show the sanctioned message there
+         setError(t('signup.error.userSanctioned', { username: result.username }));
          router.push(`/auth/login?error=sanctioned&username=${result.username}&endDate=${result.sanctionEndDate}`);
       } else {
-        setError(result.reason || "An unexpected error occurred after Google Sign-Up.");
+        setError(result.reason || t('signup.error.googleUnexpected'));
       }
     } catch (error: any) {
       console.error("Google Sign-Up Error:", error);
       if (error.code === 'auth/popup-closed-by-user') {
-        setError("Google Sign-Up was cancelled.");
+        setError(t('signup.error.googleCancelled'));
       } else if (error.code === 'auth/account-exists-with-different-credential') {
-        setError("An account already exists with this email address using a different sign-in method. Please log in instead.");
-         toast({ title: "Account Exists", description: "An account with this email already exists. Please log in.", variant: "default"});
+        setError(t('signup.error.googleAccountExists'));
+         toast({ title: t('signup.toast.accountExistsTitle'), description: t('signup.toast.accountExistsDesc'), variant: "default"});
       } else {
-        setError("Failed to sign up with Google. Please try again.");
+        setError(t('signup.error.googleGenericFail'));
       }
     } finally {
       setIsGoogleSubmitting(false);
@@ -185,16 +185,16 @@ export default function SignupPage() {
           <div className="inline-block mx-auto mb-4">
              <ShieldCheck className="h-16 w-16 text-primary" />
           </div>
-          <CardTitle className="text-3xl font-bold">Apply to Join Kratia</CardTitle>
-          <CardDescription>Submit your application to become a member of our community.</CardDescription>
+          <CardTitle className="text-3xl font-bold">{t('signup.title')}</CardTitle>
+          <CardDescription>{t('signup.description')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleEmailPasswordSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t('signup.usernameLabel')}</Label>
               <Input
                 id="username"
-                placeholder="YourUniqueUsername"
+                placeholder={t('signup.usernamePlaceholder')}
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -202,11 +202,11 @@ export default function SignupPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('signup.emailLabel')}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="m@example.com"
+                placeholder={t('signup.emailPlaceholder')}
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -214,7 +214,7 @@ export default function SignupPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t('signup.passwordLabel')}</Label>
               <Input
                 id="password"
                 type="password"
@@ -222,11 +222,11 @@ export default function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isSubmitting || isGoogleSubmitting}
-                placeholder="At least 6 characters"
+                placeholder={t('signup.passwordPlaceholder')}
               />
             </div>
              <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm Password</Label>
+              <Label htmlFor="confirm-password">{t('signup.confirmPasswordLabel')}</Label>
               <Input
                 id="confirm-password"
                 type="password"
@@ -237,10 +237,10 @@ export default function SignupPage() {
               />
             </div>
             <div className="space-y-2">
-                <Label htmlFor="presentation">Presentation / Reason for Joining (min. 50 characters)</Label>
+                <Label htmlFor="presentation">{t('signup.presentationLabel')}</Label>
                 <Textarea
                     id="presentation"
-                    placeholder="Tell us a bit about yourself and why you'd like to join Kratia Forums..."
+                    placeholder={t('signup.presentationPlaceholder')}
                     rows={5}
                     value={presentation}
                     onChange={(e) => setPresentation(e.target.value)}
@@ -257,16 +257,16 @@ export default function SignupPage() {
                 disabled={isSubmitting || isGoogleSubmitting}
               />
               <Label htmlFor="terms" className="text-sm font-normal text-muted-foreground">
-                I agree to the{" "}
+                {t('signup.agreeToTermsPrefix')}{" "}
                 <Link href="/constitution" className="underline hover:text-primary" target="_blank" rel="noopener noreferrer">
-                  Normas y Condiciones
+                  {t('signup.termsLink')}
                 </Link>
               </Label>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={isSubmitting || isGoogleSubmitting}>
               {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <UserPlus className="mr-2 h-5 w-5" />}
-              {isSubmitting ? "Submitting Application..." : "Submit Application with Email"}
+              {isSubmitting ? t('signup.submittingButton') : t('signup.submitButtonEmail')}
             </Button>
           </form>
 
@@ -276,7 +276,7 @@ export default function SignupPage() {
             </div>
             <div className="relative flex justify-center text-xs uppercase">
               <span className="bg-background px-2 text-muted-foreground">
-                Or
+                {t('signup.or')}
               </span>
             </div>
           </div>
@@ -287,13 +287,13 @@ export default function SignupPage() {
                 <path fill="currentColor" d="M488 261.8C488 403.3 381.5 512 244 512 110.3 512 0 399.9 0 256S110.3 0 244 0c76.3 0 141.2 30.3 191.5 78.4l-69.9 69.9C333.7 117.2 292.5 96 244 96c-89.6 0-162.8 72.1-162.8 160s73.2 160 162.8 160c98.1 0 137.5-60.3 142.9-92.2h-142.9v-90.1h244c2.7 14.7 4.2 30.3 4.2 46.1z"></path>
               </svg>
             }
-            Sign up with Google
+            {t('signup.submitButtonGoogle')}
           </Button>
 
           <div className="mt-6 text-center text-sm">
-            Already have an account?{" "}
+            {t('signup.alreadyHaveAccount')}{" "}
             <Link href="/auth/login" className="underline font-medium text-primary hover:text-primary/80">
-              Login
+              {t('signup.loginLink')}
             </Link>
           </div>
         </CardContent>
@@ -301,3 +301,5 @@ export default function SignupPage() {
     </div>
   );
 }
+
+    

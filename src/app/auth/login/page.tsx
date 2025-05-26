@@ -13,15 +13,17 @@ import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { auth, GoogleAuthProvider } from "@/lib/firebase";
 import { signInWithEmailAndPassword, signInWithPopup, type UserCredential, type FirebaseError } from "firebase/auth";
+import { useTranslation } from 'react-i18next';
 
 export default function LoginPage() {
   const { loginAndSetUserFromFirestore, logout } = useMockAuth();
   const router = useRouter();
+  const { t } = useTranslation('common');
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [authError, setAuthError] = useState<{type: 'sanctioned' | 'pending_admission' | 'email_not_verified', username?: string; endDate?: string; userEmail?: string} | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false); // Corrected line
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -34,7 +36,7 @@ export default function LoginPage() {
       const firebaseUser = userCredential.user;
 
       if (!firebaseUser) {
-        setError("Authentication failed. Please try again.");
+        setError(t('login.error.authFailed'));
         setIsSubmitting(false);
         return;
       }
@@ -55,33 +57,33 @@ export default function LoginPage() {
         } else if (firestoreCheckResult.reason === 'pending_admission') {
           setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
         } else if (firestoreCheckResult.reason === 'not_found_in_firestore') {
-           setError("Login failed. User profile not found after authentication. Please contact support.");
+           setError(t('login.error.profileNotFound'));
         } else {
-          setError("Login failed after authentication. User profile issue.");
+          setError(t('login.error.profileIssue'));
           console.error("Login failed (Firestore check), reason:", firestoreCheckResult.reason, "for UID:", firebaseUser.uid);
         }
       }
     } catch (err: any) {
       console.error("Firebase Auth Email/Password Login error:", err.code, err.message);
-      let specificError = "Login failed. Please check your credentials.";
+      let specificError = t('login.error.invalidCredentialsGeneric');
       switch (err.code) {
         case 'auth/user-not-found':
-          specificError = "No user found with this email.";
+          specificError = t('login.error.userNotFound');
           break;
         case 'auth/wrong-password':
-          specificError = "Incorrect password. Please try again.";
+          specificError = t('login.error.wrongPassword');
           break;
         case 'auth/invalid-credential':
-            specificError = "Invalid credentials. Please check your email and password.";
+            specificError = t('login.error.invalidCredentials');
             break;
         case 'auth/invalid-email':
-          specificError = "The email address is not valid.";
+          specificError = t('login.error.invalidEmail');
           break;
         case 'auth/too-many-requests':
-            specificError = "Too many login attempts. Please try again later or reset your password.";
+            specificError = t('login.error.tooManyRequests');
             break;
         default:
-          specificError = "Failed to login. Please check your credentials and try again.";
+          specificError = t('login.error.genericFail');
       }
       setError(specificError);
     } finally {
@@ -99,7 +101,7 @@ export default function LoginPage() {
       const firebaseUser = userCredential.user;
 
       if (!firebaseUser) {
-        setError("Google Sign-In failed. Please try again.");
+        setError(t('login.error.googleAuthFailed'));
         setIsSubmitting(false);
         return;
       }
@@ -119,18 +121,18 @@ export default function LoginPage() {
         } else if (firestoreCheckResult.reason === 'pending_admission') {
           setAuthError({type: 'pending_admission', username: firestoreCheckResult.username});
         } else {
-          setError("Google Sign-In completed, but user profile has an issue. Reason: " + (firestoreCheckResult.reason || 'Unknown'));
+          setError(t('login.error.googleProfileIssue', { reason: firestoreCheckResult.reason || 'Unknown' }));
           console.error("Google Sign-In: Firestore check failed, reason:", firestoreCheckResult.reason, "for UID:", firebaseUser.uid);
         }
       }
     } catch (error: any) {
       console.error("Google Sign-In Error:", error);
       if (error.code === 'auth/popup-closed-by-user') {
-        setError("Google Sign-In was cancelled.");
+        setError(t('login.error.googleCancelled'));
       } else if (error.code === 'auth/account-exists-with-different-credential') {
-        setError("An account already exists with this email address using a different sign-in method.");
+        setError(t('login.error.googleAccountExists'));
       } else {
-        setError("Failed to sign in with Google. Please try again.");
+        setError(t('login.error.googleGenericFail'));
       }
     } finally {
       setIsSubmitting(false);
@@ -154,22 +156,22 @@ export default function LoginPage() {
              : <ShieldCheck className="h-16 w-16 text-primary" />}
           </div>
           <CardTitle className="text-3xl font-bold">
-            {authError?.type === 'sanctioned' ? "Access Denied"
-             : authError?.type === 'pending_admission' ? "Application Pending"
-             : authError?.type === 'email_not_verified' ? "Email Not Verified"
-             : "Welcome Back!"}
+            {authError?.type === 'sanctioned' ? t('login.titleSanctioned')
+             : authError?.type === 'pending_admission' ? t('login.titlePendingAdmission')
+             : authError?.type === 'email_not_verified' ? t('login.titleEmailNotVerified')
+             : t('login.titleWelcomeBack')}
           </CardTitle>
           <CardDescription>
             {authError?.type === 'sanctioned'
-              ? `User ${authError.username} is currently sanctioned.`
+              ? t('login.descSanctioned', { username: authError.username })
               : authError?.type === 'pending_admission'
-              ? `The admission application for ${authError.username} is currently under review by the community. You will be notified of the outcome.`
+              ? t('login.descPendingAdmission', { username: authError.username })
               : authError?.type === 'email_not_verified'
-              ? `Please verify your email address (${authError.userEmail}) by clicking the link sent to your inbox. Check your spam folder if you can't find it.`
-              : "Enter your email to access your Kratia account."}
+              ? t('login.descEmailNotVerified', { email: authError.userEmail })
+              : t('login.descDefault')}
              {authError?.type === 'sanctioned' && authError.endDate && (
                 <span className="block mt-1 text-sm text-destructive">
-                  Sanction ends: {format(new Date(authError.endDate), "PPPp")}
+                  {t('login.sanctionEnds')}: {format(new Date(authError.endDate), "PPPp")}
                 </span>
               )}
           </CardDescription>
@@ -178,11 +180,11 @@ export default function LoginPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('login.emailLabel')}</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder={t('login.emailPlaceholder')}
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -191,9 +193,9 @@ export default function LoginPage() {
               </div>
               <div className="space-y-2">
                 <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">{t('login.passwordLabel')}</Label>
                   <Link href="/auth/forgot-password" className="ml-auto inline-block text-sm underline text-muted-foreground hover:text-primary">
-                    Forgot your password?
+                    {t('login.forgotPasswordLink')}
                   </Link>
                 </div>
                 <Input
@@ -208,7 +210,7 @@ export default function LoginPage() {
               {error && !authError && <p className="text-sm text-destructive">{error}</p>}
               <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
-                {isSubmitting ? "Logging in..." : "Login"}
+                {isSubmitting ? t('login.loggingInButton') : t('login.loginButton')}
               </Button>
             </form>
             <div className="mt-4 relative">
@@ -217,7 +219,7 @@ export default function LoginPage() {
               </div>
               <div className="relative flex justify-center text-xs uppercase">
                 <span className="bg-background px-2 text-muted-foreground">
-                  Or continue with
+                  {t('login.orContinueWith')}
                 </span>
               </div>
             </div>
@@ -227,12 +229,12 @@ export default function LoginPage() {
                   <path fill="currentColor" d="M488 261.8C488 403.3 381.5 512 244 512 110.3 512 0 399.9 0 256S110.3 0 244 0c76.3 0 141.2 30.3 191.5 78.4l-69.9 69.9C333.7 117.2 292.5 96 244 96c-89.6 0-162.8 72.1-162.8 160s73.2 160 162.8 160c98.1 0 137.5-60.3 142.9-92.2h-142.9v-90.1h244c2.7 14.7 4.2 30.3 4.2 46.1z"></path>
                 </svg>
               }
-              Sign in with Google
+              {t('login.googleSignInButton')}
             </Button>
             <div className="mt-6 text-center text-sm">
-              Don&apos;t have an account?{" "}
+              {t('login.noAccount')}{" "}
               <Link href="/auth/signup" className="underline font-medium text-primary hover:text-primary/80">
-                Apply to Join
+                {t('login.applyToJoinLink')}
               </Link>
             </div>
           </CardContent>
@@ -240,7 +242,7 @@ export default function LoginPage() {
         {authError && (
             <CardContent className="text-center">
                  <Button onClick={handleContinueAsVisitor} variant="outline" className="mt-4 w-full">
-                    <Home className="mr-2 h-5 w-5" /> Continue as Visitor
+                    <Home className="mr-2 h-5 w-5" /> {t('login.continueAsVisitorButton')}
                 </Button>
             </CardContent>
         )}
@@ -248,3 +250,5 @@ export default function LoginPage() {
     </div>
   );
 }
+
+    

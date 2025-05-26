@@ -8,12 +8,14 @@ import { useMockAuth } from '@/hooks/use-mock-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Ban, LogOut, Home } from "lucide-react";
+import { Ban, LogOut, Home, Loader2 } from "lucide-react";
 import { format } from 'date-fns';
+import { useTranslation } from 'react-i18next';
 
 export default function SanctionedPage() {
   const { user: loggedInUser, logout, loading: authLoading } = useMockAuth();
   const router = useRouter();
+  const { t } = useTranslation('common');
   const [username, setUsername] = useState<string | undefined>(undefined);
   const [sanctionEndDate, setSanctionEndDate] = useState<string | undefined>(undefined);
 
@@ -22,32 +24,33 @@ export default function SanctionedPage() {
       setUsername(loggedInUser.username);
       setSanctionEndDate(loggedInUser.sanctionEndDate);
     }
-    // If SanctionCheckWrapper does its job, we should only have sanctioned users here.
-    // If a non-sanctioned user or no user (after loading) lands here,
-    // SanctionCheckWrapper should have already redirected them.
-    // So, complex redirect logic here is removed to avoid conflicts.
   }, [loggedInUser]);
 
   const handleLogout = () => {
     logout();
-    router.push('/'); // Redirect to homepage after logout
+    router.push('/'); 
   };
 
   const handleContinueAsVisitor = () => {
-    logout(); // Effectively logs out to visitor state by setting user to visitor0
+    logout(); 
     router.push('/');
   };
 
   if (authLoading) {
-    return <div className="flex justify-center items-center min-h-screen"><Ban className="h-12 w-12 animate-pulse text-destructive" /></div>;
+    return (
+      <div className="flex flex-col justify-center items-center min-h-[calc(100vh-10rem)]">
+        <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+        <p className="text-muted-foreground">{t('sanctionedPage.loadingStatus')}</p>
+      </div>
+    );
   }
 
-  // If SanctionCheckWrapper has done its job, loggedInUser should be present and sanctioned.
-  // If not, it implies a routing issue or transient state, let SanctionCheckWrapper handle.
   if (!loggedInUser || loggedInUser.status !== 'sanctioned') {
-    // This should ideally not be hit if SanctionCheckWrapper is working correctly.
-    // Showing a generic message as the wrapper should redirect away.
-    return <div className="flex justify-center items-center min-h-screen"><p>Verifying user status...</p></div>;
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <p>{t('sanctionedPage.verifyingStatus')}</p>
+      </div>
+    );
   }
 
   return (
@@ -57,33 +60,33 @@ export default function SanctionedPage() {
           <div className="inline-block mx-auto mb-6 p-4 bg-destructive/10 rounded-full">
             <Ban className="h-16 w-16 text-destructive" />
           </div>
-          <CardTitle className="text-3xl font-bold">Access Restricted</CardTitle>
+          <CardTitle className="text-3xl font-bold">{t('sanctionedPage.title')}</CardTitle>
           <CardDescription className="text-lg text-muted-foreground mt-2">
-            Your account, {username || "User"}, is currently sanctioned.
+            {t('sanctionedPage.description', { username: username || t('sanctionedPage.userPlaceholder') })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <Alert variant="destructive">
             <Ban className="h-5 w-5" />
-            <AlertTitle>Sanction Active</AlertTitle>
+            <AlertTitle>{t('sanctionedPage.alertTitle')}</AlertTitle>
             <AlertDescription>
-              You are unable to participate in the community until your sanction ends.
+              {t('sanctionedPage.alertDescription')}
               {sanctionEndDate && (
                 <p className="mt-1">
-                  Sanction ends: <strong>{format(new Date(sanctionEndDate), "PPPp")}</strong>
+                  {t('sanctionedPage.sanctionEnds')}: <strong>{format(new Date(sanctionEndDate), "PPPp")}</strong>
                 </p>
               )}
             </AlertDescription>
           </Alert>
           <p className="text-sm text-muted-foreground">
-            You can view public content as a visitor or log out.
+            {t('sanctionedPage.optionsInfo')}
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button onClick={handleContinueAsVisitor} variant="outline" className="w-full sm:w-auto">
-              <Home className="mr-2 h-5 w-5" /> Continue as Visitor
+              <Home className="mr-2 h-5 w-5" /> {t('sanctionedPage.continueAsVisitorButton')}
             </Button>
             <Button onClick={handleLogout} variant="secondary" className="w-full sm:w-auto">
-              <LogOut className="mr-2 h-5 w-5" /> Log Out
+              <LogOut className="mr-2 h-5 w-5" /> {t('sanctionedPage.logoutButton')}
             </Button>
           </div>
         </CardContent>
@@ -91,3 +94,5 @@ export default function SanctionedPage() {
     </div>
   );
 }
+
+    
