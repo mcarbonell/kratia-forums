@@ -15,6 +15,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { KRATIA_CONFIG } from '@/lib/config';
+import { useTranslation } from 'react-i18next';
 
 // Helper function for timestamp conversion
 const formatFirestoreTimestampToReadable = (timestamp: any): string | undefined => {
@@ -41,6 +42,7 @@ export default function UserProfilePage() {
   const router = useRouter();
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const userId = params.userId as string;
+  const { t } = useTranslation('common');
 
   const [profileUser, setProfileUser] = useState<KratiaUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,13 +51,13 @@ export default function UserProfilePage() {
   const [recentThreads, setRecentThreads] = useState<Thread[]>([]);
   const [isLoadingThreads, setIsLoadingThreads] = useState(false);
   
-  const [recentPosts, setRecentPosts] = useState<PostWithForumId[]>([]); // Use the new type
+  const [recentPosts, setRecentPosts] = useState<PostWithForumId[]>([]);
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
 
 
   useEffect(() => {
     if (!userId) {
-      setError("User ID is missing from the URL.");
+      setError(t('profileView.error.missingId'));
       setIsLoading(false);
       return;
     }
@@ -64,7 +66,7 @@ export default function UserProfilePage() {
       setIsLoading(true);
       setError(null);
       setRecentThreads([]);
-      setRecentPosts([]); // Initialize recentPosts
+      setRecentPosts([]);
       try {
         const userRef = doc(db, "users", userId);
         const userSnap = await getDoc(userRef);
@@ -96,7 +98,6 @@ export default function UserProfilePage() {
           const postsSnapshot = await getDocs(postsQuery);
           const fetchedPosts = postsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Post));
           
-          // Now, augment posts with forumId
           const postsWithForumData = await Promise.all(
             fetchedPosts.map(async (p) => {
               let fetchedForumId: string | undefined = undefined;
@@ -114,21 +115,20 @@ export default function UserProfilePage() {
                   console.warn(`Profile Page: Thread ${p.threadId} not found for post ${p.id}.`);
                 }
               }
-              return { ...p, forumId: fetchedForumId }; // Ensure forumId is part of the object
+              return { ...p, forumId: fetchedForumId };
             })
           );
-          setRecentPosts(postsWithForumData); // Update state with augmented posts
+          setRecentPosts(postsWithForumData);
           setIsLoadingPosts(false);
 
         } else {
-          setError("User not found. This profile does not exist or could not be loaded.");
+          setError(t('profileView.error.userNotFound'));
           setProfileUser(null);
         }
       } catch (err) {
         console.error("Error fetching user profile or activity:", err);
-        setError("Failed to load user profile or activity. Please try again later.");
+        setError(t('profileView.error.loadFail'));
         setProfileUser(null);
-        // Ensure loading states are false on error
         setIsLoadingThreads(false);
         setIsLoadingPosts(false);
       } finally {
@@ -137,13 +137,13 @@ export default function UserProfilePage() {
     };
 
     fetchUserProfileAndActivity();
-  }, [userId]);
+  }, [userId, t]);
 
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Loading profile...</p>
+        <p className="ml-4 text-muted-foreground">{t('profileView.loadingProfile')}</p>
       </div>
     );
   }
@@ -152,12 +152,12 @@ export default function UserProfilePage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Frown className="h-5 w-5" />
-        <AlertTitle>{error ? "Error Loading Profile" : "Profile Not Found"}</AlertTitle>
+        <AlertTitle>{error ? t('profileView.error.errorTitle') : t('profileView.error.notFoundTitle')}</AlertTitle>
         <AlertDescription>
-          {error || "The user profile you are looking for could not be displayed."}
+          {error || t('profileView.error.genericNotFound')}
         </AlertDescription>
         <Button asChild className="mt-4">
-          <Link href="/">Go to Homepage</Link>
+          <Link href="/">{t('profileView.goToHomepageButton')}</Link>
         </Button>
       </Alert>
     );
@@ -165,11 +165,11 @@ export default function UserProfilePage() {
   
   const registrationDateFormatted = profileUser.registrationDate 
     ? formatDistanceToNow(new Date(profileUser.registrationDate), { addSuffix: true }) 
-    : 'Unknown';
+    : t('profileView.unknown');
 
   const sanctionEndDateFormatted = profileUser.sanctionEndDate
     ? formatFirestoreTimestampToReadable(profileUser.sanctionEndDate)
-    : 'N/A';
+    : t('profileView.notApplicable');
 
   const isOwnProfile = loggedInUser?.id === profileUser.id;
   const canProposeSanction = loggedInUser && 
@@ -185,20 +185,20 @@ export default function UserProfilePage() {
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <h1 className="text-3xl font-bold flex items-center">
           <UserIcon className="mr-3 h-8 w-8 text-primary" />
-          {profileUser.username}'s Profile
+          {t('profileView.title', { username: profileUser.username })}
         </h1>
         <div className="flex gap-2">
           {isOwnProfile && (
             <Button variant="outline" asChild>
               <Link href={`/profile/edit`}> 
-                <Edit className="mr-2 h-4 w-4" /> Edit Profile
+                <Edit className="mr-2 h-4 w-4" /> {t('profileView.editProfileButton')}
               </Link>
             </Button>
           )}
           {canProposeSanction && (
             <Button variant="destructive" asChild>
               <Link href={`/users/${profileUser.id}/propose-sanction`}>
-                <ShieldAlert className="mr-2 h-4 w-4" /> Propose Sanction
+                <ShieldAlert className="mr-2 h-4 w-4" /> {t('profileView.proposeSanctionButton')}
               </Link>
             </Button>
           )}
@@ -208,19 +208,19 @@ export default function UserProfilePage() {
       {profileUser.status === 'under_sanction_process' && (
         <Alert variant="destructive">
           <ShieldAlert className="h-5 w-5" />
-          <AlertTitle>User Under Sanction Process</AlertTitle>
+          <AlertTitle>{t('profileView.status.underSanctionTitle')}</AlertTitle>
           <AlertDescription>
-            This user is currently undergoing a community sanction votation process. Some actions might be restricted.
+            {t('profileView.status.underSanctionDesc')}
           </AlertDescription>
         </Alert>
       )}
        {profileUser.status === 'sanctioned' && (
         <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
           <Ban className="h-5 w-5" />
-          <AlertTitle>User Sanctioned</AlertTitle>
+          <AlertTitle>{t('profileView.status.sanctionedTitle')}</AlertTitle>
           <AlertDescription>
-            This user is currently sanctioned. 
-            {profileUser.sanctionEndDate && ` Sanction ends: ${sanctionEndDateFormatted}`}
+            {t('profileView.status.sanctionedDesc')}
+            {profileUser.sanctionEndDate && ` ${t('profileView.status.sanctionEnds')}: ${sanctionEndDateFormatted}`}
           </AlertDescription>
         </Alert>
       )}
@@ -232,7 +232,7 @@ export default function UserProfilePage() {
           <div className="flex-grow">
             <CardTitle className="text-3xl font-semibold">{profileUser.username}</CardTitle>
             <CardDescription className="text-md mt-1">
-              {profileUser.email} {profileUser.role && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full ml-2 capitalize">{profileUser.role.replace('_', ' ')}</span>}
+              {profileUser.email} {profileUser.role && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full ml-2 capitalize">{t(`roles.${profileUser.role.replace('_', '')}` as any, profileUser.role.replace('_', ' '))}</span>}
             </CardDescription>
           </div>
         </CardHeader>
@@ -241,7 +241,7 @@ export default function UserProfilePage() {
             <Card className="bg-background/50">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center">
-                  <CalendarDays className="mr-2 h-5 w-5 text-primary" /> Member Since
+                  <CalendarDays className="mr-2 h-5 w-5 text-primary" /> {t('profileView.memberSince')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -252,7 +252,7 @@ export default function UserProfilePage() {
             <Card className="bg-background/50">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center">
-                  <Award className="mr-2 h-5 w-5 text-primary" /> Karma
+                  <Award className="mr-2 h-5 w-5 text-primary" /> {t('profileView.karma')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -264,7 +264,7 @@ export default function UserProfilePage() {
               <Card className="bg-background/50">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center">
-                    <MapPin className="mr-2 h-5 w-5 text-primary" /> Location
+                    <MapPin className="mr-2 h-5 w-5 text-primary" /> {t('profileView.location')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -274,15 +274,15 @@ export default function UserProfilePage() {
             )}
 
             <Card className="bg-background/50">
-                <CardHeader><CardTitle className="text-lg flex items-center"><MessageSquare className="mr-2 h-5 w-5 text-primary" />Total Posts</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-lg flex items-center"><MessageSquare className="mr-2 h-5 w-5 text-primary" />{t('profileView.totalPosts')}</CardTitle></CardHeader>
                 <CardContent><p className="font-semibold text-lg">{profileUser.totalPostsByUser || 0}</p></CardContent>
             </Card>
             <Card className="bg-background/50">
-                <CardHeader><CardTitle className="text-lg flex items-center"><ListChecks className="mr-2 h-5 w-5 text-primary" />Threads Started</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-lg flex items-center"><ListChecks className="mr-2 h-5 w-5 text-primary" />{t('profileView.threadsStarted')}</CardTitle></CardHeader>
                 <CardContent><p className="font-semibold text-lg">{profileUser.totalThreadsStartedByUser || 0}</p></CardContent>
             </Card>
              <Card className="bg-background/50">
-                <CardHeader><CardTitle className="text-lg flex items-center"><Award className="mr-2 h-5 w-5 text-primary" />Reactions Received</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-lg flex items-center"><Award className="mr-2 h-5 w-5 text-primary" />{t('profileView.reactionsReceived')}</CardTitle></CardHeader>
                 <CardContent><p className="font-semibold text-lg">{profileUser.totalReactionsReceived || 0}</p></CardContent>
             </Card>
             
@@ -290,7 +290,7 @@ export default function UserProfilePage() {
               <Card className="md:col-span-2 lg:col-span-3 bg-background/50">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center">
-                    <FileText className="mr-2 h-5 w-5 text-primary" /> About Me
+                    <FileText className="mr-2 h-5 w-5 text-primary" /> {t('profileView.aboutMe')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -301,11 +301,11 @@ export default function UserProfilePage() {
           </div>
           
           <div className="mt-8 border-t pt-6">
-            <h3 className="text-xl font-semibold mb-4">Recent Activity</h3>
+            <h3 className="text-xl font-semibold mb-4">{t('profileView.recentActivity.title')}</h3>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
-                <h4 className="text-lg font-medium mb-3 flex items-center"><ListChecks className="mr-2 h-5 w-5 text-primary"/>Recent Threads Started</h4>
+                <h4 className="text-lg font-medium mb-3 flex items-center"><ListChecks className="mr-2 h-5 w-5 text-primary"/>{t('profileView.recentActivity.threadsTitle')}</h4>
                 {isLoadingThreads ? (
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 ) : recentThreads.length > 0 ? (
@@ -316,27 +316,26 @@ export default function UserProfilePage() {
                           {thread.title}
                         </Link>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Created {formatDistanceToNow(new Date(thread.createdAt), { addSuffix: true })}
+                          {t('profileView.recentActivity.created')} {formatDistanceToNow(new Date(thread.createdAt), { addSuffix: true })}
                         </p>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-muted-foreground">No recent threads started by this user.</p>
+                  <p className="text-muted-foreground">{t('profileView.recentActivity.noThreads')}</p>
                 )}
               </div>
 
               <div>
-                <h4 className="text-lg font-medium mb-3 flex items-center"><MessageSquare className="mr-2 h-5 w-5 text-primary"/>Recent Posts</h4>
+                <h4 className="text-lg font-medium mb-3 flex items-center"><MessageSquare className="mr-2 h-5 w-5 text-primary"/>{t('profileView.recentActivity.postsTitle')}</h4>
                 {isLoadingPosts ? (
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 ) : recentPosts.length > 0 ? (
                   <ul className="space-y-3">
                     {recentPosts.map(post => {
-                      // Construct the link using the fetched forumId for the post
                       const postLink = (post.forumId && post.forumId !== 'unknown')
                         ? `/forums/${post.forumId}/threads/${post.threadId}#post-${post.id}`
-                        : `/forums/unknown/threads/${post.threadId}#post-${post.id}`; // Fallback if forumId still not found
+                        : `/forums/unknown/threads/${post.threadId}#post-${post.id}`; 
 
                       return (
                         <li key={post.id} className="p-3 border rounded-md hover:bg-muted/30 transition-colors">
@@ -344,14 +343,14 @@ export default function UserProfilePage() {
                             "{post.content.substring(0, 70)}{post.content.length > 70 ? '...' : ''}"
                           </Link>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            Posted {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+                            {t('profileView.recentActivity.posted')} {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
                           </p>
                         </li>
                       );
                     })}
                   </ul>
                 ) : (
-                  <p className="text-muted-foreground">No recent posts by this user.</p>
+                  <p className="text-muted-foreground">{t('profileView.recentActivity.noPosts')}</p>
                 )}
               </div>
             </div>
@@ -363,3 +362,4 @@ export default function UserProfilePage() {
     </div>
   );
 }
+

@@ -20,7 +20,8 @@ import Link from 'next/link';
 import { db, storage } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import UserAvatar from '@/components/user/UserAvatar'; // To display current avatar
+import UserAvatar from '@/components/user/UserAvatar';
+import { useTranslation } from 'react-i18next';
 
 const profileFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters.").max(50, "Username cannot exceed 50 characters."),
@@ -34,6 +35,7 @@ export default function EditProfilePage() {
   const router = useRouter();
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const { toast } = useToast();
+  const { t } = useTranslation('common');
   
   const [profileUser, setProfileUser] = useState<KratiaUser | null>(null);
   const [currentAvatarDisplayUrl, setCurrentAvatarDisplayUrl] = useState<string | undefined>(undefined);
@@ -52,7 +54,7 @@ export default function EditProfilePage() {
     if (authLoading) return;
     if (!loggedInUser || loggedInUser.role === 'visitor') {
       setIsLoadingUser(false);
-      setError("You must be logged in to edit your profile.");
+      setError(t('profileEdit.error.mustBeLoggedIn'));
       return;
     }
 
@@ -66,25 +68,23 @@ export default function EditProfilePage() {
           const userData = {id: userSnap.id, ...userSnap.data()} as KratiaUser;
           setProfileUser(userData);
           setCurrentAvatarDisplayUrl(userData.avatarUrl);
-          // Pre-fill form
           setValue("username", userData.username);
           setValue("location", userData.location || "");
           setValue("aboutMe", userData.aboutMe || "");
         } else {
-          setError("User profile not found. This should not happen if you are logged in.");
+          setError(t('profileEdit.error.profileNotFound'));
         }
       } catch (err) {
         console.error("Error fetching user profile for edit:", err);
-        setError("Failed to load your profile data. Please try again.");
+        setError(t('profileEdit.error.loadFail'));
       } finally {
         setIsLoadingUser(false);
       }
     };
 
     fetchUserProfile();
-  }, [loggedInUser, authLoading, setValue]);
+  }, [loggedInUser, authLoading, setValue, t]);
 
-  // Effect to clear object URL for preview
   useEffect(() => {
     return () => {
       if (avatarPreview) {
@@ -101,13 +101,13 @@ export default function EditProfilePage() {
     const file = event.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        toast({ title: "File too large", description: "Please select an image smaller than 5MB.", variant: "destructive" });
+        toast({ title: t('profileEdit.toast.avatar.tooLargeTitle'), description: t('profileEdit.toast.avatar.tooLargeDesc'), variant: "destructive" });
         event.target.value = ""; 
         setAvatarFile(null);
         return;
       }
       if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
-        toast({ title: "Invalid file type", description: "Please select a JPG, PNG, GIF, or WEBP image.", variant: "destructive" });
+        toast({ title: t('profileEdit.toast.avatar.invalidTypeTitle'), description: t('profileEdit.toast.avatar.invalidTypeDesc'), variant: "destructive" });
         event.target.value = ""; 
         setAvatarFile(null);
         return;
@@ -121,7 +121,7 @@ export default function EditProfilePage() {
 
   const onSubmit: SubmitHandler<ProfileFormData> = async (data) => {
     if (!profileUser || !loggedInUser) {
-      toast({ title: "Error", description: "User not found.", variant: "destructive" });
+      toast({ title: t('profileEdit.toast.errorTitle'), description: t('profileEdit.error.userNotFoundOnSubmit'), variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -129,11 +129,11 @@ export default function EditProfilePage() {
 
     try {
       if (avatarFile) {
-        toast({ title: "Uploading Avatar...", description: "Please wait."});
+        toast({ title: t('profileEdit.toast.avatar.uploadingTitle'), description: t('profileEdit.toast.avatar.uploadingDesc')});
         const storageRef = ref(storage, `avatars/${loggedInUser.id}/profileImage`); 
         await uploadBytes(storageRef, avatarFile);
         newAvatarUrl = await getDownloadURL(storageRef);
-        toast({ title: "Avatar Uploaded!", description: "Your new avatar is saved."});
+        toast({ title: t('profileEdit.toast.avatar.successTitle'), description: t('profileEdit.toast.avatar.successDesc')});
       }
 
       const userRef = doc(db, "users", loggedInUser.id);
@@ -148,35 +148,34 @@ export default function EditProfilePage() {
         setCurrentAvatarDisplayUrl(newAvatarUrl);
       }
 
-
       toast({
-        title: "Profile Updated!",
-        description: "Your profile has been successfully updated.",
+        title: t('profileEdit.toast.profileUpdateSuccessTitle'),
+        description: t('profileEdit.toast.profileUpdateSuccessDesc'),
       });
       router.push(`/profile/${loggedInUser.id}`);
     } catch (error: any) {
       console.error("Error updating profile:", error);
-      let description = "Could not update your profile. Please try again.";
+      let description = t('profileEdit.toast.profileUpdateErrorDesc');
       if (error.code) { 
         switch (error.code) {
           case 'storage/unauthorized':
-            description = "Storage Error: You are not authorized to upload this file. Please check Firebase Storage rules. (Remember, mock auth might require temporarily open rules for development).";
+            description = t('profileEdit.error.storageUnauthorized');
             break;
           case 'storage/object-not-found':
-            description = "Storage Error: File not found after upload. This is unexpected.";
+            description = t('profileEdit.error.storageObjectNotFound');
             break;
           case 'storage/canceled':
-            description = "Storage Error: The upload was canceled.";
+            description = t('profileEdit.error.storageCanceled');
             break;
-          case 'permission-denied': // Firestore permission denied OR Storage permission denied without a more specific code
-            description = "Permission Denied: Could not save changes. Please check Firestore and Firebase Storage security rules.";
+          case 'permission-denied': 
+            description = t('profileEdit.error.permissionDenied');
             break;
           default:
-            description = `An error occurred: ${error.message || 'Unknown error'}`;
+            description = t('profileEdit.error.default', { message: error.message || 'Unknown error' });
         }
       }
       toast({
-        title: "Update Failed",
+        title: t('profileEdit.toast.profileUpdateErrorTitle'),
         description: description,
         variant: "destructive",
       });
@@ -189,7 +188,7 @@ export default function EditProfilePage() {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-20rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Loading profile editor...</p>
+        <p className="ml-4 text-muted-foreground">{t('profileEdit.loadingEditor')}</p>
       </div>
     );
   }
@@ -198,14 +197,14 @@ export default function EditProfilePage() {
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <Frown className="h-5 w-5" />
-        <AlertTitle>{error ? "Error" : "Cannot Edit Profile"}</AlertTitle>
+        <AlertTitle>{error ? t('profileEdit.error.errorTitle') : t('profileEdit.error.cannotEditTitle')}</AlertTitle>
         <AlertDescription>
-          {error || "You might not have permission or your profile data could not be loaded."}
+          {error || t('profileEdit.error.cannotEditDesc')}
         </AlertDescription>
         <Button asChild className="mt-4">
           <Link href={loggedInUser ? `/profile/${loggedInUser.id}` : "/"}>
             <CornerUpLeft className="mr-2 h-4 w-4" />
-            Back to {loggedInUser ? 'Profile' : 'Homepage'}
+            {t(loggedInUser ? 'profileEdit.backToProfileButton' : 'profileEdit.backToHomepageButton')}
           </Link>
         </Button>
       </Alert>
@@ -216,12 +215,12 @@ export default function EditProfilePage() {
      return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <ShieldAlert className="h-5 w-5" />
-        <AlertTitle>Access Denied</AlertTitle>
+        <AlertTitle>{t('profileEdit.accessDeniedTitle')}</AlertTitle>
         <AlertDescription>
-          You must be logged in to edit your profile.
+          {t('profileEdit.error.mustBeLoggedIn')}
         </AlertDescription>
         <Button asChild className="mt-4">
-          <Link href="/auth/login">Login</Link>
+          <Link href="/auth/login">{t('login.loginButton')}</Link>
         </Button>
       </Alert>
     );
@@ -234,21 +233,21 @@ export default function EditProfilePage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <UserCog className="mr-3 h-7 w-7 text-primary" />
-            Edit Your Profile
+            {t('profileEdit.title')}
           </CardTitle>
           <CardDescription>
-            Update your personal information. This information will be visible to other users.
+            {t('profileEdit.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <Label>Current Avatar</Label>
+              <Label>{t('profileEdit.currentAvatarLabel')}</Label>
               <div className="flex items-center gap-4">
                 <UserAvatar user={{username: profileUser.username, avatarUrl: avatarPreview || currentAvatarDisplayUrl}} size="lg" />
                 <div>
                   <Label htmlFor="avatarFile" className="cursor-pointer inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2">
-                    <UploadCloud className="mr-2 h-4 w-4" /> Change Avatar
+                    <UploadCloud className="mr-2 h-4 w-4" /> {t('profileEdit.changeAvatarButton')}
                   </Label>
                   <Input
                     id="avatarFile"
@@ -258,27 +257,27 @@ export default function EditProfilePage() {
                     className="hidden" 
                     disabled={isSubmitting}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">Max 5MB. JPG, PNG, GIF, WEBP.</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t('profileEdit.avatarHelpText')}</p>
                 </div>
               </div>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t('profileEdit.usernameLabel')}</Label>
               <Input
                 id="username"
                 type="text"
-                placeholder="Your new username"
+                placeholder={t('profileEdit.usernamePlaceholder')}
                 {...register("username")}
                 className={errors.username ? "border-destructive" : ""}
                 disabled={isSubmitting}
               />
               {errors.username && <p className="text-sm text-destructive">{errors.username.message}</p>}
-              <p className="text-xs text-muted-foreground">Changing your username might not update it in old posts immediately.</p>
+              <p className="text-xs text-muted-foreground">{t('profileEdit.usernameHelpText')}</p>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="email">Email (read-only)</Label>
+              <Label htmlFor="email">{t('profileEdit.emailLabel')}</Label>
               <Input
                 id="email"
                 type="email"
@@ -287,15 +286,15 @@ export default function EditProfilePage() {
                 disabled
                 className="bg-muted/50"
               />
-               <p className="text-xs text-muted-foreground">Email address cannot be changed here.</p>
+               <p className="text-xs text-muted-foreground">{t('profileEdit.emailHelpText')}</p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
+              <Label htmlFor="location">{t('profileEdit.locationLabel')}</Label>
               <Input
                 id="location"
                 type="text"
-                placeholder="City, Country"
+                placeholder={t('profileEdit.locationPlaceholder')}
                 {...register("location")}
                 className={errors.location ? "border-destructive" : ""}
                 disabled={isSubmitting}
@@ -304,10 +303,10 @@ export default function EditProfilePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="aboutMe">About Me</Label>
+              <Label htmlFor="aboutMe">{t('profileEdit.aboutMeLabel')}</Label>
               <Textarea
                 id="aboutMe"
-                placeholder="Tell us a little about yourself..."
+                placeholder={t('profileEdit.aboutMePlaceholder')}
                 rows={5}
                 {...register("aboutMe")}
                 className={errors.aboutMe ? "border-destructive" : ""}
@@ -318,7 +317,7 @@ export default function EditProfilePage() {
             
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => router.push(`/profile/${loggedInUser.id}`)} disabled={isSubmitting}>
-                    Cancel
+                    {t('profileEdit.cancelButton')}
                 </Button>
                 <Button type="submit" disabled={isSubmitting} className="min-w-[120px]">
                 {isSubmitting ? (
@@ -326,7 +325,7 @@ export default function EditProfilePage() {
                 ) : (
                     <Save className="mr-2 h-4 w-4" />
                 )}
-                Save Changes
+                {t('profileEdit.saveButton')}
                 </Button>
             </div>
           </form>
@@ -336,5 +335,3 @@ export default function EditProfilePage() {
   );
 }
 
-
-    
