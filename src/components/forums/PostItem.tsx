@@ -96,8 +96,12 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
       (match, videoId) => {
         if (!videoId || videoId.length !== 11) return match;
         const embedUrl = `https://www.youtube.com/embed/${videoId}`;
+        console.log("[PostItem] Detected YouTube videoId:", videoId);
+        console.log("[PostItem] Constructing YouTube embed URL:", embedUrl);
         const iframeTagHtml = `<iframe title="${t('postItem.youtubeEmbedTitle')}" src="${embedUrl}" width="100%" height="100%" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen class="absolute top-0 left-0 w-full h-full"></iframe>`;
+        console.log("[PostItem] Generated iframe tag HTML:", iframeTagHtml);
         const fullContainerHtml = `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
+        console.log("[PostItem] Generated full YouTube container HTML:", fullContainerHtml);
         return fullContainerHtml;
       }
     );
@@ -179,7 +183,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         if (!postDoc.exists()) throw new Error(t('postItem.error.postNotFoundTransaction'));
         
         let postAuthorDoc: DocumentSnapshot | null = null;
-        if (post.author.id && post.author.id !== 'unknown') {
+        if (post.author.id && post.author.id !== 'unknown') { // Ensure author ID is valid before fetching
           postAuthorDoc = await transaction.get(postAuthorUserRef);
         }
         
@@ -203,17 +207,18 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         }
         
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
-        const newReactionsFieldForPost = { ...serverReactions };
-        if (newEmojiUserIds.length === 0 && newReactionsFieldForPost[emoji]) {
-          delete newReactionsFieldForPost[emoji];
+        const newReactionsStateForPost = { ...serverReactions }; // Use a new name for clarity
+        if (newEmojiUserIds.length === 0 && newReactionsStateForPost[emoji]) {
+          delete newReactionsStateForPost[emoji];
         } else if (newEmojiUserIds.length > 0) {
-          newReactionsFieldForPost[emoji] = updatedReactionsForEmoji;
+          newReactionsStateForPost[emoji] = updatedReactionsForEmoji;
         }
         
-        transaction.update(postRef, { reactions: newReactionsFieldForPost });
-        
+        transaction.update(postRef, { reactions: newReactionsStateForPost });
+        setCurrentReactions(newReactionsStateForPost);  // Update local state immediately after transaction setup
+
         if (post.author.id && post.author.id !== 'unknown' && (karmaChangeForAuthor !== 0 || reactionChangeForAuthor !== 0)) {
-            if (postAuthorDoc && postAuthorDoc.exists()) {
+            if (postAuthorDoc && postAuthorDoc.exists()) { // Check if author doc was fetched and exists
                 transaction.update(postAuthorUserRef, {
                     karma: increment(karmaChangeForAuthor),
                     totalReactionsReceived: increment(reactionChangeForAuthor),
@@ -222,12 +227,15 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                 console.warn(`PostItem: Post author (ID: ${post.author.id}) not found during transaction. Karma/reaction count not updated for author.`);
             }
         }
-        setCurrentReactions(newReactionsFieldForPost); 
-      });
+      }); // End of transaction
 
-      // Notification logic moved outside the transaction
-      const justLiked = !initialReactionsForNotificationCheck['👍']?.userIds.includes(user.id) && currentReactions['👍']?.userIds.includes(user.id);
-      console.log(`[PostItem Notification] justLiked: ${justLiked}, post.author.id: ${post.author.id}, user.id: ${user.id}`);
+      // Notification logic
+      if (!user) return; // Ensure user is still defined
+      const userHadLikedBefore = initialReactionsForNotificationCheck['👍']?.userIds?.includes(user.id) ?? false;
+      const userHasLikedNow = currentReactions['👍']?.userIds?.includes(user.id) ?? false;
+      const justLiked = !userHadLikedBefore && userHasLikedNow;
+
+      console.log(`[PostItem Notification] justLiked: ${justLiked}, userHadLikedBefore: ${userHadLikedBefore}, userHasLikedNow: ${userHasLikedNow}, post.author.id: ${post.author.id}, user.id: ${user.id}`);
 
       if (justLiked && post.author.id !== user.id) {
         console.log(`[PostItem Notification] Conditions met to check author prefs for post author ID: ${post.author.id}`);
@@ -284,8 +292,8 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
 
     } catch (error: any) {
       console.error("[PostItem Like] Error updating reaction in transaction:", error);
-      console.error("[PostItem Like] Error code:", (error as FirestoreError).code); 
-      console.error("[PostItem Like] Error message:", (error as FirestoreError).message);
+      console.error("[PostItem Like] Error code:", (error as FirestoreError)?.code); 
+      console.error("[PostItem Like] Error message:", (error as FirestoreError)?.message);
       toast({ title: t('common.error'), description: t('postItem.toast.reaction.updateError') + (error.message ? `: ${error.message}` : ''), variant: "destructive" });
     } finally {
       setIsLiking(false);
@@ -552,3 +560,4 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     </>
   );
 }
+
