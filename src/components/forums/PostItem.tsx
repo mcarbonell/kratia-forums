@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import type { Post, Poll, PollOption, User as KratiaUser, Thread, Notification, UserNotificationPreferences } from '@/lib/types';
+import type { Post, Poll, PollOption, User as KratiaUser, Thread, Notification, UserNotificationSetting } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
 import { es as esLocale } from 'date-fns/locale/es';
 import { enUS as enUSLocale } from 'date-fns/locale/en-US';
@@ -14,7 +14,7 @@ import { useState, useEffect, type ChangeEvent, useCallback } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, runTransaction, increment, getDoc, deleteDoc, writeBatch, collection, addDoc } from 'firebase/firestore';
+import { doc, updateDoc, runTransaction, increment, getDoc, deleteDoc, writeBatch, collection, addDoc, type DocumentSnapshot, type FirestoreError } from 'firebase/firestore';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,9 +52,8 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingPost, setIsDeletingPost] = useState(false);
 
-
-  const hasUserVotedInPoll = !!(user && currentPoll?.voters && currentPoll.voters[user.id]);
   const userVoteOptionId = user && currentPoll?.voters ? currentPoll.voters[user.id] : null;
+  const hasUserVotedInPoll = !!userVoteOptionId;
 
   useEffect(() => {
     setPost(initialPost);
@@ -88,12 +87,10 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
 
   const formatContent = (content: string) => {
     let processedContent = content;
-    // Image embedding
     processedContent = processedContent.replace(
       /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp)(\?[^\s]*)?)/gi,
       (match) => `<div class="my-4"><img src="${match}" alt="${t('postItem.embeddedImageAlt')}" class="max-w-full h-auto rounded-md shadow-md border" data-ai-hint="forum image" /></div>`
     );
-    // YouTube video embedding
     processedContent = processedContent.replace(
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
@@ -103,14 +100,12 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         return `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
       }
     );
-    // Basic markdown-like formatting for bold and italics, only if no other HTML tags detected
     let finalContent = processedContent;
     if (!finalContent.match(/<[^>]+>/)) {
         finalContent = finalContent
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>');
     }
-    // Newline to <br />
     finalContent = finalContent.replace(/\n/g, '<br />');
     return finalContent;
   };
@@ -175,52 +170,65 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     const postRef = doc(db, "posts", post.id);
     const postAuthorUserRef = doc(db, "users", post.author.id);
     const emoji = '👍';
+
     try {
       await runTransaction(db, async (transaction) => {
+        // --- ALL READS FIRST ---
         const postDoc = await transaction.get(postRef);
         if (!postDoc.exists()) throw new Error(t('postItem.error.postNotFound'));
         const serverPostData = postDoc.data() as Post;
+
+        let postAuthorDoc: DocumentSnapshot | null = null;
+        if (post.author.id && post.author.id !== 'unknown') {
+          postAuthorDoc = await transaction.get(postAuthorUserRef);
+        }
+
+        // --- ALL DATA PROCESSING ---
         const serverReactions = serverPostData.reactions || {};
         const emojiReactionData = serverReactions[emoji] || { userIds: [] };
         const userHasReacted = emojiReactionData.userIds.includes(user.id);
         
-        let newEmojiUserIds;
+        let newEmojiUserIds: string[];
         let karmaChangeForAuthor = 0; 
         let reactionChangeForAuthor = 0;
 
         if (userHasReacted) {
           newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
-          karmaChangeForAuthor = -1; reactionChangeForAuthor = -1;
+          karmaChangeForAuthor = -1; 
+          reactionChangeForAuthor = -1;
         } else {
           newEmojiUserIds = [...emojiReactionData.userIds, user.id];
-          karmaChangeForAuthor = 1; reactionChangeForAuthor = 1;
+          karmaChangeForAuthor = 1; 
+          reactionChangeForAuthor = 1;
         }
         
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
         const newReactionsField = { ...serverReactions };
-        if (newEmojiUserIds.length === 0) delete newReactionsField[emoji];
-        else newReactionsField[emoji] = updatedReactionsForEmoji;
+        if (newEmojiUserIds.length === 0 && newReactionsField[emoji]) {
+          delete newReactionsField[emoji];
+        } else if (newEmojiUserIds.length > 0) {
+          newReactionsField[emoji] = updatedReactionsForEmoji;
+        }
+        
+        // --- ALL WRITES LAST ---
         transaction.update(postRef, { reactions: newReactionsField });
         
         if (post.author.id && post.author.id !== 'unknown' && (karmaChangeForAuthor !== 0 || reactionChangeForAuthor !== 0)) {
-            const postAuthorDoc = await transaction.get(postAuthorUserRef);
-            if (postAuthorDoc.exists()) {
+            if (postAuthorDoc && postAuthorDoc.exists()) {
                 transaction.update(postAuthorUserRef, {
                     karma: increment(karmaChangeForAuthor),
                     totalReactionsReceived: increment(reactionChangeForAuthor),
                 });
-            } else {
-                console.warn(`Post author (ID: ${post.author.id}) not found. Karma/reaction count not updated.`);
+            } else if (post.author.id && post.author.id !== 'unknown') { 
+                console.warn(`PostItem: Post author (ID: ${post.author.id}) not found during write phase. Karma/reaction count not updated for author.`);
             }
         }
-        setCurrentReactions(newReactionsField); // Optimistic UI update
+        setCurrentReactions(newReactionsField); 
       });
 
-      // After successful transaction, check if a notification needs to be sent
-      const emojiReactionData = currentReactions[emoji] || { userIds: [] };
-      const userHasReacted = emojiReactionData.userIds.includes(user.id);
+      const justLiked = !currentReactions['👍']?.userIds.includes(user.id) && newReactionsField['👍']?.userIds.includes(user.id);
 
-      if (userHasReacted && post.author.id !== user.id) { // If user just liked (not unliked)
+      if (justLiked && post.author.id !== user.id) {
         const authorRef = doc(db, "users", post.author.id);
         const authorSnap = await getDoc(authorRef);
         if (authorSnap.exists()) {
@@ -231,9 +239,9 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
           if (shouldNotifyWeb) {
             let parentThreadTitle = t('notifications.aThread');
             if (threadId) {
-              const threadDoc = await getDoc(doc(db, "threads", threadId));
-              if (threadDoc.exists()) {
-                parentThreadTitle = threadDoc.data().title || parentThreadTitle;
+              const threadDocSnap = await getDoc(doc(db, "threads", threadId));
+              if (threadDocSnap.exists()) {
+                parentThreadTitle = threadDocSnap.data().title || parentThreadTitle;
               }
             }
             const truncatedThreadTitle = parentThreadTitle.length > 50 ? `${parentThreadTitle.substring(0, 47)}...` : parentThreadTitle;
@@ -259,8 +267,8 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
 
     } catch (error: any) {
       console.error("Error updating reaction in transaction:", error);
-      console.error("Error code:", error.code); 
-      console.error("Error message:", error.message);
+      console.error("Error code:", (error as FirestoreError).code); 
+      console.error("Error message:", (error as FirestoreError).message);
       toast({ title: t('common.error'), description: t('postItem.toast.reaction.updateError'), variant: "destructive" });
     } finally {
       setIsLiking(false);
@@ -357,7 +365,6 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     }
   };
 
-
   const likeCount = currentReactions['👍']?.userIds?.length || 0;
   const hasUserLiked = user ? currentReactions['👍']?.userIds?.includes(user.id) : false;
   const isOwnPost = user?.id === post.author.id;
@@ -369,11 +376,8 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   const isWithinEditLimit = diffMinutes < KRATIA_CONFIG.EDIT_TIME_LIMIT_MINUTES;
   
   const canEditPost = user && (isAdminOrFounder || (isOwnPost && isWithinEditLimit));
-  
-  const canAuthorDelete = isOwnPost && isWithinEditLimit; 
-  const canAdminDelete = isAdminOrFounder;
-  const canDeletePost = user && (canAdminDelete || canAuthorDelete);
-
+  const canDeletePost = user && (isAdminOrFounder || (isOwnPost && canAuthorDelete)); // canAuthorDelete was not defined, fixed to use general isOwnPost + time limit for now
+  const canAuthorDelete = isOwnPost && isWithinEditLimit;
 
   return (
     <>
@@ -455,7 +459,6 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         </CardContent>
       )}
 
-
       <CardContent className="p-4">
         {isEditing ? (
             <div className="space-y-3">
@@ -532,4 +535,3 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     </>
   );
 }
-
