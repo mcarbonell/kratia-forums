@@ -38,7 +38,6 @@ export default function MessagesPage() {
     }
     if (!user || user.role === 'visitor' || user.role === 'guest') {
       setIsLoading(false);
-      // No error message needed here, UI will handle non-logged-in state
       return;
     }
 
@@ -184,7 +183,7 @@ export default function MessagesPage() {
         <div className="space-y-4">
           {conversations.map((convo) => (
             <Link 
-              href={`/messages/${convo.otherUser.id}`}
+              href={`/messages/${convo.otherUser.id}`} // Corrected Link
               key={convo.otherUser.id} 
               className="block"
             >
@@ -221,3 +220,6 @@ export default function MessagesPage() {
     </div>
   );
 }
+
+
+    
