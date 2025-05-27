@@ -17,17 +17,19 @@ This document outlines the major features, functionalities, and fixes implemente
     - Users can reply to existing threads.
     - Implemented "Like" reactions on posts (toggle like/unlike, prevents self-like, updates karma).
     - Users can add non-binding polls to the first post of a new thread.
-    - Users can vote once per poll, with results displayed.
+    - Users can vote once per poll (vote stored in Firestore, prevents re-voting), with results displayed.
 - **Pagination:**
     - Implemented "Load More" pagination for thread lists on forum pages.
     - Implemented "Load More" pagination for post lists on thread pages.
 
 ## II. User Authentication & Profiles
-- **Firebase Authentication:**
-    - User registration via Email/Password with **email verification**.
-    - User login via Email/Password (handles pending admission, sanctioned status).
-    - User login and registration via **Google Sign-In** (handles new user admission flow).
-    - "Forgot Password" functionality using Firebase.
+- **Firebase Authentication (Email/Password):**
+    - User registration via Email/Password with **email verification**. (Email sent, verification checked on next login).
+    - User login via Email/Password (handles pending admission, sanctioned status, email not verified).
+- **Firebase Authentication (Google Sign-In):**
+    - User login and registration via **Google Sign-In**.
+    - Handles new Google users by creating a Firestore profile and an admission request votation.
+- **"Forgot Password"** functionality using Firebase.
 - **User Profile Management:**
     - Display dynamic user profiles with details fetched from Firestore (username, avatar, karma, member since, location, about me, total posts, total threads started, total reactions received).
     - Display of recent activity (last 5 threads started, last 5 posts made).
@@ -35,7 +37,7 @@ This document outlines the major features, functionalities, and fixes implemente
     - Users can **upload profile pictures** (stored in Firebase Storage).
 - **User States & Onboarding:**
     - Handled user statuses: `pending_email_verification`, `pending_admission`, `active`, `under_sanction_process`, `sanctioned`.
-    - Personalized onboarding message (using Genkit AI) for newly admitted/quarantined users.
+    - Personalized onboarding message (using Genkit AI) for newly admitted/quarantined users (cached per session).
     - Functionality for users to "accept" the onboarding message, gain karma, and hide the message.
 - **Karma System:**
     - Karma calculated based on: total posts, total reactions received, total posts in threads started by the user.
@@ -50,7 +52,7 @@ This document outlines the major features, functionalities, and fixes implemente
         - **New Forum Proposals:** Eligible users can propose the creation of new forums.
     - Votations are linked to threads in a dedicated "Agora" forum.
     - Users can vote (For, Against, Abstain) on active proposals.
-    - Implemented "vote once per user per votation" logic.
+    - Implemented "vote once per user per votation" logic (vote stored in Firestore).
 - **Votation Outcomes & Execution:**
     - Automatic closing of votations when their deadline passes (checked on thread view).
     - Display of votation results (Passed, Failed Quorum, Failed Vote).
@@ -58,14 +60,13 @@ This document outlines the major features, functionalities, and fixes implemente
         - Sanctions: Target user's status updated to `sanctioned` with an `sanctionEndDate`.
         - Constitution Changes: The main constitution text in Firestore is updated.
         - New Forums: New forum document is created in Firestore.
-        - Admissions: Applicant user's status updated to `active`, `canVote` set to true, `role` set to 'user', `isQuarantined` set to `false`.
+        - Admissions: Applicant user's status updated to `active`, `canVote` set to true, `isQuarantined` set to `false`, `role` set to 'user'.
 - **User Restrictions based on Status:**
     - Users `'under_sanction_process'` can only reply in their own sanction votation thread; other creation/reply actions are blocked.
-    - Users `'sanctioned'` are redirected to a sanctioned info page and cannot participate.
+    - Users `'sanctioned'` are redirected to a sanctioned info page and cannot participate (login blocked or auto-redirected).
     - Automatic lifting of sanctions when `sanctionEndDate` passes (checked by `SanctionCheckWrapper`).
 - **Agora UI:**
     - Dedicated `/agora` page listing votation threads, sorted by active then closed.
-    - Distinction and sorting of active vs. closed votations.
     - Consistent navigation links for Agora-related threads.
 
 ## IV. Admin Panel & Moderation
@@ -78,6 +79,7 @@ This document outlines the major features, functionalities, and fixes implemente
     - Admins can lock/unlock threads to prevent/allow further replies.
     - Threads associated with concluded votations are automatically locked.
     - Admins can delete posts (post author can also delete within a time limit).
+    - Admins can make threads "sticky" (pinned).
 
 ## V. Notifications System
 - **Types of Notifications:**
@@ -85,6 +87,7 @@ This document outlines the major features, functionalities, and fixes implemente
     - When a votation proposed by a user is concluded.
     - When a user receives a "Like" on their post.
     - When a votation a user participated in (but didn't propose) concludes.
+    - When a user receives a new Private Message.
 - **Functionality:**
     - Real-time unread notification count in the site header.
     - Dedicated `/notifications` page to view all notifications.
@@ -92,14 +95,19 @@ This document outlines the major features, functionalities, and fixes implemente
     - Visual distinction for unread notifications.
 - **User Preferences:** Users can configure (enable/disable web notifications) for implemented notification types via their profile edit page. The system respects these preferences when creating notifications.
 
-## VI. Internationalization (i18n)
+## VI. Private Messaging System
+- **Phase 1 (DONE):** Ability to send a private message from a user's profile (via dialog). Notification for new PM.
+- **Phase 2 (DONE):** Dedicated `/messages` page to list conversations (grouped by user, sorted by last message).
+- **Phase 3 (DONE):** View individual conversation threads (`/messages/[conversationUserId]`). Messages marked as read when conversation is viewed.
+
+## VII. Internationalization (i18n)
 - **Setup:** Integrated `i18next` and `react-i18next` for multi-language support.
 - **Languages:** Translation files (`common.json`) for English (`en`) and Spanish (`es`).
-- **Translated Components:** Header, Footer, Homepage, Authentication pages (Login, Signup, Forgot Password, Confirm, Sanctioned), Admin Panel pages (main, create/edit for categories, forums, users), User Profile pages (view, edit), Agora pages (main, propose constitution, propose new forum), Forum/Thread/Post pages (UI elements, buttons, titles, messages, tooltips, toasts), Notification page.
+- **Translated Components:** Header, Footer, Homepage, Authentication pages (Login, Signup, Forgot Password, Confirm, Sanctioned), Admin Panel pages (main, create/edit for categories, forums, users), User Profile pages (view, edit), Agora pages (main, propose constitution, propose new forum), Forum/Thread/Post pages (UI elements, buttons, titles, messages, tooltips, toasts), Notification page, Messages page (list and conversation view), Privacy Policy page.
 - **Language Switcher:** Implemented a dropdown in the Header to allow users to switch between English and Spanish.
 - **Date Formatting:** Dates are localized (e.g., "hace 2 horas" vs "about 2 hours ago").
 
-## VII. Technical Enhancements & Fixes
+## VIII. Technical Enhancements & Fixes
 - **PWA (Progressive Web App):** Added `manifest.json` and necessary meta tags for "Add to Home Screen" functionality.
 - **Production Readiness:**
     - Conditional rendering of developer tools (Seed Database button, Switch Role) to hide them in production.
@@ -117,5 +125,3 @@ This document outlines the major features, functionalities, and fixes implemente
     *   Handled i18n setup complexities with App Router.
 
 This list represents the significant milestones. Many smaller fixes and UI polishes were also implemented along the way.
-
-    
