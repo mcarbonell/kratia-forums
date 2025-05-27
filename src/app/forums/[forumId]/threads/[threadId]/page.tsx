@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import PostItem from '@/components/forums/PostItem';
 import ReplyForm from '@/components/forums/ReplyForm';
-import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, VotationStatus, ForumCategory, Notification } from '@/lib/types';
+import type { Thread, Post as PostType, User as KratiaUser, Poll, Votation, VotationStatus, ForumCategory, Notification, UserNotificationPreferences } from '@/lib/types';
 import { Loader2, MessageCircle, FileText, Frown, ChevronLeft, Edit, Reply, Vote, Users, CalendarDays, UserX, ShieldCheck, ThumbsUp, ThumbsDown, MinusCircle, Ban, LogIn, Lock, Unlock, Pin, PinOff, PlusCircle } from 'lucide-react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
@@ -18,6 +18,9 @@ import { format, formatDistanceToNow, isPast, addDays } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { KRATIA_CONFIG } from '@/lib/config';
 import { useTranslation } from 'react-i18next';
+import { es as esLocale } from 'date-fns/locale/es';
+import { enUS as enUSLocale } from 'date-fns/locale/en-US';
+
 
 const formatFirestoreTimestamp = (timestamp: any): string | undefined => {
   if (!timestamp) return undefined;
@@ -41,7 +44,7 @@ export default function ThreadPage() {
   const router = useRouter();
   const { user: loggedInUser, loading: authLoading, syncUserWithFirestore } = useMockAuth();
   const { toast } = useToast();
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
 
   const threadId = params.threadId as string;
   const forumId = params.forumId as string;
@@ -50,11 +53,11 @@ export default function ThreadPage() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [forumName, setForumName] = useState<string | undefined>(undefined);
   const [votation, setVotation] = useState<Votation | null>(null);
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showReplyForm, setShowReplyForm] = useState(false);
-  
+
   const [isSubmittingVotationVote, setIsSubmittingVotationVote] = useState(false);
   const [userVotationChoice, setUserVotationChoice] = useState<string | null>(null);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
@@ -87,7 +90,7 @@ export default function ThreadPage() {
     const fetchDataAndProcess = async () => {
       setIsLoading(true);
       setError(null);
-      setPosts([]); 
+      setPosts([]);
       setLastVisiblePostSnapshot(null);
       setHasMorePosts(true);
 
@@ -114,13 +117,14 @@ export default function ThreadPage() {
           relatedVotationId: fetchedThreadData.relatedVotationId || undefined,
           poll: fetchedThreadData.poll || undefined,
         };
-        
+
         let fetchedVotationData: Votation | null = null;
         if (currentThreadState.relatedVotationId) {
           const votationRef = doc(db, "votations", currentThreadState.relatedVotationId);
           const votationSnap = await getDoc(votationRef);
           if (votationSnap.exists()) {
             fetchedVotationData = { id: votationSnap.id, ...votationSnap.data() } as Votation;
+            console.log('[ThreadPage MAIN Effect] Fetched votation data:', fetchedVotationData);
           } else {
             console.warn('[ThreadPage MAIN Effect] Votation document not found for ID:', currentThreadState.relatedVotationId);
           }
@@ -131,7 +135,7 @@ export default function ThreadPage() {
         let newStatus: VotationStatus | null = null;
 
         if (fetchedVotationData && fetchedVotationData.status === 'active' && fetchedVotationData.deadline && isPast(new Date(fetchedVotationData.deadline))) {
-          console.log('[ThreadPage MAIN Effect] Votation deadline passed. Processing closure for votation ID:', fetchedVotationData.id);
+          console.log('[ThreadPage MAIN Effect] Votation deadline passed. Processing closure for votation ID:', fetchedVotationData.id, 'Type:', fetchedVotationData.type);
           batch = writeBatch(db);
 
           const quorumMet = (fetchedVotationData.totalVotesCast || 0) >= (fetchedVotationData.quorumRequired || KRATIA_CONFIG.VOTATION_QUORUM_MIN_PARTICIPANTS);
@@ -149,79 +153,103 @@ export default function ThreadPage() {
             newStatus = 'closed_failed_vote';
             outcomeMessage = t('threadPage.votation.outcome.failedVote');
           }
-          
+          console.log('[ThreadPage MAIN Effect] Determined newStatus:', newStatus, 'Outcome:', outcomeMessage);
+
           const votationRefToUpdate = doc(db, "votations", fetchedVotationData.id);
           batch.update(votationRefToUpdate, { status: newStatus, outcome: outcomeMessage });
-          
-          // Apply outcomes
+
           if (newStatus === 'closed_passed') {
+            console.log('[ThreadPage MAIN Effect] Votation passed. Checking type:', fetchedVotationData.type);
             if (fetchedVotationData.type === 'sanction' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
+              console.log('[ThreadPage MAIN Effect] Applying sanction outcome for targetUserId:', fetchedVotationData.targetUserId);
               const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
-              const sanctionEndDate = addDays(new Date(), 1); 
+              const sanctionEndDate = addDays(new Date(), 1); // Hardcoded 1 day for now
               batch.update(targetUserRef, { status: 'sanctioned', sanctionEndDate: sanctionEndDate.toISOString() });
               toast({ title: t('threadPage.toast.sanctionApplied.title'), description: t('threadPage.toast.sanctionApplied.desc', { username: fetchedVotationData.targetUsername })});
             }
             if (fetchedVotationData.type === 'rule_change' && fetchedVotationData.proposedConstitutionText) {
-              batch.update(doc(db, "site_settings", "constitution"), { 
-                constitutionText: fetchedVotationData.proposedConstitutionText, 
-                lastUpdated: new Date().toISOString() 
+              console.log('[ThreadPage MAIN Effect] Applying rule_change (constitution) outcome.');
+              batch.update(doc(db, "site_settings", "constitution"), {
+                constitutionText: fetchedVotationData.proposedConstitutionText,
+                lastUpdated: new Date().toISOString()
               });
               toast({ title: t('threadPage.toast.constitutionUpdated.title'), description: t('threadPage.toast.constitutionUpdated.desc')});
             }
             if (fetchedVotationData.type === 'admission_request' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
+                console.log('[ThreadPage MAIN Effect] Applying ADMISSION outcome for targetUserId:', fetchedVotationData.targetUserId);
                 const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
                 batch.update(targetUserRef, { status: 'active', canVote: true, isQuarantined: false, role: 'user' });
                 toast({ title: t('threadPage.toast.admissionApproved.title'), description: t('threadPage.toast.admissionApproved.desc', { username: fetchedVotationData.targetUsername })});
             }
             if (fetchedVotationData.type === 'new_forum_proposal' && fetchedVotationData.proposedForumName && fetchedVotationData.proposedForumCategoryId && fetchedVotationData.proposedForumDescription) {
-                const newForumRef = doc(collection(db, "forums")); 
-                const newForumData: Omit<Forum, 'id' | 'subForums'> = {
+                console.log('[ThreadPage MAIN Effect] Applying NEW FORUM PROPOSAL outcome for forum:', fetchedVotationData.proposedForumName);
+                const newForumRef = doc(collection(db, "forums"));
+                const newForumData: Omit<ForumCategory, 'id' | 'forums'> & { categoryId: string, isPublic: boolean, isAgora: boolean, threadCount: number, postCount: number } = { // Corrected type
                     name: fetchedVotationData.proposedForumName,
                     description: fetchedVotationData.proposedForumDescription,
                     categoryId: fetchedVotationData.proposedForumCategoryId,
                     isPublic: fetchedVotationData.proposedForumIsPublic === undefined ? true : fetchedVotationData.proposedForumIsPublic,
-                    isAgora: false, 
+                    isAgora: false,
                     threadCount: 0,
                     postCount: 0,
                 };
                 batch.set(newForumRef, newForumData);
                 toast({ title: t('threadPage.toast.newForumCreated.title'), description: t('threadPage.toast.newForumCreated.desc', { forumName: fetchedVotationData.proposedForumName })});
             }
+          } else {
+             console.log('[ThreadPage MAIN Effect] Votation did not pass or other status. No user/site updates applied.');
           }
 
           if (currentThreadState && !currentThreadState.isLocked) {
+            console.log('[ThreadPage MAIN Effect] Locking Agora thread:', currentThreadState.id);
             batch.update(threadRef, { isLocked: true });
             currentThreadState = { ...currentThreadState, isLocked: true };
             toast({ title: t('threadPage.toast.agoraThreadLocked.title'), description: t('threadPage.toast.agoraThreadLocked.desc') });
           }
         }
 
-        if (batch) { 
+        if (batch) {
+          console.log('[ThreadPage MAIN Effect] Committing Firestore batch...');
           await batch.commit();
+          console.log('[ThreadPage MAIN Effect] Firestore batch committed.');
           if (fetchedVotationData && outcomeMessage && newStatus) {
             toast({ title: t('threadPage.toast.votationProcessed.title'), description: t('threadPage.toast.votationProcessed.desc', { title: fetchedVotationData.title, outcome: outcomeMessage })});
-            // Create notification for the proposer
+            
+            // Notification for proposer
             if (fetchedVotationData.proposerId) {
-              const truncatedVotationTitle = fetchedVotationData.title.length > 50 
-                ? `${fetchedVotationData.title.substring(0, 47)}...` 
-                : fetchedVotationData.title;
+              const proposerUserRef = doc(db, "users", fetchedVotationData.proposerId);
+              const proposerSnap = await getDoc(proposerUserRef);
+              if (proposerSnap.exists()) {
+                const proposerData = proposerSnap.data() as KratiaUser;
+                const prefs = proposerData.notificationPreferences;
+                const shouldNotifyWebProposer = prefs?.votationConcludedProposer?.web ?? true;
 
-              const notificationData: Omit<Notification, 'id'> = {
-                recipientId: fetchedVotationData.proposerId,
-                actor: { id: 'system', username: KRATIA_CONFIG.FORUM_NAME, avatarUrl: '/kratia-logo.png' },
-                type: 'votation_concluded',
-                threadId: threadId,
-                votationTitle: truncatedVotationTitle,
-                votationOutcome: newStatus, 
-                message: t('notifications.votationConcluded', { title: truncatedVotationTitle, outcome: outcomeMessage }),
-                link: `/forums/${forumId}/threads/${threadId}`,
-                createdAt: new Date().toISOString(),
-                isRead: false,
-              };
-              try {
-                await addDoc(collection(db, "notifications"), notificationData);
-              } catch (notificationError) {
-                console.error(`[ThreadPage MAIN Effect] Error creating notification for votation conclusion:`, notificationError);
+                if (shouldNotifyWebProposer) {
+                  const truncatedVotationTitle = fetchedVotationData.title.length > 50
+                    ? `${fetchedVotationData.title.substring(0, 47)}...`
+                    : fetchedVotationData.title;
+
+                  const notificationData: Omit<Notification, 'id'> = {
+                    recipientId: fetchedVotationData.proposerId,
+                    actor: { id: 'system', username: t(KRATIA_CONFIG.FORUM_NAME), avatarUrl: '/kratia-logo.png' },
+                    type: 'votation_concluded',
+                    threadId: threadId,
+                    votationTitle: truncatedVotationTitle,
+                    votationOutcome: newStatus,
+                    message: t('notifications.votationConcluded', { title: truncatedVotationTitle, outcome: outcomeMessage }),
+                    link: `/forums/${forumId}/threads/${threadId}`,
+                    createdAt: new Date().toISOString(),
+                    isRead: false,
+                  };
+                  try {
+                    await addDoc(collection(db, "notifications"), notificationData);
+                    console.log('[ThreadPage MAIN Effect] Notification created for proposer:', fetchedVotationData.proposerId);
+                  } catch (notificationError) {
+                    console.error(`[ThreadPage MAIN Effect] Error creating notification for votation conclusion:`, notificationError);
+                  }
+                } else {
+                   console.log(`[ThreadPage MAIN Effect] User ${proposerData.username} has disabled web notifications for votation conclusions.`);
+                }
               }
             }
           }
@@ -229,7 +257,7 @@ export default function ThreadPage() {
             fetchedVotationData = { ...fetchedVotationData, status: newStatus, outcome: outcomeMessage };
           }
         }
-        
+
         setThread(currentThreadState);
         setVotation(fetchedVotationData);
 
@@ -242,8 +270,8 @@ export default function ThreadPage() {
         }
 
         const postsQuery = query(
-            collection(db, "posts"), 
-            where("threadId", "==", threadId), 
+            collection(db, "posts"),
+            where("threadId", "==", threadId),
             orderBy("createdAt", "asc"),
             limit(KRATIA_CONFIG.MESSAGES_PER_PAGE)
         );
@@ -255,7 +283,7 @@ export default function ThreadPage() {
             createdAt: formatFirestoreTimestamp(data.createdAt) || new Date(0).toISOString(),
             updatedAt: formatFirestoreTimestamp(data.updatedAt),
             author: data.author || { username: t('common.unknownUser'), id: '' },
-            reactions: data.reactions || {}, 
+            reactions: data.reactions || {},
             lastEditedBy: data.lastEditedBy
           } as PostType;
         });
@@ -282,7 +310,7 @@ export default function ThreadPage() {
 
     fetchDataAndProcess();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, forumId, t]); // Added t to dependencies
+  }, [threadId, forumId, t]);
 
   useEffect(() => {
     console.log('[ThreadPage VotationChoice Effect] Running. Votation ID:', votation?.id, 'Logged in user:', loggedInUser?.id);
@@ -298,25 +326,25 @@ export default function ThreadPage() {
 
   const isOwnActiveSanctionThread =
     loggedInUser &&
-    thread && thread.relatedVotationId && 
-    votation && 
-    votation.type === 'sanction' && 
+    thread && thread.relatedVotationId &&
+    votation &&
+    votation.type === 'sanction' &&
     votation.targetUserId === loggedInUser.id &&
     votation.status === 'active';
 
   let userCanReply = false;
   if (loggedInUser && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest') {
     if (thread && thread.isLocked) {
-        userCanReply = false; 
+        userCanReply = false;
     } else if (loggedInUser.status === 'active') {
       userCanReply = true;
     } else if (loggedInUser.status === 'under_sanction_process' && isOwnActiveSanctionThread) {
-      userCanReply = true; 
+      userCanReply = true;
     } else if (loggedInUser.status === 'sanctioned'){
       userCanReply = false;
     }
   }
-  
+
   const canVoteInVotation = loggedInUser && loggedInUser.canVote && loggedInUser.status === 'active' && votation && votation.status === 'active' && !userVotationChoice && !(votation.type === 'sanction' && loggedInUser.id === votation.targetUserId);
   const isAdminOrFounder = loggedInUser && (loggedInUser.role === 'admin' || loggedInUser.role === 'founder');
 
@@ -340,7 +368,7 @@ export default function ThreadPage() {
   };
 
   const handlePollUpdate = (updatedPoll: Poll) => {
-    if (thread) { 
+    if (thread) {
       setThread(prevThread => prevThread ? {...prevThread, poll: updatedPoll} : null);
     }
   };
@@ -357,7 +385,7 @@ export default function ThreadPage() {
       const updatedVotationData = await runTransaction(db, async (transaction) => {
         const votationDoc = await transaction.get(votationRef);
         if (!votationDoc.exists()) throw new Error(t('threadPage.error.votationNotFound'));
-        
+
         const currentVotationData = votationDoc.data() as Votation;
         if (currentVotationData.status !== 'active') throw new Error(t('threadPage.error.votationNotActive'));
         if (currentVotationData.voters && currentVotationData.voters[loggedInUser.id]) {
@@ -369,7 +397,7 @@ export default function ThreadPage() {
 
         const newOptions = { ...currentVotationData.options };
         newOptions[choice] = (newOptions[choice] || 0) + 1;
-        
+
         const newVoters = { ...(currentVotationData.voters || {}), [loggedInUser.id]: choice };
         const newTotalVotesCast = (currentVotationData.totalVotesCast || 0) + 1;
 
@@ -382,7 +410,7 @@ export default function ThreadPage() {
         return { ...currentVotationData, ...dataToUpdate };
       });
 
-      setVotation(updatedVotationData); 
+      setVotation(updatedVotationData);
       toast({ title: t('threadPage.toast.voteCast.title'), description: t('threadPage.toast.voteCast.desc', { choice: t(`threadPage.votation.choices.${choice}`) })});
 
     } catch (error: any) {
@@ -479,7 +507,7 @@ export default function ThreadPage() {
       }
     } catch (err) {
       console.error("Error loading more posts:", err);
-      setError(t('threadPage.error.loadMorePostsFail')); 
+      setError(t('threadPage.error.loadMorePostsFail'));
     } finally {
       setIsLoadingMorePosts(false);
     }
@@ -522,7 +550,7 @@ export default function ThreadPage() {
       </Alert>
     );
   }
-  
+
   const backLinkHref = forumId === 'agora' ? '/agora' : `/forums/${forumId}`;
   const backLinkText = (forumName || (forumId === 'agora' ? t('common.agora') : t('common.forum')));
 
@@ -542,14 +570,14 @@ export default function ThreadPage() {
                 {thread.isLocked && <Lock className="ml-2 h-6 w-6 text-destructive flex-shrink-0 mt-1" title={t('threadPage.tooltips.locked')} />}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-                {t('threadPage.startedBy')} <Link href={`/profile/${thread.author.id}`} className="text-primary hover:underline font-medium">{thread.author.username}</Link> {t('common.on')} {new Date(thread.createdAt).toLocaleDateString()}
+                {t('threadPage.startedBy')} <Link href={`/profile/${thread.author.id}`} className="text-primary hover:underline font-medium">{thread.author.username}</Link> {t('common.on')} {new Date(thread.createdAt).toLocaleDateString(i18n.language)}
             </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 items-end self-start sm:self-center">
             {isAdminOrFounder && (
               <>
-                <Button 
-                    variant={thread.isSticky ? "destructive" : "outline"} 
+                <Button
+                    variant={thread.isSticky ? "destructive" : "outline"}
                     onClick={handleToggleStickyThread}
                     disabled={isTogglingSticky}
                     size="sm"
@@ -558,8 +586,8 @@ export default function ThreadPage() {
                     {isTogglingSticky ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (thread.isSticky ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />)}
                     {thread.isSticky ? t('threadPage.actions.removeSticky') : t('threadPage.actions.makeSticky')}
                 </Button>
-                <Button 
-                    variant={thread.isLocked ? "destructive" : "outline"} 
+                <Button
+                    variant={thread.isLocked ? "destructive" : "outline"}
                     onClick={handleToggleLockThread}
                     disabled={isTogglingLock || (thread.isLocked && thread.relatedVotationId && votation && votation.status !== 'active')}
                     size="sm"
@@ -579,7 +607,7 @@ export default function ThreadPage() {
             )}
         </div>
       </div>
-      
+
       {votation && (
         <Card className="mb-6 border-blue-500 shadow-lg">
           <CardHeader className="bg-blue-50 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded-t-lg">
@@ -619,7 +647,7 @@ export default function ThreadPage() {
             <div className="text-sm">
                 <p><strong className="font-medium">{t('threadPage.votation.proposer')}:</strong> {votation.proposerUsername}</p>
                 <p><strong className="font-medium">{t('threadPage.votation.status')}:</strong> <span className="font-semibold capitalize">{t(`votationStatus.${votation.status.replace(/_/g, '')}`, votation.status.replace(/_/g, ' '))}</span></p>
-                {votation.deadline && <p><strong className="font-medium">{t('threadPage.votation.deadline')}:</strong> {format(new Date(votation.deadline), "PPPp")}</p>}
+                {votation.deadline && <p><strong className="font-medium">{t('threadPage.votation.deadline')}:</strong> {format(new Date(votation.deadline), "PPPp", { locale: i18n.language.startsWith('es') ? esLocale : enUSLocale })}</p>}
             </div>
             <div>
               <h4 className="font-semibold mb-1 text-md">{t('threadPage.votation.currentTally')}:</h4>
@@ -630,7 +658,7 @@ export default function ThreadPage() {
               </ul>
               <p className="text-xs text-muted-foreground mt-1">{t('threadPage.votation.totalVotesCast')}: {votation.totalVotesCast || 0}</p>
             </div>
-            
+
             {votation.status === 'active' && loggedInUser && (
               <div className="mt-4 pt-4 border-t">
                 <h4 className="font-semibold mb-2 text-md">{t('threadPage.votation.castYourVote')}:</h4>
@@ -640,7 +668,7 @@ export default function ThreadPage() {
                        <AlertTitle>{t('threadPage.votation.yourSanctionProcessTitle')}</AlertTitle>
                        <AlertDescription>{t('threadPage.votation.yourSanctionProcessDesc')}</AlertDescription>
                    </Alert>
-                ) : userVotationChoice ? ( 
+                ) : userVotationChoice ? (
                      <Alert variant="default" className="border-green-500 bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 [&>svg]:text-green-600">
                         <ShieldCheck className="h-5 w-5" />
                         <AlertTitle>{t('threadPage.votation.voteRecordedTitle')}</AlertTitle>
@@ -648,7 +676,7 @@ export default function ThreadPage() {
                         {t('threadPage.votation.youVoted')}: <span className="font-semibold capitalize">{t(`threadPage.votation.choices.${userVotationChoice}`)}</span>.
                         </AlertDescription>
                     </Alert>
-                ) : !loggedInUser.canVote || loggedInUser.status !== 'active' ? ( 
+                ) : !loggedInUser.canVote || loggedInUser.status !== 'active' ? (
                   <Alert variant="default" className="border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 [&>svg]:text-amber-600">
                     <ShieldCheck className="h-5 w-5" />
                     <AlertTitle>{t('threadPage.votation.notEligibleToVoteTitle')}</AlertTitle>
@@ -658,28 +686,28 @@ export default function ThreadPage() {
                       {loggedInUser.status === 'active' && !loggedInUser.canVote && t('threadPage.votation.notEligible.noVotingRights')}
                     </AlertDescription>
                   </Alert>
-                ) : ( 
+                ) : (
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <Button 
-                      onClick={() => handleVotationVote('for')} 
-                      disabled={isSubmittingVotationVote} 
-                      variant="default" 
+                    <Button
+                      onClick={() => handleVotationVote('for')}
+                      disabled={isSubmittingVotationVote}
+                      variant="default"
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsUp className="mr-2 h-4 w-4"/>} {t('threadPage.votation.choices.for')}
                     </Button>
-                    <Button 
-                      onClick={() => handleVotationVote('against')} 
-                      disabled={isSubmittingVotationVote} 
-                      variant="destructive" 
+                    <Button
+                      onClick={() => handleVotationVote('against')}
+                      disabled={isSubmittingVotationVote}
+                      variant="destructive"
                       className="flex-1"
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ThumbsDown className="mr-2 h-4 w-4"/>} {t('threadPage.votation.choices.against')}
                     </Button>
-                    <Button 
-                      onClick={() => handleVotationVote('abstain')} 
-                      disabled={isSubmittingVotationVote} 
-                      variant="outline" 
+                    <Button
+                      onClick={() => handleVotationVote('abstain')}
+                      disabled={isSubmittingVotationVote}
+                      variant="outline"
                       className="flex-1"
                     >
                       {isSubmittingVotationVote ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <MinusCircle className="mr-2 h-4 w-4"/>} {t('threadPage.votation.choices.abstain')}
@@ -804,5 +832,3 @@ export default function ThreadPage() {
     </div>
   );
 }
-
-    

@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
-import type { Post as PostType, User as KratiaUser, Thread, Notification } from '@/lib/types';
+import type { Post as PostType, User as KratiaUser, Thread, Notification, UserNotificationPreferences } from '@/lib/types';
 import { Loader2, Send, MessageSquare, XCircle } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, doc, Timestamp, writeBatch, increment, getDoc } from 'firebase/firestore';
@@ -29,7 +29,7 @@ interface ReplyFormProps {
   threadId: string;
   forumId: string;
   onReplySuccess: (newPost: PostType) => void;
-  onCancel?: () => void; 
+  onCancel?: () => void;
 }
 
 export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel }: ReplyFormProps) {
@@ -46,12 +46,12 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
   });
 
   if (!user || user.role === 'visitor' || user.role === 'guest') {
-    return null; 
+    return null;
   }
 
   const onSubmitHandler: SubmitHandler<ReplyFormData> = async (data) => {
     setIsSubmitting(true);
-    if (!user) { 
+    if (!user) {
         toast({ title: t('common.error'), description: t('replyForm.toast.userNotLoggedIn'), variant: "destructive"});
         setIsSubmitting(false);
         return;
@@ -62,18 +62,18 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
       username: user.username,
       avatarUrl: user.avatarUrl || "",
     };
-    
+
     const now = Timestamp.fromDate(new Date());
     const newPostRef = doc(collection(db, "posts"));
 
     try {
       const batch = writeBatch(db);
 
-      const newPostData: Omit<PostType, 'id'> = { 
+      const newPostData: Omit<PostType, 'id'> = {
         threadId: threadId,
         author: authorInfo,
         content: data.content,
-        createdAt: now.toDate().toISOString(), 
+        createdAt: now.toDate().toISOString(),
         reactions: {},
       };
       batch.set(newPostRef, newPostData);
@@ -94,8 +94,8 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
         karma: increment(1),
         totalPostsByUser: increment(1),
       });
-      
-      const threadDocSnap = await getDoc(threadRef); 
+
+      const threadDocSnap = await getDoc(threadRef);
       let threadData: Thread | null = null;
       if (threadDocSnap.exists()) {
         threadData = threadDocSnap.data() as Thread;
@@ -112,35 +112,48 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
       }
 
       await batch.commit();
-      
-      if (threadData && threadData.author.id !== authorInfo.id) {
-        const truncatedThreadTitle = threadData.title.length > 50 
-            ? `${threadData.title.substring(0, 47)}...` 
-            : threadData.title;
 
-        const notificationData: Omit<Notification, 'id'> = {
-            recipientId: threadData.author.id,
-            actor: authorInfo,
-            type: 'new_reply_to_your_thread',
-            threadId: threadId,
-            threadTitle: truncatedThreadTitle,
-            postId: newPostRef.id,
-            forumId: forumId,
-            message: t('notifications.newReplyToYourThread', { actorName: authorInfo.username, threadTitle: truncatedThreadTitle }),
-            link: `/forums/${forumId}/threads/${threadId}#post-${newPostRef.id}`,
-            createdAt: now.toDate().toISOString(),
-            isRead: false,
-        };
-        await addDoc(collection(db, "notifications"), notificationData);
+      // Notification logic
+      if (threadData && threadData.author.id !== authorInfo.id) {
+        const threadAuthorUserRef = doc(db, "users", threadData.author.id);
+        const threadAuthorSnap = await getDoc(threadAuthorUserRef);
+        if (threadAuthorSnap.exists()) {
+          const threadAuthorData = threadAuthorSnap.data() as KratiaUser;
+          const prefs = threadAuthorData.notificationPreferences;
+          const shouldNotifyWeb = prefs?.newReplyToMyThread?.web ?? true; // Default to true if undefined
+
+          if (shouldNotifyWeb) {
+            const truncatedThreadTitle = threadData.title.length > 50
+                ? `${threadData.title.substring(0, 47)}...`
+                : threadData.title;
+
+            const notificationData: Omit<Notification, 'id'> = {
+                recipientId: threadData.author.id,
+                actor: authorInfo,
+                type: 'new_reply_to_your_thread',
+                threadId: threadId,
+                threadTitle: truncatedThreadTitle,
+                postId: newPostRef.id,
+                forumId: forumId,
+                message: t('notifications.newReplyToYourThread', { actorName: authorInfo.username, threadTitle: truncatedThreadTitle }),
+                link: `/forums/${forumId}/threads/${threadId}#post-${newPostRef.id}`,
+                createdAt: now.toDate().toISOString(),
+                isRead: false,
+            };
+            await addDoc(collection(db, "notifications"), notificationData);
+          } else {
+            console.log(`User ${threadData.author.username} has disabled web notifications for new replies.`);
+          }
+        }
       }
-      
+
       toast({
         title: t('replyForm.toast.successTitle'),
         description: t('replyForm.toast.successDesc'),
       });
-      
+
       onReplySuccess({ ...newPostData, id: newPostRef.id, createdAt: newPostData.createdAt });
-      reset(); 
+      reset();
 
     } catch (error) {
       console.error("Error posting reply:", error);
@@ -154,16 +167,14 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
     }
   };
 
-  // Update Zod error messages to use t function
   const localizedReplySchema = z.object({
     content: z.string()
       .min(5, t('replyForm.validation.contentMinLength'))
       .max(10000, t('replyForm.validation.contentMaxLength')),
   });
-  
-  // Re-initialize useForm with the localized schema
+
   const { register: localizedRegister, handleSubmit: localizedHandleSubmit, formState: { errors: localizedErrors }, reset: localizedReset } = useForm<ReplyFormData>({
-    resolver: zodResolver(localizedReplySchema), // Use the new schema here
+    resolver: zodResolver(localizedReplySchema),
     defaultValues: {
         content: "",
     }
@@ -190,7 +201,7 @@ export default function ReplyForm({ threadId, forumId, onReplySuccess, onCancel 
               className={localizedErrors.content ? "border-destructive focus-visible:ring-destructive" : ""}
               disabled={isSubmitting}
             />
-            {localizedErrors.content && <p className="text-sm text-destructive mt-2">{localizedErrors.content.message}</p>}
+            {localizedErrors.content && <p className="text-sm text-muted-foreground mt-2">{localizedErrors.content.message}</p>}
           </div>
           <div className="flex flex-col sm:flex-row justify-end items-center gap-3 pt-2">
             {onCancel && (
