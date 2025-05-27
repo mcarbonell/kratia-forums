@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
-import { collection, query, where, orderBy, getDocs, doc, writeBatch, Timestamp, onSnapshot, Unsubscribe, addDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, doc, writeBatch, Timestamp, onSnapshot, Unsubscribe, addDoc, getDoc } from 'firebase/firestore'; // Added getDoc
 import type { PrivateMessage, User as KratiaUser, Notification } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -116,7 +116,6 @@ export default function ConversationPage() {
     const processSnapshotData = (newFetchedMessages: PrivateMessage[]) => {
         setMessages(prevMessages => {
             const messageMap = new Map<string, PrivateMessage>();
-            // Combine new messages with existing ones, preferring the new ones if IDs collide (though unlikely with Firestore IDs)
             const combinedMessages = [...prevMessages, ...newFetchedMessages];
             combinedMessages.forEach(msg => messageMap.set(msg.id, msg));
             
@@ -144,7 +143,6 @@ export default function ConversationPage() {
         const unsubscribe1 = onSnapshot(q1, (snapshot) => {
             const newMsgs: PrivateMessage[] = [];
             snapshot.docChanges().forEach((change) => {
-                 // Only process added messages after initial fetch, or any change if not initial
                 if (change.type === "added" || (change.type === "modified" && initialMessagesFetched) ) {
                      newMsgs.push({ id: change.doc.id, ...change.doc.data() } as PrivateMessage);
                 }
@@ -171,9 +169,9 @@ export default function ConversationPage() {
             snap1.forEach(docSnap => initialMessages.push({ id: docSnap.id, ...docSnap.data() } as PrivateMessage));
             snap2.forEach(docSnap => initialMessages.push({ id: docSnap.id, ...docSnap.data() } as PrivateMessage));
             
-            processSnapshotData(initialMessages); // This also handles marking as read
-            initialMessagesFetched = true; // Set this after initial fetch
-            setupListeners(); // Setup listeners after initial fetch
+            processSnapshotData(initialMessages); 
+            initialMessagesFetched = true; 
+            setupListeners(); 
 
         } catch (err) {
             console.error("Error fetching initial messages:", err);
@@ -189,7 +187,7 @@ export default function ConversationPage() {
       unsubscribes.forEach(unsub => unsub());
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loggedInUser?.id, conversationUserId, authLoading, t]); // Added loggedInUser.id for more stability
+  }, [loggedInUser?.id, conversationUserId, authLoading, t]);
 
   const formatMessageTimestamp = (dateString: string) => {
     const date = new Date(dateString);
@@ -226,10 +224,8 @@ export default function ConversationPage() {
         createdAt: Timestamp.now().toDate().toISOString(),
       });
 
-      reset(); // Clear the form
-      // No need to manually add to messages state if listener is working correctly
+      reset(); 
 
-      // Create notification for the recipient
       const recipientUserRef = doc(db, "users", otherUser.id);
       const recipientSnap = await getDoc(recipientUserRef);
       if (recipientSnap.exists()) {
@@ -238,7 +234,7 @@ export default function ConversationPage() {
         const shouldNotifyWeb = prefs?.newPrivateMessage?.web ?? true;
 
         if (shouldNotifyWeb) {
-          const sender = loggedInUser; // For clarity in notification link
+          const sender = loggedInUser; 
           const notificationData: Omit<Notification, 'id'> = {
             recipientId: otherUser.id,
             actor: { id: sender.id, username: sender.username, avatarUrl: sender.avatarUrl || "" },
@@ -252,7 +248,6 @@ export default function ConversationPage() {
           await addDoc(collection(db, "notifications"), notificationData);
         }
       }
-      // scrollToBottom(); // Scroll after message is likely added by listener
     } catch (error) {
       console.error("Error sending private message:", error);
       toast({
@@ -266,7 +261,7 @@ export default function ConversationPage() {
   };
 
 
-  if (authLoading || (isLoading && !otherUser)) { // Show loader if still loading initial otherUser details
+  if (authLoading || (isLoading && !otherUser)) { 
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-12rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -303,7 +298,7 @@ export default function ConversationPage() {
     );
   }
 
-  if (!otherUser && !isLoading) { // Check after isLoading is false
+  if (!otherUser && !isLoading) { 
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <UserCircle className="h-5 w-5" />
@@ -335,12 +330,12 @@ export default function ConversationPage() {
                     <CardTitle className="text-xl">{otherUser.username}</CardTitle>
                 </div>
             )}
-            <div className="w-[calc(theme(space.8)_+_theme(spacing.2))]"> {/* Placeholder for balance */} </div>
+            <div className="w-[calc(theme(space.8)_+_theme(spacing.2))]"> </div>
         </div>
       </CardHeader>
       
       <CardContent className="flex-grow overflow-y-auto p-4 space-y-4">
-        {isLoading && messages.length === 0 && ( // Initial loading state for messages
+        {isLoading && messages.length === 0 && ( 
              <div className="flex justify-center items-center py-10">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <p className="ml-3 text-muted-foreground">{t('conversationPage.loadingMessages')}</p>
@@ -349,7 +344,7 @@ export default function ConversationPage() {
         {!isLoading && messages.length === 0 && (
             <div className="text-center text-muted-foreground py-10">
                  <MessageSquare className="h-12 w-12 mx-auto mb-2"/>
-                <p>{t('conversationPage.noMessagesYetWith', { username: otherUser?.username || 'this user' })}</p>
+                <p>{t('conversationPage.noMessagesYetWith', { username: otherUser?.username || t('common.thisUser') })}</p>
             </div>
         )}
         {messages.map((msg) => (
@@ -368,7 +363,7 @@ export default function ConversationPage() {
                 </Avatar>
               </Link>
             )}
-             {msg.senderId === loggedInUser.id && ( // Avatar for logged-in user as well
+             {msg.senderId === loggedInUser.id && ( 
               <Avatar className="h-7 w-7 self-start">
                 <AvatarImage src={loggedInUser.avatarUrl || undefined} alt={loggedInUser.username} data-ai-hint="user avatar" />
                 <AvatarFallback>{loggedInUser.username.substring(0,1).toUpperCase()}</AvatarFallback>
@@ -403,7 +398,7 @@ export default function ConversationPage() {
                     <Textarea
                     id="message-content"
                     placeholder={t('conversationPage.replyPlaceholder')}
-                    rows={2} // Start with fewer rows
+                    rows={2} 
                     {...register("content")}
                     className={cn("min-h-[40px] resize-none", formErrors.content ? "border-destructive" : "")}
                     disabled={isSending}
@@ -422,4 +417,3 @@ export default function ConversationPage() {
     </Card>
   );
 }
-
