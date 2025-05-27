@@ -24,8 +24,9 @@ export interface MockUser extends User {
 const defaultNotificationPreferences: UserNotificationPreferences = {
   newReplyToMyThread: { web: true },
   votationConcludedProposer: { web: true },
-  postReaction: { web: true }, // New default
-  votationConcludedParticipant: { web: true }, // New default
+  postReaction: { web: true },
+  votationConcludedParticipant: { web: true },
+  newPrivateMessage: { web: true }, // New
 };
 
 export const preparedMockAuthUsers: Record<string, MockUser> = {
@@ -34,7 +35,7 @@ export const preparedMockAuthUsers: Record<string, MockUser> = {
 };
 
 initialMockAuthUsersData.forEach(user => {
-    if (user.id === 'visitor0' || user.id === 'guest1') return; // Already defined
+    if (user.id === 'visitor0' || user.id === 'guest1') return;
     preparedMockAuthUsers[user.id] = {
         ...user,
         role: user.role || 'user',
@@ -61,7 +62,7 @@ const setInternalCurrentUser = (user: MockUser | null) => {
 export interface LoginResult {
   success: boolean;
   user?: MockUser;
-  reason?: 'not_found_in_firestore' | 'sanctioned' | 'pending_admission' | 'email_not_verified' | 'unknown_firestore_status' | 'not_found';
+  reason?: 'not_found_in_firestore' | 'sanctioned' | 'pending_admission' | 'email_not_verified' | 'unknown_firestore_status' | 'not_found' | 'auth_error';
   username?: string;
   sanctionEndDate?: string;
   authErrorCode?: string;
@@ -82,9 +83,9 @@ export function useMockAuth() {
       if (userSnap.exists()) {
         const firestoreData = userSnap.data() as User;
         const updatedUser: MockUser = {
-             ...baseUserToSync, // Start with base
-             ...firestoreData, // Override with Firestore data
-             id: baseUserToSync.id, // Ensure baseUserToSync.id is prioritized if firestoreData.id is missing
+             ...baseUserToSync,
+             ...firestoreData,
+             id: baseUserToSync.id,
              username: firestoreData.username || baseUserToSync.username,
              email: firestoreData.email || baseUserToSync.email,
              avatarUrl: firestoreData.avatarUrl || baseUserToSync.avatarUrl,
@@ -158,46 +159,53 @@ export function useMockAuth() {
     listeners.add(listener);
     
     const initializeUser = async () => {
-      setLoading(true);
-      let userToSet: MockUser | null = null;
-      if (typeof window !== 'undefined') {
-        const storedUserKey = localStorage.getItem('mockUserKey');
-        if (storedUserKey) {
-            let baseUserForSync: MockUser | undefined = preparedMockAuthUsers[storedUserKey];
-
-            if (!baseUserForSync && auth.currentUser && auth.currentUser.uid === storedUserKey) {
-                baseUserForSync = {
-                    id: auth.currentUser.uid,
-                    username: auth.currentUser.displayName || 'User',
-                    email: auth.currentUser.email || '',
-                    avatarUrl: auth.currentUser.photoURL || undefined,
-                    role: 'user', status: 'active', 
-                    notificationPreferences: defaultNotificationPreferences,
-                };
-            }
-            
-            if (baseUserForSync) {
-                userToSet = await syncUserWithFirestore(baseUserForSync);
-                // If user is sanctioned, ensure they are not set as current user here;
-                // SanctionCheckWrapper will redirect them based on their loaded status.
-                // The login flow already prevents setting a sanctioned user.
-                if (userToSet?.status === 'sanctioned') {
-                  // Keep userToSet as the sanctioned user so SanctionCheckWrapper can act on it
-                  // but it shouldn't allow full app access.
-                  // console.log(`[initializeUser] Loaded sanctioned user ${userToSet.username} from localStorage.`);
+        setLoading(true);
+        let userToSet: MockUser | null = null;
+        if (typeof window !== 'undefined') {
+            const storedUserKey = localStorage.getItem('mockUserKey');
+            if (storedUserKey) {
+                const predefinedUser = preparedMockAuthUsers[storedUserKey];
+                if (predefinedUser) {
+                    userToSet = await syncUserWithFirestore(predefinedUser);
+                } else if (auth.currentUser && auth.currentUser.uid === storedUserKey) {
+                    // User might be logged in via Firebase Auth but not in preparedMockAuthUsers
+                    // Attempt to fetch from Firestore directly based on UID
+                    const userRef = doc(db, "users", storedUserKey);
+                    const userSnap = await getDoc(userRef);
+                    if (userSnap.exists()) {
+                        const firestoreData = userSnap.data() as User;
+                        const baseUser: MockUser = { // Construct a base mock user
+                            id: storedUserKey,
+                            username: firestoreData.username || auth.currentUser.displayName || 'User',
+                            email: firestoreData.email || auth.currentUser.email || '',
+                            avatarUrl: firestoreData.avatarUrl || auth.currentUser.photoURL || undefined,
+                            role: (firestoreData.role || 'user') as UserRole,
+                            status: (firestoreData.status || 'active') as UserStatus,
+                            notificationPreferences: firestoreData.notificationPreferences || defaultNotificationPreferences,
+                        };
+                        userToSet = await syncUserWithFirestore(baseUser);
+                    } else {
+                        console.warn(`User UID ${storedUserKey} found in localStorage/Firebase Auth but not in Firestore. Defaulting to visitor.`);
+                        userToSet = preparedMockAuthUsers['visitor0'];
+                        localStorage.setItem('mockUserKey', 'visitor0');
+                    }
+                } else {
+                    userToSet = preparedMockAuthUsers['visitor0'];
+                    localStorage.setItem('mockUserKey', 'visitor0');
                 }
             } else {
                 userToSet = preparedMockAuthUsers['visitor0'];
-                localStorage.setItem('mockUserKey', 'visitor0');
             }
         } else {
-          userToSet = preparedMockAuthUsers['visitor0'];
+            userToSet = preparedMockAuthUsers['visitor0'];
         }
-      } else {
-        userToSet = preparedMockAuthUsers['visitor0'];
-      }
-      setInternalCurrentUser(userToSet);
-      setLoading(false);
+        
+        if (userToSet && userToSet.status === 'sanctioned') {
+            // Keep the sanctioned user loaded so SanctionCheckWrapper can redirect
+            // console.log(`[initializeUser] Loaded sanctioned user ${userToSet.username} from localStorage.`);
+        }
+        setInternalCurrentUser(userToSet);
+        setLoading(false);
     };
 
     if (internalCurrentUser === null || (internalCurrentUser.id === 'visitor0' && auth.currentUser)) {
@@ -224,6 +232,7 @@ export function useMockAuth() {
     try {
       const userSnap = await getDoc(userRef);
       if (!userSnap.exists()) {
+        // New user via external provider (e.g., Google Sign-In for the first time)
         const batch = writeBatch(db);
         const now = Timestamp.now();
         const deadlineDate = new Date(now.toDate().getTime() + KRATIA_CONFIG.VOTATION_DURATION_DAYS * 24 * 60 * 60 * 1000);
@@ -231,9 +240,10 @@ export function useMockAuth() {
         const newUsername = displayNameFromProvider || emailFromProvider?.split('@')[0] || `User_${uid.substring(0,6)}`;
         const newAvatarUrl = photoURLFromProvider || `https://placehold.co/100x100.png?text=${newUsername?.[0]?.toUpperCase() || 'U'}`;
         
-        const newUserFirestoreData: Omit<User, 'id'> = {
+        const newUserFirestoreData: MockUser = {
+          id: uid, // Important: use Firebase UID as document ID
           username: newUsername,
-          email: emailFromProvider || `${uid}@kratia.example.com`,
+          email: emailFromProvider || `${uid}@kratia.example.com`, // Fallback if email not provided
           avatarUrl: newAvatarUrl,
           registrationDate: now.toDate().toISOString(),
           karma: 0,
@@ -263,7 +273,7 @@ export function useMockAuth() {
         const initialPostRef = doc(collection(db, "posts"));
         const initialPostData: Omit<Post, 'id'> = {
           threadId: admissionThreadRef.id, author: authorInfoForThread,
-          content: `**Applicant:** ${newUserFirestoreData.username}\n\n**Presentation:**\n${newUserFirestoreData.presentation}`,
+          content: `**Applicant:** ${newUserFirestoreData.username}\n\n**Reason for Joining / Presentation:**\n\n${newUserFirestoreData.presentation || "No presentation provided."}`,
           createdAt: now.toDate().toISOString(), reactions: {},
         };
         batch.set(initialPostRef, initialPostData);
@@ -286,9 +296,11 @@ export function useMockAuth() {
         return { success: false, reason: 'pending_admission', username: newUserFirestoreData.username };
       }
 
+      // User exists in Firestore
       let firestoreUser = { id: userSnap.id, ...userSnap.data() } as MockUser;
       
       if (firestoreUser.status === 'pending_email_verification') {
+        // This implies email is now verified, so transition to pending_admission
         const batch = writeBatch(db);
         batch.update(userRef, { status: 'pending_admission' });
 
@@ -328,7 +340,7 @@ export function useMockAuth() {
         };
         batch.set(newVotationRef, votationData);
         await batch.commit();
-        firestoreUser.status = 'pending_admission'; // Update local copy
+        firestoreUser.status = 'pending_admission';
         setLoading(false);
         return { success: false, reason: 'pending_admission', username: firestoreUser.username };
       }
@@ -362,7 +374,7 @@ export function useMockAuth() {
     } catch (error) {
       console.error(`[loginAndSetUserFromFirestore] Error fetching/processing user ${uid}:`, error);
       setLoading(false);
-      return { success: false, reason: 'auth_error' }; // Could be 'not_found_in_firestore' if that's more specific
+      return { success: false, reason: 'auth_error' };
     }
   }, [syncUserWithFirestore]);
 
@@ -407,7 +419,8 @@ export function useMockAuth() {
         const userDataFromFirestore = userSnap.data() as User;
         if (userDataFromFirestore.status === 'sanctioned' && userDataFromFirestore.sanctionEndDate && new Date() > new Date(userDataFromFirestore.sanctionEndDate)) {
           await updateDoc(userRef, { status: 'active', sanctionEndDate: null });
-          const freshlySyncedUser = await syncUserWithFirestore(internalCurrentUser ? { ...internalCurrentUser, status: 'active', sanctionEndDate: undefined } : null);
+          const currentBaseUser = internalCurrentUser?.id === userId ? internalCurrentUser : preparedMockAuthUsers[userId] || null;
+          const freshlySyncedUser = await syncUserWithFirestore(currentBaseUser ? { ...currentBaseUser, status: 'active', sanctionEndDate: undefined } : null);
           setInternalCurrentUser(freshlySyncedUser);
           setLoading(false);
           return true;
@@ -432,3 +445,5 @@ export function useMockAuth() {
     syncUserWithFirestore,
   };
 }
+
+    

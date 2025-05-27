@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert, Ban, MessageSquare, ListChecks } from "lucide-react";
+import { User as UserIcon, CalendarDays, Award, MapPin, FileText, Loader2, Frown, Edit, ShieldAlert, Ban, MessageSquare, ListChecks, Send } from "lucide-react"; // Added Send
 import UserAvatar from "@/components/user/UserAvatar";
 import type { User as KratiaUser, Thread, Post } from '@/lib/types';
 import { db } from '@/lib/firebase';
@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { KRATIA_CONFIG } from '@/lib/config';
 import { useTranslation } from 'react-i18next';
+import SendMessageDialog from '@/components/messages/SendMessageDialog'; // New
 
 const formatFirestoreTimestampToReadable = (timestamp: any, currentLang: string): string | undefined => {
   if (!timestamp) return undefined;
@@ -54,6 +55,8 @@ export default function UserProfilePage() {
   
   const [recentPosts, setRecentPosts] = useState<PostWithForumId[]>([]);
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
+
+  const [isSendMessageDialogOpen, setIsSendMessageDialogOpen] = useState(false); // New
 
 
   useEffect(() => {
@@ -191,6 +194,7 @@ export default function UserProfilePage() {
                             loggedInUser.status === 'active' &&
                             profileUser.status !== 'sanctioned' &&
                             profileUser.status !== 'under_sanction_process';
+  const canSendMessage = loggedInUser && loggedInUser.id !== profileUser.id && loggedInUser.role !== 'visitor' && loggedInUser.role !== 'guest'; // New
 
 
   return (
@@ -200,7 +204,7 @@ export default function UserProfilePage() {
           <UserIcon className="mr-3 h-8 w-8 text-primary" />
           {t('profileView.title', { username: profileUser.username })}
         </h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2"> {/* Changed to flex-wrap */}
           {isOwnProfile && (
             <Button variant="outline" asChild>
               <Link href={`/profile/edit`}> 
@@ -213,6 +217,11 @@ export default function UserProfilePage() {
               <Link href={`/users/${profileUser.id}/propose-sanction`}>
                 <ShieldAlert className="mr-2 h-4 w-4" /> {t('profileView.proposeSanctionButton')}
               </Link>
+            </Button>
+          )}
+          {canSendMessage && ( // New Send Message Button
+            <Button variant="default" onClick={() => setIsSendMessageDialogOpen(true)}>
+              <Send className="mr-2 h-4 w-4" /> {t('profileView.sendMessageButton')}
             </Button>
           )}
         </div>
@@ -346,9 +355,9 @@ export default function UserProfilePage() {
                 ) : recentPosts.length > 0 ? (
                   <ul className="space-y-3">
                     {recentPosts.map(post => {
-                      const postLink = (post.forumId && post.forumId !== 'unknown' && post.threadId) // Added check for post.threadId
+                      const postLink = (post.forumId && post.forumId !== 'unknown' && post.threadId) 
                         ? `/forums/${post.forumId}/threads/${post.threadId}#post-${post.id}`
-                        : (post.threadId ? `/forums/unknown/threads/${post.threadId}#post-${post.id}` : '#'); // Fallback if threadId itself is missing
+                        : (post.threadId ? `/forums/unknown/threads/${post.threadId}#post-${post.id}` : '#'); 
 
                       return (
                         <li key={post.id} className="p-3 border rounded-md hover:bg-muted/30 transition-colors">
@@ -372,6 +381,15 @@ export default function UserProfilePage() {
 
         </CardContent>
       </Card>
+
+      {profileUser && loggedInUser && ( // New SendMessageDialog integration
+        <SendMessageDialog
+          isOpen={isSendMessageDialogOpen}
+          onOpenChange={setIsSendMessageDialogOpen}
+          recipient={{ id: profileUser.id, username: profileUser.username, avatarUrl: profileUser.avatarUrl }}
+          sender={{ id: loggedInUser.id, username: loggedInUser.username, avatarUrl: loggedInUser.avatarUrl }}
+        />
+      )}
     </div>
   );
 }

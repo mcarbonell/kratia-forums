@@ -2,7 +2,7 @@
 'use server';
 
 import { db } from '@/lib/firebase';
-import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll, Votation, SiteSettings, UserNotificationPreferences } from '@/lib/types';
+import type { ForumCategory, Forum, Thread, Post, User as KratiaUser, Poll, Votation, SiteSettings, UserNotificationPreferences, UserNotificationSetting } from '@/lib/types';
 import { 
     mockUsers as MOCK_USERS_ARRAY,
     mockCategoriesData,
@@ -91,8 +91,9 @@ Al completar el proceso de registro, declaras haber leído, entendido y aceptado
 const defaultNotificationPreferences: UserNotificationPreferences = {
   newReplyToMyThread: { web: true },
   votationConcludedProposer: { web: true },
-  postReaction: { web: true }, // New default
-  votationConcludedParticipant: { web: true }, // New default
+  postReaction: { web: true },
+  votationConcludedParticipant: { web: true },
+  newPrivateMessage: { web: true }, // New
 };
 
 export async function seedDatabase() {
@@ -110,7 +111,7 @@ export async function seedDatabase() {
   usersToSeed.forEach(user => {
     const userRef = doc(db, "users", user.id);
     const userData: KratiaUser = {
-        id: user.id, // Ensure ID is part of userData for consistency
+        id: user.id,
         username: user.username,
         email: user.email,
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username?.[0]?.toUpperCase() || 'U'}`,
@@ -151,10 +152,10 @@ export async function seedDatabase() {
   });
   console.log("Forums prepared.");
 
-  const processedMockThreadsData = rawMockThreadsDataWithAuthorId.map(t => ({
-    ...t,
-    author: getAuthorPick(findUserByIdForSeed(t.authorId))
-  }));
+  const processedMockThreadsData = rawMockThreadsDataWithAuthorId.map(t => {
+    const authorUser = findUserByIdForSeed(t.authorId);
+    return { ...t, author: getAuthorPick(authorUser) };
+  });
 
   console.log(`Processing ${processedMockThreadsData.length} threads...`);
   processedMockThreadsData.forEach(thread => {
@@ -193,10 +194,10 @@ export async function seedDatabase() {
   batch.set(constitutionRef, constitutionData);
   console.log("Constitution setting prepared.");
 
-  const processedMockPostsData = rawMockPostsDataWithAuthorId.map(p => ({
-    ...p,
-    author: getAuthorPick(findUserByIdForSeed(p.authorId))
-  }));
+  const processedMockPostsData = rawMockPostsDataWithAuthorId.map(p => {
+      const authorUser = findUserByIdForSeed(p.authorId);
+      return { ...p, author: getAuthorPick(authorUser) };
+  });
 
   console.log(`Processing ${processedMockPostsData.length} posts and updating counts/karma...`);
   const threadPostCounts: Record<string, number> = {};
@@ -222,8 +223,12 @@ export async function seedDatabase() {
     const parentThread = processedMockThreadsData.find(t => t.id === post.threadId);
     if (parentThread) {
       forumPostCounts[parentThread.forumId] = (forumPostCounts[parentThread.forumId] || 0) + 1;
-      if (parentThread.author.id !== post.author.id && userKarmaUpdates[parentThread.author.id]) {
-        userKarmaUpdates[parentThread.author.id].threadPosts += 1;
+      if (parentThread.author.id !== post.author.id) {
+        if (userKarmaUpdates[parentThread.author.id]) {
+            userKarmaUpdates[parentThread.author.id].threadPosts += 1;
+        } else {
+            console.warn(`Seed Warning: Author ID ${parentThread.author.id} for parent thread of post ${post.id} not found in userKarmaUpdates.`);
+        }
       }
     } else {
       console.warn(`Seed Warning: Post ${post.id} has threadId ${post.threadId} but parent thread not found in mockThreadsData.`);
@@ -293,3 +298,5 @@ export async function seedDatabase() {
     throw error;
   }
 }
+
+    

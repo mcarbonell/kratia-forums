@@ -1,4 +1,5 @@
 
+
 export type UserStatus = 'active' | 'under_sanction_process' | 'sanctioned' | 'pending_admission' | 'pending_email_verification';
 
 export interface UserNotificationSetting {
@@ -10,8 +11,9 @@ export interface UserNotificationSetting {
 export interface UserNotificationPreferences {
   newReplyToMyThread?: UserNotificationSetting;
   votationConcludedProposer?: UserNotificationSetting;
-  postReaction?: UserNotificationSetting; // New
-  votationConcludedParticipant?: UserNotificationSetting; // New
+  postReaction?: UserNotificationSetting;
+  votationConcludedParticipant?: UserNotificationSetting;
+  newPrivateMessage?: UserNotificationSetting; // New
 }
 
 export interface User {
@@ -151,19 +153,23 @@ export interface SiteSettings {
 
 export interface PrivateMessage {
   id: string;
-  sender: User;
-  recipient: User;
+  senderId: string;
+  senderUsername: string;
+  senderAvatarUrl?: string | null;
+  recipientId: string;
+  recipientUsername: string;
+  recipientAvatarUrl?: string | null;
   content: string;
-  createdAt: string;
-  isRead?: boolean;
+  createdAt: string; 
+  isRead: boolean;
 }
 
 export type NotificationType = 
   | 'new_reply_to_your_thread' 
-  | 'votation_concluded' 
-  | 'votation_concluded_proposer' // Explicitly for proposer
+  | 'votation_concluded_proposer'
   | 'post_reaction'
-  | 'votation_concluded_participant'; // New
+  | 'votation_concluded_participant'
+  | 'new_private_message'; // New
 
 export interface Notification {
   id: string;
@@ -177,9 +183,12 @@ export interface Notification {
   votationId?: string; 
   votationTitle?: string; 
   votationOutcome?: VotationStatus; 
-  reactionEmoji?: string; // New for post_reaction
+  reactionEmoji?: string;
   message: string; 
   link: string; 
   createdAt: string; 
   isRead: boolean;
+  privateMessageId?: string; // New for PM notifications
 }
+
+    

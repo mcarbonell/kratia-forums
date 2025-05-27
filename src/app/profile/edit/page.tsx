@@ -30,8 +30,9 @@ const profileFormSchema = z.object({
   aboutMe: z.string().max(500, "About me cannot exceed 500 characters.").optional().or(z.literal('')),
   prefs_newReplyToMyThread_web: z.boolean().optional(),
   prefs_votationConcludedProposer_web: z.boolean().optional(),
-  prefs_postReaction_web: z.boolean().optional(), // New
-  prefs_votationConcludedParticipant_web: z.boolean().optional(), // New
+  prefs_postReaction_web: z.boolean().optional(),
+  prefs_votationConcludedParticipant_web: z.boolean().optional(),
+  prefs_newPrivateMessage_web: z.boolean().optional(), // New
 });
 
 type ProfileFormData = z.infer<typeof profileFormSchema>;
@@ -56,8 +57,9 @@ export default function EditProfilePage() {
     defaultValues: { 
       prefs_newReplyToMyThread_web: true,
       prefs_votationConcludedProposer_web: true,
-      prefs_postReaction_web: true, // New default
-      prefs_votationConcludedParticipant_web: true, // New default
+      prefs_postReaction_web: true,
+      prefs_votationConcludedParticipant_web: true,
+      prefs_newPrivateMessage_web: true, // New default
     }
   });
 
@@ -84,8 +86,9 @@ export default function EditProfilePage() {
           setValue("aboutMe", userData.aboutMe || "");
           setValue("prefs_newReplyToMyThread_web", userData.notificationPreferences?.newReplyToMyThread?.web ?? true);
           setValue("prefs_votationConcludedProposer_web", userData.notificationPreferences?.votationConcludedProposer?.web ?? true);
-          setValue("prefs_postReaction_web", userData.notificationPreferences?.postReaction?.web ?? true); // New
-          setValue("prefs_votationConcludedParticipant_web", userData.notificationPreferences?.votationConcludedParticipant?.web ?? true); // New
+          setValue("prefs_postReaction_web", userData.notificationPreferences?.postReaction?.web ?? true);
+          setValue("prefs_votationConcludedParticipant_web", userData.notificationPreferences?.votationConcludedParticipant?.web ?? true);
+          setValue("prefs_newPrivateMessage_web", userData.notificationPreferences?.newPrivateMessage?.web ?? true); // New
         } else {
           setError(t('profileEdit.error.profileNotFound'));
         }
@@ -145,8 +148,9 @@ export default function EditProfilePage() {
     const notificationPreferences: UserNotificationPreferences = {
       newReplyToMyThread: { web: data.prefs_newReplyToMyThread_web ?? true },
       votationConcludedProposer: { web: data.prefs_votationConcludedProposer_web ?? true },
-      postReaction: { web: data.prefs_postReaction_web ?? true }, // New
-      votationConcludedParticipant: { web: data.prefs_votationConcludedParticipant_web ?? true }, // New
+      postReaction: { web: data.prefs_postReaction_web ?? true },
+      votationConcludedParticipant: { web: data.prefs_votationConcludedParticipant_web ?? true },
+      newPrivateMessage: { web: data.prefs_newPrivateMessage_web ?? true }, // New
     };
 
     try {
@@ -450,6 +454,30 @@ export default function EditProfilePage() {
               </div>
             </div>
 
+            <div className="flex items-center space-x-2 p-3 border rounded-md">
+              <Controller
+                name="prefs_newPrivateMessage_web"
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id="prefs_newPrivateMessage_web"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isSubmitting}
+                    ref={field.ref}
+                  />
+                )}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <Label htmlFor="prefs_newPrivateMessage_web" className="font-medium">
+                  {t('profileEdit.notificationPrefs.newPrivateMessage.label')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('profileEdit.notificationPrefs.newPrivateMessage.desc')}
+                </p>
+              </div>
+            </div>
+
           </CardContent>
            <CardFooter className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t">
               <Button type="button" variant="outline" onClick={() => loggedInUser && router.push(`/profile/${loggedInUser.id}`)} disabled={isSubmitting}>
@@ -469,3 +497,5 @@ export default function EditProfilePage() {
     </div>
   );
 }
+
+    

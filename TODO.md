@@ -7,15 +7,17 @@ This document outlines potential future enhancements, features, and areas for im
 - **Rich Text Editor for Posts:** Implement a WYSIWYG editor (e.g., TipTap, Quill.js, Slate.js) for creating posts, allowing for more advanced formatting beyond current regex replacements.
 - **Post Drafts:** Allow users to save drafts of their posts/threads before publishing.
 - **Mentions:** Implement `@username` mentions in posts, potentially notifying the mentioned user.
-- **Soft Deletion of Posts/Threads:** Allow users to "delete" their own content (within a time limit or if no replies) or admins to "soft delete" content, marking it as hidden rather than permanently removing it.
 - **Reporting Posts/Threads:** Allow users to report inappropriate content to administrators.
 - **Thread Subscriptions:** Allow users to subscribe to threads to receive notifications for new replies.
 - **Search Functionality:**
     - Basic search for thread titles.
     - Advanced search for post content (likely requires a dedicated search service like Algolia or Typesense for performance at scale).
+- **Advanced Poll Features:**
+    - Option for multiple choice votes in polls.
+    - Poll end dates.
 
 ## II. Agora & Governance System Enhancements
-- **Secret Voting:** Implement a mechanism where individual votes are not publicly visible in the votation document until the votation closes (more complex, might require backend logic/Cloud Functions).
+- **Secret Voting (Current votes are public in DB):** Implement a mechanism where individual votes are not publicly visible in the votation document until the votation closes (more complex, might require backend logic/Cloud Functions).
 - **More Votation Types:**
     - Proposing new site features or changes.
     - Electing moderators (if a mixed model is desired).
@@ -25,9 +27,14 @@ This document outlines potential future enhancements, features, and areas for im
     - Filter votations by type or status.
     - More detailed display of votation parameters (e.g., proposed text diff for constitution changes).
 - **Votation Delegation (Advanced):** Allow users to delegate their vote to another trusted user (liquid democracy concept).
+- **Configurable Admission Process:** Allow founder/admins (or via votation) to toggle the "admission by community vote" requirement.
 
 ## III. User Management & Profiles
-- **Private Messaging:** Implement a system for users to send private messages to each other.
+- **Private Messaging System:**
+    - **Phase 1 (DONE):** Ability to send a private message from a user's profile. Notification for new PM.
+    - **Phase 2 (TODO):** Dedicated `/messages` page to list conversations (grouped by user).
+    - **Phase 3 (TODO):** View individual conversation threads. Mark messages as read when viewed.
+    - **Phase 4 (TODO):** Real-time updates for new messages within an open conversation.
 - **User Badges/Achievements:** Award badges based on karma, activity, or roles.
 - **Karma Enhancements:**
     - Consider karma decay for inactivity.
@@ -41,14 +48,18 @@ This document outlines potential future enhancements, features, and areas for im
 - **Managing Site Settings:** Allow admins to modify some `KRATIA_CONFIG` values through the UI.
 - **Viewing/Managing Reported Content:** Interface for admins to review reported posts/threads.
 - **User Impersonation (Advanced/Careful):** For founders/super-admins to debug issues from a user's perspective.
+- **Full CRUD for Forums:** Deletion of forums needs to consider orphaned threads/posts (e.g., option to reassign or truly delete content). Currently, only the forum document is deleted.
 
 ## V. Notifications System
-- **More Notification Types:**
-    - When a user is mentioned.
-    - When a votation a user participated in concludes.
+- **More Notification Types (some done, review if all covered):**
+    - When a user is mentioned (`@username`).
+    - When a votation a user participated in concludes (DONE).
     - When a post/thread a user subscribed to gets a new reply.
+- **Granular Notification Settings (Partially Done):**
+    - UI allows configuring web notifications for implemented types.
+    - **TODO:** Add email/push notification channels in UI and backend.
+    - **TODO:** System needs to respect these settings when creating *all* types of notifications.
 - **Email Notifications:** Option for users to receive email notifications for important events.
-- **Granular Notification Settings:** Allow users to customize which notifications they receive.
 
 ## VI. Technical & Performance
 - **Full PWA Offline Support:** Implement a robust Service Worker for caching strategies, enabling better offline access.
@@ -62,17 +73,26 @@ This document outlines potential future enhancements, features, and areas for im
 - **Comprehensive Error Boundary Components:** Implement more specific error boundaries for different parts of the application.
 
 ## VII. Security & Moderation
-- **Refine Firebase Security Rules:** Continuously review and tighten Firestore and Storage security rules as new features are added.
+- **Refine Firebase Security Rules:** Continuously review and tighten Firestore and Storage security rules as new features are added (CRITICAL for production).
 - **Rate Limiting:** Implement rate limiting for actions like post creation, voting, etc., to prevent abuse (likely requires backend logic).
 - **Audit Logs:** For admin actions.
 
 ## VIII. Internationalization (i18n)
-- **Translate All UI:** Continue translating all static UI text across all components and pages.
+- **Translate All UI (Ongoing):** Continue translating all static UI text across all components and pages.
+    - Admin Panel forms and tables (mostly done).
+    - User Profile pages (mostly done).
+    - Agora pages (mostly done).
+    - Forum/Thread/Post UI elements (mostly done).
+    - Notification messages and page (mostly done).
+    - **Remaining Components (to review):** Specific dialogs, tooltips, less common alerts.
 - **Translate Dynamic Content (Advanced):** Consider strategies for translating user-generated content (e.g., forum names/descriptions set by admins) if multi-language dynamic content is desired. This would require data model changes.
 
 ## IX. AI Enhancements (Long-term)
 - **AI as a Forum Participant:** Explore the advanced idea of an AI user that can post, reply, and potentially participate in governance.
 - **AI for Content Moderation:** Suggestions for moderators, flagging potentially problematic content.
 - **AI for Content Summarization:** Summarize long threads or debates.
+- **AI for Welcome Message Translation:** Generate the personalized welcome message in the user's detected language.
 
 This list provides a good roadmap for the continued development and enhancement of Kratia Forums!
+
+    
