@@ -56,9 +56,10 @@ This document outlines potential future enhancements, features, and areas for im
     - When a user is mentioned (`@username`).
     - When a post/thread a user subscribed to gets a new reply.
 - **Granular Notification Settings:**
-    - **DONE:** UI allows configuring web notifications for implemented types.
+    - **DONE (UI):** UI allows configuring web notifications for implemented types.
+    - **DONE (Logic):** System respects these preferences for implemented types.
     - **TODO:** Add email/push notification channels in UI and backend.
-    - **TODO:** System needs to respect these settings when creating *all* types of notifications (review if fully covered).
+    - **TODO:** System needs to respect these settings when creating *all* types of notifications (review if fully covered for all future types).
 
 ## VI. Technical & Performance
 - **Full PWA Offline Support:** Implement a robust Service Worker for caching strategies, enabling better offline access. (Basic PWA for "Add to Home Screen" is DONE).
@@ -77,10 +78,10 @@ This document outlines potential future enhancements, features, and areas for im
 - **Audit Logs:** For admin actions.
 
 ## VIII. Internationalization (i18n)
-- **Translate All UI (Ongoing):** Continue translating all static UI text across all components and pages.
-    - **DONE (Most):** Header, Footer, Homepage, Auth pages, Admin pages, User Profile pages, Agora pages, Forum/Thread/Post UI, Notification page, Messages pages, Privacy Policy.
-    - **Remaining Components (to review):** Specific dialogs, tooltips, less common alerts, dynamic parts of messages (e.g., "You: ...").
-- **Translate Dynamic Content (Advanced):** Consider strategies for translating user-generated content (e.g., forum names/descriptions set by admins if they are not meant to be i18n keys) if multi-language dynamic content is desired. This would require data model changes.
+- **Translate All UI (Mostly DONE for static text):** Continue translating all static UI text across all components and pages.
+    - **DONE (Most):** Header, Footer, Homepage, Auth pages, Admin pages, User Profile pages, Agora pages, Forum/Thread/Post UI, Notification page, Messages pages, Privacy Policy (UI elements), Main Layout Title.
+    - **Remaining Components (to review):** Specific dialogs, tooltips, less common alerts, dynamic parts of messages (e.g., "You: ..."), potentially placeholders or error messages not yet covered.
+- **Translate Dynamic Content (Advanced):** Consider strategies for translating user-generated content (e.g., forum names/descriptions set by admins if they are not meant to be i18n keys) or admin-settable strings (like category names from DB) if multi-language dynamic content is desired. This would require data model changes.
 
 ## IX. AI Enhancements (Long-term)
 - **AI as a Forum Participant:** Explore the advanced idea of an AI user that can post, reply, and potentially participate in governance.

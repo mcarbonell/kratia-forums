@@ -19,12 +19,13 @@ Esta sección cubre problemas relacionados con el entorno de desarrollo o la int
 
 2.  **Issue:** AI Assistant (Firebase Studio App Prototyper) repeatedly forgets to use the specified XML format for file changes, instead outputting "(Omitted from agent history: ...)".
     *   **Description:** When requested to make code changes, the AI acknowledges the request but provides a placeholder instead of the actual XML diff. This requires multiple reminders from the user.
-    *   **Cause:** Potential internal model behavior or a "habit" from training data where this placeholder was common.
+    *   **Cause:** Potential internal model behavior or a "habit" from training data where this placeholder was common. Also, the context window limit might be contributing, making the AI "forget" earlier instructions about the XML format.
     *   **Impact:** Slows down development as changes are not applied, requiring repeated interactions.
     *   **Solution/Workaround:**
         *   User explicitly reminds the AI of the correct XML format and the instruction *not* to use the placeholder.
         *   User provides the correct XML format as a reminder if the AI struggles.
-        *   AI assistant (internal): Ongoing effort to improve adherence to the specified output format. User feedback is critical for this.
+        *   User shortens prompts or breaks down requests if conversation history is very long to mitigate context window issues.
+        *   AI assistant (internal): Ongoing effort to improve adherence to the specified output format and manage context better. User feedback is critical for this.
 
 ## II. Closed Bugs in Kratia Forums Application
 
@@ -113,7 +114,7 @@ Esta sección lista los bugs significativos que se han identificado y resuelto e
 17. **Bug:** "Rendered more hooks than during the previous render" error in Header.
     *   **Description:** React error due to calling `useMockAuth` inside a loop (`.map()`) within the `UserRoleSwitcher` component in `Header.tsx`.
     *   **Cause:** Violation of Rules of Hooks.
-    *   **Solution:** Moved `mockAuthUsers` to be a top-level export from `useMockAuth.ts` (later refined to be part of the hook's return object for stability) and imported/accessed it directly in `Header.tsx`, ensuring `useMockAuth` was called only once at the top level.
+    *   **Solution:** Moved `mockAuthUsers` (now `preparedMockAuthUsers`) to be a top-level export from `useMockAuth.ts` (later refined to be part of the hook's return object for stability) and imported/accessed it directly in `Header.tsx`, ensuring `useMockAuth` was called only once at the top level.
 
 18. **Bug:** `ReferenceError: Loader2 is not defined` in Login page.
     *   **Description:** Runtime error when submitting login form.
@@ -142,7 +143,7 @@ Esta sección lista los bugs significativos que se han identificado y resuelto e
 
 23. **Bug:** Votation for user admission marked as "Passed" but user status not updated in Firestore.
     *   **Description:** Admission votations would correctly close and show "Passed", but the target user's document in Firestore remained `status: "pending_admission"`.
-    *   **Cause:** The conditional block `if (newStatus === 'closed_passed' && votation.type === 'admission_request' ...)` in `ThreadPage.tsx`'s votation closing logic was not being entered. This was due to issues correctly identifying `votation.type` or other conditions within the `useEffect`.
+    *   **Cause:** The conditional block `if (newStatus === 'closed_passed' && votation.type === 'admission_request' ...)` in `ThreadPage.tsx`'s votation closing logic was not being entered or the batch commit was failing silently.
     *   **Solution:** Consolidated votation closing and outcome application logic into a single flow within the main data-fetching `useEffect` in `ThreadPage.tsx`. Added detailed logging to trace execution, which helped confirm conditions and ensure the user update batch was correctly prepared and committed.
 
 24. **Bug:** Redirect loop when a user's sanction status changed or when navigating to threads.

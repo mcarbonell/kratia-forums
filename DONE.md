@@ -103,7 +103,7 @@ This document outlines the major features, functionalities, and fixes implemente
 ## VII. Internationalization (i18n)
 - **Setup:** Integrated `i18next` and `react-i18next` for multi-language support.
 - **Languages:** Translation files (`common.json`) for English (`en`) and Spanish (`es`).
-- **Translated Components:** Header, Footer, Homepage, Authentication pages (Login, Signup, Forgot Password, Confirm, Sanctioned), Admin Panel pages (main, create/edit for categories, forums, users), User Profile pages (view, edit), Agora pages (main, propose constitution, propose new forum), Forum/Thread/Post pages (UI elements, buttons, titles, messages, tooltips, toasts), Notification page, Messages page (list and conversation view), Privacy Policy page.
+- **Translated Components (Static UI):** Header, Footer, Homepage, Authentication pages (Login, Signup, Forgot Password, Confirm, Sanctioned), Admin Panel pages (main, create/edit for categories, forums, users), User Profile pages (view, edit), Agora pages (main, propose constitution, propose new forum), Forum/Thread/Post pages (UI elements, buttons, titles, messages, tooltips, toasts), Notification page, Messages page (list and conversation view), Privacy Policy page (UI elements), Main Layout Title.
 - **Language Switcher:** Implemented a dropdown in the Header to allow users to switch between English and Spanish.
 - **Date Formatting:** Dates are localized (e.g., "hace 2 horas" vs "about 2 hours ago").
 
