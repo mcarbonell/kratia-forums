@@ -2,43 +2,46 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useRouter }_next_writer_EOF_split_marker
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { db } from '@/lib/firebase';
-import { collection, query, where, orderBy, getDocs, doc, writeBatch, Timestamp, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import type { PrivateMessage, User as KratiaUser } from '@/lib/types';
+import { collection, query, where, orderBy, getDocs, doc, writeBatch, Timestamp, onSnapshot, Unsubscribe, addDoc } from 'firebase/firestore';
+import type { PrivateMessage, User as KratiaUser, Notification } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Loader2, ChevronLeft, Send, MessageSquare, UserCircle, Frown, MailWarning } from 'lucide-react';
+import { Loader2, ChevronLeft, MessageSquare, UserCircle, Frown, MailWarning, Send } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { es as esLocale } from 'date-fns/locale/es';
 import { enUS as enUSLocale } from 'date-fns/locale/en-US';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { useToast } from '@/hooks/use-toast';
-import { z } from 'zod';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useToast } from '@/hooks/use-toast';
+
 
 interface OtherUser extends Pick<KratiaUser, 'id' | 'username' | 'avatarUrl'> {}
 
 const messageFormSchema = z.object({
-  replyContent: z.string().min(1, "Message cannot be empty.").max(2000, "Message cannot exceed 2000 characters."),
+  content: z.string().min(1, "Message cannot be empty.").max(2000, "Message cannot exceed 2000 characters."),
 });
+
 type MessageFormData = z.infer<typeof messageFormSchema>;
+
 
 export default function ConversationPage() {
   const params = useParams();
   const router = useRouter();
   const { user: loggedInUser, loading: authLoading } = useMockAuth();
   const { t, i18n } = useTranslation('common');
-  const { toast } = useToast();
   const conversationUserId = params.conversationUserId as string;
+  const { toast } = useToast();
 
   const [messages, setMessages] = useState<PrivateMessage[]>([]);
   const [otherUser, setOtherUser] = useState<OtherUser | null>(null);
@@ -48,13 +51,13 @@ export default function ConversationPage() {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const { register, handleSubmit, formState: { errors }, reset } = useForm<MessageFormData>({
+  const { register, handleSubmit, formState: { errors: formErrors }, reset } = useForm<MessageFormData>({
     resolver: zodResolver(messageFormSchema),
   });
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
   useEffect(scrollToBottom, [messages]);
 
@@ -97,44 +100,68 @@ export default function ConversationPage() {
     const q1 = query(
       collection(db, "private_messages"),
       where("senderId", "==", loggedInUser.id),
-      where("recipientId", "==", conversationUserId)
+      where("recipientId", "==", conversationUserId),
+      orderBy("createdAt", "asc")
     );
     const q2 = query(
       collection(db, "private_messages"),
       where("senderId", "==", conversationUserId),
-      where("recipientId", "==", loggedInUser.id)
+      where("recipientId", "==", loggedInUser.id),
+      orderBy("createdAt", "asc")
     );
-
+    
     const unsubscribes: Unsubscribe[] = [];
+    let initialMessagesFetched = false;
 
-    const processSnapshot = (querySnapshot: any, isInitialLoad: boolean = false) => {
-      const fetchedMessages: PrivateMessage[] = [];
-      querySnapshot.forEach((docSnap: any) => {
-        fetchedMessages.push({ id: docSnap.id, ...docSnap.data() } as PrivateMessage);
-      });
+    const processSnapshotData = (newFetchedMessages: PrivateMessage[]) => {
+        setMessages(prevMessages => {
+            const messageMap = new Map<string, PrivateMessage>();
+            // Combine new messages with existing ones, preferring the new ones if IDs collide (though unlikely with Firestore IDs)
+            const combinedMessages = [...prevMessages, ...newFetchedMessages];
+            combinedMessages.forEach(msg => messageMap.set(msg.id, msg));
+            
+            const allUniqueMessages = Array.from(messageMap.values());
+            allUniqueMessages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    
+            if (loggedInUser && allUniqueMessages.some(msg => msg.recipientId === loggedInUser.id && !msg.isRead)) {
+                const batch = writeBatch(db);
+                let markedAnyAsRead = false;
+                allUniqueMessages.forEach(msg => {
+                    if (msg.recipientId === loggedInUser.id && !msg.isRead) {
+                        batch.update(doc(db, "private_messages", msg.id), { isRead: true });
+                        markedAnyAsRead = true;
+                    }
+                });
+                if (markedAnyAsRead) {
+                    batch.commit().catch(err => console.error("Error marking messages as read:", err));
+                }
+            }
+            return allUniqueMessages;
+        });
+    };
 
-      setMessages(prevMessages => {
-        const messageMap = new Map<string, PrivateMessage>();
-        [...prevMessages, ...fetchedMessages].forEach(msg => messageMap.set(msg.id, msg));
-        const combined = Array.from(messageMap.values());
-        combined.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-        
-        if (isInitialLoad && loggedInUser) {
-            const batch = writeBatch(db);
-            let markedAnyAsRead = false;
-            combined.forEach(msg => {
-                if (msg.recipientId === loggedInUser.id && !msg.isRead) {
-                    batch.update(doc(db, "private_messages", msg.id), { isRead: true });
-                    markedAnyAsRead = true;
+    const setupListeners = () => {
+        const unsubscribe1 = onSnapshot(q1, (snapshot) => {
+            const newMsgs: PrivateMessage[] = [];
+            snapshot.docChanges().forEach((change) => {
+                 // Only process added messages after initial fetch, or any change if not initial
+                if (change.type === "added" || (change.type === "modified" && initialMessagesFetched) ) {
+                     newMsgs.push({ id: change.doc.id, ...change.doc.data() } as PrivateMessage);
                 }
             });
-            if (markedAnyAsRead) {
-                batch.commit().catch(err => console.error("Error marking messages as read:", err));
-            }
-        }
-        return combined;
-      });
-      if (isInitialLoad) setIsLoading(false);
+            if (newMsgs.length > 0) processSnapshotData(newMsgs);
+        }, (err) => { console.error("Listener error on q1:", err); setError(t('conversationPage.error.listenerFail'));});
+        
+        const unsubscribe2 = onSnapshot(q2, (snapshot) => {
+             const newMsgs: PrivateMessage[] = [];
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added" || (change.type === "modified" && initialMessagesFetched) ) {
+                     newMsgs.push({ id: change.doc.id, ...change.doc.data() } as PrivateMessage);
+                }
+            });
+            if (newMsgs.length > 0) processSnapshotData(newMsgs);
+        }, (err) => { console.error("Listener error on q2:", err); setError(t('conversationPage.error.listenerFail'));});
+        unsubscribes.push(unsubscribe1, unsubscribe2);
     };
     
     const fetchInitialMessages = async () => {
@@ -144,23 +171,9 @@ export default function ConversationPage() {
             snap1.forEach(docSnap => initialMessages.push({ id: docSnap.id, ...docSnap.data() } as PrivateMessage));
             snap2.forEach(docSnap => initialMessages.push({ id: docSnap.id, ...docSnap.data() } as PrivateMessage));
             
-            initialMessages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-            setMessages(initialMessages);
-
-            if (loggedInUser) {
-                 const batch = writeBatch(db);
-                 let markedAnyAsRead = false;
-                 initialMessages.forEach(msg => {
-                    if (msg.recipientId === loggedInUser.id && !msg.isRead) {
-                        batch.update(doc(db, "private_messages", msg.id), { isRead: true });
-                        markedAnyAsRead = true;
-                    }
-                });
-                if (markedAnyAsRead) {
-                    await batch.commit();
-                    // Refresh unread count in header if needed (complex, requires global state or event)
-                }
-            }
+            processSnapshotData(initialMessages); // This also handles marking as read
+            initialMessagesFetched = true; // Set this after initial fetch
+            setupListeners(); // Setup listeners after initial fetch
 
         } catch (err) {
             console.error("Error fetching initial messages:", err);
@@ -170,36 +183,13 @@ export default function ConversationPage() {
         }
     };
 
-    fetchInitialMessages().then(() => {
-        // Setup listeners after initial fetch
-        const unsubscribe1 = onSnapshot(q1, (snapshot) => {
-            const newMsgs: PrivateMessage[] = [];
-            snapshot.docChanges().forEach((change) => {
-                if (change.type === "added") {
-                     newMsgs.push({ id: change.doc.id, ...change.doc.data() } as PrivateMessage);
-                }
-            });
-            if (newMsgs.length > 0) processSnapshot(newMsgs.map(m => ({id: m.id, data: () => m, exists: true}))); // adapt for processSnapshot
-        }, (err) => { console.error("Listener error on q1:", err); setError(t('conversationPage.error.listenerFail'));});
-        
-        const unsubscribe2 = onSnapshot(q2, (snapshot) => {
-             const newMsgs: PrivateMessage[] = [];
-            snapshot.docChanges().forEach((change) => {
-                if (change.type === "added") {
-                     newMsgs.push({ id: change.doc.id, ...change.doc.data() } as PrivateMessage);
-                }
-            });
-            if (newMsgs.length > 0) processSnapshot(newMsgs.map(m => ({id: m.id, data: () => m, exists: true}))); // adapt for processSnapshot
-        }, (err) => { console.error("Listener error on q2:", err); setError(t('conversationPage.error.listenerFail'));});
-
-        unsubscribes.push(unsubscribe1, unsubscribe2);
-    });
-
+    fetchInitialMessages();
 
     return () => {
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [loggedInUser, conversationUserId, authLoading, t]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedInUser?.id, conversationUserId, authLoading, t]); // Added loggedInUser.id for more stability
 
   const formatMessageTimestamp = (dateString: string) => {
     const date = new Date(dateString);
@@ -213,8 +203,11 @@ export default function ConversationPage() {
     return format(date, 'PPp', { locale });
   };
 
-  const handleReplySubmit: SubmitHandler<MessageFormData> = async (data) => {
-    if (!loggedInUser || !otherUser || !conversationUserId || isSending) return;
+  const handleSendMessage: SubmitHandler<MessageFormData> = async (data) => {
+    if (!loggedInUser || !otherUser) {
+      toast({ title: t('common.error'), description: t('conversationPage.error.userOrRecipientMissing'), variant: "destructive" });
+      return;
+    }
     setIsSending(true);
     try {
       const newMessageData: Omit<PrivateMessage, 'id' | 'createdAt'> = {
@@ -224,18 +217,47 @@ export default function ConversationPage() {
         recipientId: otherUser.id,
         recipientUsername: otherUser.username,
         recipientAvatarUrl: otherUser.avatarUrl,
-        content: data.replyContent,
-        createdAt: Timestamp.now().toDate().toISOString(), // Client-side timestamp for immediate display
+        content: data.content,
         isRead: false,
       };
-      await addDoc(collection(db, "private_messages"), newMessageData);
-      reset();
-      // Notification logic can be added here if not handled by a backend trigger
-    } catch (err) {
-      console.error("Error sending reply:", err);
+      
+      const messageRef = await addDoc(collection(db, "private_messages"), {
+        ...newMessageData,
+        createdAt: Timestamp.now().toDate().toISOString(),
+      });
+
+      reset(); // Clear the form
+      // No need to manually add to messages state if listener is working correctly
+
+      // Create notification for the recipient
+      const recipientUserRef = doc(db, "users", otherUser.id);
+      const recipientSnap = await getDoc(recipientUserRef);
+      if (recipientSnap.exists()) {
+        const recipientData = recipientSnap.data() as KratiaUser;
+        const prefs = recipientData.notificationPreferences;
+        const shouldNotifyWeb = prefs?.newPrivateMessage?.web ?? true;
+
+        if (shouldNotifyWeb) {
+          const sender = loggedInUser; // For clarity in notification link
+          const notificationData: Omit<Notification, 'id'> = {
+            recipientId: otherUser.id,
+            actor: { id: sender.id, username: sender.username, avatarUrl: sender.avatarUrl || "" },
+            type: 'new_private_message' as const,
+            message: t('notifications.newPrivateMessage', { senderName: sender.username }),
+            link: `/messages/${sender.id}`, 
+            createdAt: new Date().toISOString(),
+            isRead: false,
+            privateMessageId: messageRef.id,
+          };
+          await addDoc(collection(db, "notifications"), notificationData);
+        }
+      }
+      // scrollToBottom(); // Scroll after message is likely added by listener
+    } catch (error) {
+      console.error("Error sending private message:", error);
       toast({
         title: t('common.error'),
-        description: t('conversationPage.error.sendReplyFail'),
+        description: t('conversationPage.error.sendFail'),
         variant: "destructive",
       });
     } finally {
@@ -243,7 +265,8 @@ export default function ConversationPage() {
     }
   };
 
-  if (authLoading || isLoading) {
+
+  if (authLoading || (isLoading && !otherUser)) { // Show loader if still loading initial otherUser details
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-12rem)]">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -280,7 +303,7 @@ export default function ConversationPage() {
     );
   }
 
-  if (!otherUser) {
+  if (!otherUser && !isLoading) { // Check after isLoading is false
     return (
       <Alert variant="destructive" className="max-w-lg mx-auto">
         <UserCircle className="h-5 w-5" />
@@ -294,7 +317,7 @@ export default function ConversationPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] max-w-3xl mx-auto"> {/* Adjust height as needed */}
+    <Card className="flex flex-col h-[calc(100vh-8rem)] max-w-3xl mx-auto shadow-xl">
       <CardHeader className="border-b p-4 sticky top-0 bg-card z-10">
         <div className="flex items-center justify-between">
             <Button variant="ghost" size="sm" asChild className="-ml-2">
@@ -303,22 +326,30 @@ export default function ConversationPage() {
                     {t('conversationPage.backToMessages')}
                 </Link>
             </Button>
-            <div className="flex items-center gap-3">
-                <Avatar className="h-8 w-8">
-                    <AvatarImage src={otherUser.avatarUrl || undefined} alt={otherUser.username} data-ai-hint="user avatar" />
-                    <AvatarFallback>{otherUser.username.substring(0,1).toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <CardTitle className="text-xl">{otherUser.username}</CardTitle>
-            </div>
+            {otherUser && (
+                 <div className="flex items-center gap-3">
+                    <Avatar className="h-8 w-8">
+                        <AvatarImage src={otherUser.avatarUrl || undefined} alt={otherUser.username} data-ai-hint="user avatar" />
+                        <AvatarFallback>{otherUser.username.substring(0,1).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <CardTitle className="text-xl">{otherUser.username}</CardTitle>
+                </div>
+            )}
             <div className="w-[calc(theme(space.8)_+_theme(spacing.2))]"> {/* Placeholder for balance */} </div>
         </div>
       </CardHeader>
       
       <CardContent className="flex-grow overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
+        {isLoading && messages.length === 0 && ( // Initial loading state for messages
+             <div className="flex justify-center items-center py-10">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="ml-3 text-muted-foreground">{t('conversationPage.loadingMessages')}</p>
+             </div>
+        )}
+        {!isLoading && messages.length === 0 && (
             <div className="text-center text-muted-foreground py-10">
                  <MessageSquare className="h-12 w-12 mx-auto mb-2"/>
-                <p>{t('conversationPage.noMessagesYet')}</p>
+                <p>{t('conversationPage.noMessagesYetWith', { username: otherUser?.username || 'this user' })}</p>
             </div>
         )}
         {messages.map((msg) => (
@@ -329,10 +360,18 @@ export default function ConversationPage() {
               msg.senderId === loggedInUser.id ? "ml-auto flex-row-reverse" : "mr-auto"
             )}
           >
-            {msg.senderId !== loggedInUser.id && (
+            {msg.senderId !== loggedInUser.id && otherUser && (
+              <Link href={`/profile/${otherUser.id}`} className="flex-shrink-0">
+                <Avatar className="h-7 w-7 self-start">
+                    <AvatarImage src={msg.senderAvatarUrl || undefined} alt={msg.senderUsername} data-ai-hint="user avatar" />
+                    <AvatarFallback>{msg.senderUsername.substring(0,1).toUpperCase()}</AvatarFallback>
+                </Avatar>
+              </Link>
+            )}
+             {msg.senderId === loggedInUser.id && ( // Avatar for logged-in user as well
               <Avatar className="h-7 w-7 self-start">
-                <AvatarImage src={msg.senderAvatarUrl || undefined} alt={msg.senderUsername} data-ai-hint="user avatar"/>
-                <AvatarFallback>{msg.senderUsername.substring(0,1).toUpperCase()}</AvatarFallback>
+                <AvatarImage src={loggedInUser.avatarUrl || undefined} alt={loggedInUser.username} data-ai-hint="user avatar" />
+                <AvatarFallback>{loggedInUser.username.substring(0,1).toUpperCase()}</AvatarFallback>
               </Avatar>
             )}
             <div
@@ -356,29 +395,31 @@ export default function ConversationPage() {
         <div ref={messagesEndRef} />
       </CardContent>
       
-      <CardFooter className="p-4 border-t sticky bottom-0 bg-card z-10">
-        <form onSubmit={handleSubmit(handleReplySubmit)} className="flex w-full items-start gap-2">
-          <div className="flex-grow space-y-1">
-            <Label htmlFor="replyContent" className="sr-only">{t('conversationPage.replyPlaceholder')}</Label>
-            <Textarea
-              id="replyContent"
-              placeholder={t('conversationPage.replyPlaceholder')}
-              rows={2}
-              {...register("replyContent")}
-              className={cn("resize-none", errors.replyContent ? "border-destructive" : "")}
-              disabled={isSending}
-            />
-            {errors.replyContent && <p className="text-xs text-destructive">{errors.replyContent.message}</p>}
-          </div>
-          <Button type="submit" size="icon" disabled={isSending} className="h-auto aspect-square p-2 mt-0.5"> 
-            {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-            <span className="sr-only">{t('conversationPage.sendButton')}</span>
-          </Button>
-        </form>
+      <CardFooter className="p-4 border-t bg-card sticky bottom-0 z-10">
+         {otherUser ? (
+            <form onSubmit={handleSubmit(handleSendMessage)} className="w-full flex items-start gap-2">
+                <div className="flex-grow">
+                    <Label htmlFor="message-content" className="sr-only">{t('conversationPage.replyPlaceholder')}</Label>
+                    <Textarea
+                    id="message-content"
+                    placeholder={t('conversationPage.replyPlaceholder')}
+                    rows={2} // Start with fewer rows
+                    {...register("content")}
+                    className={cn("min-h-[40px] resize-none", formErrors.content ? "border-destructive" : "")}
+                    disabled={isSending}
+                    />
+                    {formErrors.content && <p className="text-xs text-destructive mt-1">{formErrors.content.message}</p>}
+                </div>
+                <Button type="submit" disabled={isSending} size="icon" className="h-auto p-2 aspect-square self-end">
+                    {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                    <span className="sr-only">{t('conversationPage.sendButton')}</span>
+                </Button>
+            </form>
+         ) : (
+            <p className="text-center text-muted-foreground text-sm w-full">{t('conversationPage.cannotReplyUserNotFound')}</p>
+         )}
       </CardFooter>
-    </div>
+    </Card>
   );
 }
 
-
-    
