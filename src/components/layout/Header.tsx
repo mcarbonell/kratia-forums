@@ -2,7 +2,7 @@
 "use client";
 
 import Link from 'next/link';
-import { Home, Users, Vote, MessageSquare, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu, BadgeAlert, Bell, Languages } from 'lucide-react';
+import { Home, Users, Vote, MessageSquare as MessageSquareIcon, Settings, LogIn, LogOut, UserPlus, ShieldCheck, Menu, BadgeAlert, Bell, Languages, Mail } from 'lucide-react'; // Added Mail icon
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -63,7 +63,7 @@ export default function Header() {
 
   const navLinks = [
     { href: '/', labelKey: 'navHome', icon: <Home /> },
-    { href: '/forums', labelKey: 'navForums', icon: <MessageSquare /> },
+    { href: '/forums', labelKey: 'navForums', icon: <MessageSquareIcon /> }, // Renamed to avoid conflict
     { href: '/agora', labelKey: 'navAgora', icon: <Vote /> },
   ];
 
@@ -71,7 +71,7 @@ export default function Header() {
     <div className="mt-4 p-2 border-t">
       <p className="text-sm font-semibold mb-2">{t('switchRoleDev')}</p>
       {preparedMockAuthUsers && Object.keys(preparedMockAuthUsers).map(userKey => {
-        const userObject = preparedMockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
+        const userObject = preparedMockAuthUsers[userKey];
         if (!userObject) return null;
         const displayName = userObject.username || userKey;
         return (
@@ -111,7 +111,7 @@ export default function Header() {
         <div className="flex items-center space-x-1">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Change language">
+              <Button variant="ghost" size="icon" aria-label={t('languageSelectorLabel')}>
                 <Languages className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>
@@ -132,6 +132,13 @@ export default function Header() {
               <div className="h-8 w-24 bg-muted rounded animate-pulse"></div>
             ) : user && user.role !== 'visitor' ? (
               <>
+                <Button variant="ghost" size="icon" asChild className="relative">
+                  <Link href="/messages">
+                    <Mail /> {/* Icon for messages */}
+                    {/* TODO: Add unread messages count badge later */}
+                    <span className="sr-only">{t('navMessages')}</span>
+                  </Link>
+                </Button>
                 <Button variant="ghost" size="icon" asChild className="relative">
                   <Link href="/notifications">
                     <Bell />
@@ -156,7 +163,14 @@ export default function Header() {
                       <Link href={`/profile/${user.id}`}>{t('navMyProfile')}</Link>
                     </DropdownMenuItem>
                      <DropdownMenuItem asChild>
+                      <Link href="/messages">
+                        <Mail className="mr-2 h-4 w-4" />{t('navMessages')}
+                        {/* TODO: Add unread messages count badge here too */}
+                      </Link>
+                     </DropdownMenuItem>
+                     <DropdownMenuItem asChild>
                       <Link href="/notifications">
+                        <Bell className="mr-2 h-4 w-4" />
                         {t('navNotifications')}
                         {unreadNotificationsCount > 0 && (
                           <Badge variant="destructive" className="ml-auto">{unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}</Badge>
@@ -164,7 +178,7 @@ export default function Header() {
                       </Link>
                      </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/profile/edit">{t('navSettings')}</Link>
+                      <Link href="/profile/edit"><Settings className="mr-2 h-4 w-4" />{t('navSettings')}</Link>
                     </DropdownMenuItem>
                     {(user.role === 'admin' || user.role === 'founder') && (
                       <DropdownMenuItem asChild>
@@ -183,7 +197,7 @@ export default function Header() {
                               <div className="p-2">
                                   <p className="text-xs text-muted-foreground mb-1">{t('switchRoleDev')}</p>
                                   {Object.keys(preparedMockAuthUsers).map(userKey => {
-                                      const userObject = preparedMockAuthUsers[userKey as keyof typeof preparedMockAuthUsers];
+                                      const userObject = preparedMockAuthUsers[userKey];
                                       if (!userObject) return null;
                                       const displayName = userObject.username || userKey;
                                       return (
@@ -232,20 +246,28 @@ export default function Header() {
                 </div>
                 <nav className="flex flex-col p-4 space-y-1">
                   {renderNavLinks(true)}
-                   {user && user.role !== 'visitor' && (
-                     <Button variant="ghost" asChild className="justify-start w-full text-base py-3 relative">
-                      <Link href="/notifications" onClick={() => setMobileMenuOpen(false)}>
-                        <Bell />
-                        <span className="ml-2">{t('navNotifications')}</span>
-                        {unreadNotificationsCount > 0 && (
-                          <Badge variant="destructive" className="absolute left-8 top-1.5 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                             {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
-                          </Badge>
-                        )}
-                      </Link>
-                    </Button>
-                  )}
-                  {/* Language switcher for mobile */}
+                   {user && user.role !== 'visitor' && user.role !== 'guest' && (
+                     <>
+                      <Button variant="ghost" asChild className="justify-start w-full text-base py-3 relative">
+                        <Link href="/messages" onClick={() => setMobileMenuOpen(false)}>
+                          <Mail />
+                          <span className="ml-2">{t('navMessages')}</span>
+                          {/* TODO: Add unread messages count badge */}
+                        </Link>
+                      </Button>
+                      <Button variant="ghost" asChild className="justify-start w-full text-base py-3 relative">
+                        <Link href="/notifications" onClick={() => setMobileMenuOpen(false)}>
+                          <Bell />
+                          <span className="ml-2">{t('navNotifications')}</span>
+                          {unreadNotificationsCount > 0 && (
+                            <Badge variant="destructive" className="absolute left-8 top-1.5 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                              {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                            </Badge>
+                          )}
+                        </Link>
+                      </Button>
+                     </>
+                   )}
                   <div className="pt-2">
                     <p className="px-2 text-sm font-semibold text-muted-foreground">{t('languageSelectorLabel')}</p>
                     <Button variant="ghost" onClick={() => changeLanguage('en')} disabled={i18n.language === 'en'} className="w-full justify-start text-base py-3">
@@ -270,7 +292,11 @@ export default function Header() {
                         <Link href={`/profile/${user.id}`}>{t('navMyProfile')}</Link>
                       </Button>
                        <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
+                          <Link href="/messages"> <Mail className="mr-2 h-4 w-4" />{t('navMessages')}</Link>
+                       </Button>
+                       <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
                           <Link href="/notifications">
+                            <Bell className="mr-2 h-4 w-4" />
                             {t('navNotifications')}
                             {unreadNotificationsCount > 0 && (
                               <Badge variant="destructive" className="ml-auto">{unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}</Badge>
@@ -278,7 +304,7 @@ export default function Header() {
                           </Link>
                        </Button>
                       <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
-                        <Link href="/profile/edit">{t('navSettings')}</Link>
+                        <Link href="/profile/edit"><Settings className="mr-2 h-4 w-4" />{t('navSettings')}</Link>
                       </Button>
                        {(user.role === 'admin' || user.role === 'founder') && (
                           <Button variant="outline" asChild className="w-full" onClick={() => setMobileMenuOpen(false)}>
@@ -317,3 +343,5 @@ export default function Header() {
     </header>
   );
 }
+
+    
