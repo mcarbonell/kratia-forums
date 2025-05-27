@@ -10,26 +10,28 @@ export interface UserNotificationSetting {
 export interface UserNotificationPreferences {
   newReplyToMyThread?: UserNotificationSetting;
   votationConcludedProposer?: UserNotificationSetting;
+  postReaction?: UserNotificationSetting; // New
+  votationConcludedParticipant?: UserNotificationSetting; // New
 }
 
 export interface User {
   id: string;
   username: string;
   email: string;
-  avatarUrl?: string | null; // Allow null for explicit removal
-  registrationDate?: string; // ISO date string
+  avatarUrl?: string | null; 
+  registrationDate?: string; 
   karma?: number;
   location?: string | null;
   aboutMe?: string | null;
-  presentation?: string; // For admission requests
-  isQuarantined?: boolean; // True if user is new and hasn't met criteria
-  canVote?: boolean; // True if user is a "Usuario Normal"
+  presentation?: string; 
+  isQuarantined?: boolean; 
+  canVote?: boolean; 
   totalPostsByUser?: number;
   totalReactionsReceived?: number;
   totalPostsInThreadsStartedByUser?: number;
   totalThreadsStartedByUser?: number;
   status?: UserStatus;
-  sanctionEndDate?: string | null; // ISO date string, if sanctioned
+  sanctionEndDate?: string | null; 
   role?: 'guest' | 'user' | 'normal_user' | 'admin' | 'founder' | 'visitor';
   onboardingAccepted?: boolean;
   notificationPreferences?: UserNotificationPreferences;
@@ -40,8 +42,8 @@ export interface Post {
   threadId: string;
   author: Pick<User, 'id' | 'username' | 'avatarUrl'>;
   content: string;
-  createdAt: string; // ISO date string
-  updatedAt?: string | null; // ISO date string
+  createdAt: string; 
+  updatedAt?: string | null; 
   reactions: Record<string, { userIds: string[] }>;
   isEdited?: boolean;
   lastEditedBy?: Pick<User, 'id' | 'username'> | null;
@@ -52,12 +54,12 @@ export interface Thread {
   forumId: string;
   title: string;
   author: Pick<User, 'id' | 'username' | 'avatarUrl'>;
-  createdAt: string; // ISO date string
-  lastReplyAt?: string | null; // ISO date string
+  createdAt: string; 
+  lastReplyAt?: string | null; 
   postCount: number;
   isSticky?: boolean;
   isLocked?: boolean;
-  isPublic?: boolean; // Visible to non-logged-in users
+  isPublic?: boolean; 
   tags?: string[];
   poll?: Poll | null;
   relatedVotationId?: string | null;
@@ -80,7 +82,7 @@ export interface ForumCategory {
   id: string;
   name: string;
   description?: string;
-  forums?: Forum[]; // Optional if forums are primarily linked by categoryId
+  forums?: Forum[]; 
 }
 
 export interface PollOption {
@@ -96,7 +98,7 @@ export interface Poll {
   allowMultipleVotes?: boolean;
   endDate?: string;
   totalVotes: number;
-  voters: Record<string, string>; // userId: optionId
+  voters: Record<string, string>; 
 }
 
 export type VotationStatus = 'active' | 'closed_passed' | 'closed_failed_quorum' | 'closed_failed_vote' | 'closed_executed' | 'closed_rejected';
@@ -127,7 +129,6 @@ export interface Votation {
   
   proposedConstitutionText?: string;
   
-  // For new forum proposals
   proposedForumName?: string;
   proposedForumDescription?: string;
   proposedForumCategoryId?: string;
@@ -145,7 +146,7 @@ export interface Votation {
 
 export interface SiteSettings {
     constitutionText?: string;
-    lastUpdated?: string; // ISO date string
+    lastUpdated?: string; 
 }
 
 export interface PrivateMessage {
@@ -159,24 +160,26 @@ export interface PrivateMessage {
 
 export type NotificationType = 
   | 'new_reply_to_your_thread' 
-  | 'votation_concluded' // Used for proposer notification
-  | 'post_reaction'; // Generic reaction, could be specialized
+  | 'votation_concluded' 
+  | 'votation_concluded_proposer' // Explicitly for proposer
+  | 'post_reaction'
+  | 'votation_concluded_participant'; // New
 
 export interface Notification {
   id: string;
-  recipientId: string; // The ID of the user who should receive the notification
-  actor: Pick<User, 'id' | 'username' | 'avatarUrl'>; // Who performed the action
+  recipientId: string; 
+  actor: Pick<User, 'id' | 'username' | 'avatarUrl'>; 
   type: NotificationType;
   threadId?: string;
-  threadTitle?: string; // Can be truncated
-  postId?: string; // e.g., The ID of the new reply
+  threadTitle?: string; 
+  postId?: string; 
   forumId?: string;
-  votationId?: string; // Redundant if threadId is for votation thread
-  votationTitle?: string; // Can be truncated
-  votationOutcome?: VotationStatus; // Store the outcome of the votation
-  reactionEmoji?: string;
-  message: string; // Generated message for display
-  link: string; // Link to the relevant content
-  createdAt: string; // ISO date string
+  votationId?: string; 
+  votationTitle?: string; 
+  votationOutcome?: VotationStatus; 
+  reactionEmoji?: string; // New for post_reaction
+  message: string; 
+  link: string; 
+  createdAt: string; 
   isRead: boolean;
 }

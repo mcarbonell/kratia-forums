@@ -4,17 +4,17 @@
 import Link from 'next/link';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import type { Post, Poll, PollOption, User as KratiaUser, Thread } from '@/lib/types';
+import type { Post, Poll, PollOption, User as KratiaUser, Thread, Notification, UserNotificationPreferences } from '@/lib/types';
 import { formatDistanceToNow } from 'date-fns';
 import { es as esLocale } from 'date-fns/locale/es';
 import { enUS as enUSLocale } from 'date-fns/locale/en-US';
 import { ThumbsUp, MessageSquare, Edit2, Trash2, BarChartBig, Vote as VoteIcon, Loader2, Save, XCircle } from 'lucide-react';
 import UserAvatar from '../user/UserAvatar';
-import { useState, useEffect, type ChangeEvent } from 'react';
+import { useState, useEffect, type ChangeEvent, useCallback } from 'react';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, runTransaction, increment, getDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { doc, updateDoc, runTransaction, increment, getDoc, deleteDoc, writeBatch, collection, addDoc } from 'firebase/firestore';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -72,7 +72,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     }
   }, [threadPoll, user]);
 
-  const timeAgo = (dateString?: string) => {
+  const timeAgo = useCallback((dateString?: string) => {
     if (!dateString) return t('common.time.someTimeAgo');
     try {
         const date = new Date(dateString);
@@ -84,7 +84,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     } catch (e) {
         return t('common.time.aWhileBack');
     }
-  };
+  }, [i18n.language, t]);
 
   const formatContent = (content: string) => {
     let processedContent = content;
@@ -175,23 +175,21 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
       await runTransaction(db, async (transaction) => {
         const postDoc = await transaction.get(postRef);
         if (!postDoc.exists()) throw new Error(t('postItem.error.postNotFound'));
-        const serverReactions = postDoc.data().reactions || {};
+        const serverPostData = postDoc.data() as Post;
+        const serverReactions = serverPostData.reactions || {};
         const emojiReactionData = serverReactions[emoji] || { userIds: [] };
         const userHasReacted = emojiReactionData.userIds.includes(user.id);
+        
         let newEmojiUserIds;
         let karmaChangeForAuthor = 0; 
         let reactionChangeForAuthor = 0;
 
-        if (post.author.id !== user.id) { // Only change karma if not self-reaction (already handled above)
-            if (userHasReacted) {
-              newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
-              karmaChangeForAuthor = -1; reactionChangeForAuthor = -1;
-            } else {
-              newEmojiUserIds = [...emojiReactionData.userIds, user.id];
-              karmaChangeForAuthor = 1; reactionChangeForAuthor = 1;
-            }
+        if (userHasReacted) {
+          newEmojiUserIds = emojiReactionData.userIds.filter((id: string) => id !== user.id);
+          karmaChangeForAuthor = -1; reactionChangeForAuthor = -1;
         } else {
-            newEmojiUserIds = emojiReactionData.userIds; // No change if self-reaction attempt
+          newEmojiUserIds = [...emojiReactionData.userIds, user.id];
+          karmaChangeForAuthor = 1; reactionChangeForAuthor = 1;
         }
         
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
@@ -200,14 +198,59 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         else newReactionsField[emoji] = updatedReactionsForEmoji;
         transaction.update(postRef, { reactions: newReactionsField });
         
-        if (post.author.id && post.author.id !== 'unknown' && post.author.id !== user.id && (karmaChangeForAuthor !== 0 || reactionChangeForAuthor !== 0)) {
-            transaction.update(postAuthorUserRef, {
-                karma: increment(karmaChangeForAuthor),
-                totalReactionsReceived: increment(reactionChangeForAuthor),
-            });
+        if (post.author.id && post.author.id !== 'unknown' && (karmaChangeForAuthor !== 0 || reactionChangeForAuthor !== 0)) {
+            const postAuthorDoc = await transaction.get(postAuthorUserRef);
+            if (postAuthorDoc.exists()) {
+                transaction.update(postAuthorUserRef, {
+                    karma: increment(karmaChangeForAuthor),
+                    totalReactionsReceived: increment(reactionChangeForAuthor),
+                });
+            }
         }
-        setCurrentReactions(newReactionsField);
+        setCurrentReactions(newReactionsField); // Optimistic UI update
       });
+
+      // After successful transaction, check if a notification needs to be sent
+      const emojiReactionData = currentReactions[emoji] || { userIds: [] };
+      const userHasReacted = emojiReactionData.userIds.includes(user.id);
+
+      if (userHasReacted && post.author.id !== user.id) { // If user just liked (not unliked)
+        const authorRef = doc(db, "users", post.author.id);
+        const authorSnap = await getDoc(authorRef);
+        if (authorSnap.exists()) {
+          const authorData = authorSnap.data() as KratiaUser;
+          const prefs = authorData.notificationPreferences;
+          const shouldNotifyWeb = prefs?.postReaction?.web ?? true; // Default to true
+
+          if (shouldNotifyWeb) {
+            let parentThreadTitle = t('notifications.aThread');
+            if (threadId) {
+              const threadDoc = await getDoc(doc(db, "threads", threadId));
+              if (threadDoc.exists()) {
+                parentThreadTitle = threadDoc.data().title || parentThreadTitle;
+              }
+            }
+            const truncatedThreadTitle = parentThreadTitle.length > 50 ? `${parentThreadTitle.substring(0, 47)}...` : parentThreadTitle;
+            
+            const notificationData: Omit<Notification, 'id'> = {
+              recipientId: post.author.id,
+              actor: { id: user.id, username: user.username, avatarUrl: user.avatarUrl || "" },
+              type: 'post_reaction',
+              threadId: threadId,
+              threadTitle: truncatedThreadTitle,
+              postId: post.id,
+              forumId: forumId,
+              reactionEmoji: '👍',
+              message: t('notifications.postReaction', { actorName: user.username, emoji: '👍' }),
+              link: `/forums/${forumId}/threads/${threadId || 'unknown'}#post-${post.id}`,
+              createdAt: new Date().toISOString(),
+              isRead: false,
+            };
+            await addDoc(collection(db, "notifications"), notificationData);
+          }
+        }
+      }
+
     } catch (error) {
       console.error("Error updating reaction:", error);
       toast({ title: t('common.error'), description: t('postItem.toast.reaction.updateError'), variant: "destructive" });
@@ -319,14 +362,14 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   
   const canEditPost = user && (isAdminOrFounder || (isOwnPost && isWithinEditLimit));
   
-  const canAuthorDelete = isOwnPost && isWithinEditLimit;
+  const canAuthorDelete = isOwnPost && isWithinEditLimit; // For now, same as edit limit
   const canAdminDelete = isAdminOrFounder;
   const canDeletePost = user && (canAdminDelete || canAuthorDelete);
 
 
   return (
     <>
-    <Card className={`w-full ${isFirstPost ? 'border-primary/40 shadow-lg' : 'shadow-md'}`}>
+    <Card id={`post-${post.id}`} className={`w-full ${isFirstPost ? 'border-primary/40 shadow-lg' : 'shadow-md'}`}>
       <CardHeader className="flex flex-row items-start space-x-4 p-4 bg-muted/30 rounded-t-lg">
         <Link href={`/profile/${post.author.id}`} className="flex-shrink-0">
           <UserAvatar user={post.author as KratiaUser} size="md" />
@@ -481,5 +524,3 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     </>
   );
 }
-
-    

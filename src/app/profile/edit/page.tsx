@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox'; // Added for notification preferences
+import { Checkbox } from '@/components/ui/checkbox';
 import { useMockAuth } from '@/hooks/use-mock-auth';
 import type { User as KratiaUser, UserNotificationPreferences } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
@@ -28,9 +28,10 @@ const profileFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters.").max(50, "Username cannot exceed 50 characters."),
   location: z.string().max(100, "Location cannot exceed 100 characters.").optional().or(z.literal('')),
   aboutMe: z.string().max(500, "About me cannot exceed 500 characters.").optional().or(z.literal('')),
-  // Notification preferences
   prefs_newReplyToMyThread_web: z.boolean().optional(),
   prefs_votationConcludedProposer_web: z.boolean().optional(),
+  prefs_postReaction_web: z.boolean().optional(), // New
+  prefs_votationConcludedParticipant_web: z.boolean().optional(), // New
 });
 
 type ProfileFormData = z.infer<typeof profileFormSchema>;
@@ -52,9 +53,11 @@ export default function EditProfilePage() {
 
   const { register, handleSubmit, formState: { errors }, control, reset, setValue } = useForm<ProfileFormData>({
     resolver: zodResolver(profileFormSchema),
-    defaultValues: { // Initialize preference fields
+    defaultValues: { 
       prefs_newReplyToMyThread_web: true,
       prefs_votationConcludedProposer_web: true,
+      prefs_postReaction_web: true, // New default
+      prefs_votationConcludedParticipant_web: true, // New default
     }
   });
 
@@ -79,9 +82,10 @@ export default function EditProfilePage() {
           setValue("username", userData.username);
           setValue("location", userData.location || "");
           setValue("aboutMe", userData.aboutMe || "");
-          // Set notification preferences from loaded data
           setValue("prefs_newReplyToMyThread_web", userData.notificationPreferences?.newReplyToMyThread?.web ?? true);
           setValue("prefs_votationConcludedProposer_web", userData.notificationPreferences?.votationConcludedProposer?.web ?? true);
+          setValue("prefs_postReaction_web", userData.notificationPreferences?.postReaction?.web ?? true); // New
+          setValue("prefs_votationConcludedParticipant_web", userData.notificationPreferences?.votationConcludedParticipant?.web ?? true); // New
         } else {
           setError(t('profileEdit.error.profileNotFound'));
         }
@@ -111,7 +115,7 @@ export default function EditProfilePage() {
     }
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      if (file.size > 5 * 1024 * 1024) { 
         toast({ title: t('profileEdit.toast.avatar.tooLargeTitle'), description: t('profileEdit.toast.avatar.tooLargeDesc'), variant: "destructive" });
         event.target.value = ""; 
         setAvatarFile(null);
@@ -138,10 +142,11 @@ export default function EditProfilePage() {
     setIsSubmitting(true);
     let newAvatarUrl = profileUser.avatarUrl; 
 
-    // Reconstruct notificationPreferences object
     const notificationPreferences: UserNotificationPreferences = {
       newReplyToMyThread: { web: data.prefs_newReplyToMyThread_web ?? true },
       votationConcludedProposer: { web: data.prefs_votationConcludedProposer_web ?? true },
+      postReaction: { web: data.prefs_postReaction_web ?? true }, // New
+      votationConcludedParticipant: { web: data.prefs_votationConcludedParticipant_web ?? true }, // New
     };
 
     try {
@@ -159,7 +164,7 @@ export default function EditProfilePage() {
         location: data.location || null,
         aboutMe: data.aboutMe || null,
         avatarUrl: newAvatarUrl || null, 
-        notificationPreferences: notificationPreferences, // Save preferences
+        notificationPreferences: notificationPreferences,
       });
       
       if (newAvatarUrl !== currentAvatarDisplayUrl) {
@@ -167,7 +172,7 @@ export default function EditProfilePage() {
       }
       
       if (syncUserWithFirestore && loggedInUser) {
-         await syncUserWithFirestore(loggedInUser); // Re-sync user data
+         await syncUserWithFirestore(loggedInUser); 
       }
 
       toast({
@@ -396,10 +401,58 @@ export default function EditProfilePage() {
                 </p>
               </div>
             </div>
-            {/* Future: Add Email/Push preferences here */}
+            
+            <div className="flex items-center space-x-2 p-3 border rounded-md">
+              <Controller
+                name="prefs_postReaction_web"
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id="prefs_postReaction_web"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isSubmitting}
+                    ref={field.ref}
+                  />
+                )}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <Label htmlFor="prefs_postReaction_web" className="font-medium">
+                  {t('profileEdit.notificationPrefs.postReaction.label')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('profileEdit.notificationPrefs.postReaction.desc')}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 p-3 border rounded-md">
+              <Controller
+                name="prefs_votationConcludedParticipant_web"
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id="prefs_votationConcludedParticipant_web"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isSubmitting}
+                    ref={field.ref}
+                  />
+                )}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <Label htmlFor="prefs_votationConcludedParticipant_web" className="font-medium">
+                  {t('profileEdit.notificationPrefs.votationConcludedParticipant.label')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('profileEdit.notificationPrefs.votationConcludedParticipant.desc')}
+                </p>
+              </div>
+            </div>
+
           </CardContent>
            <CardFooter className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t">
-              <Button type="button" variant="outline" onClick={() => router.push(`/profile/${loggedInUser.id}`)} disabled={isSubmitting}>
+              <Button type="button" variant="outline" onClick={() => loggedInUser && router.push(`/profile/${loggedInUser.id}`)} disabled={isSubmitting}>
                   {t('profileEdit.cancelButton')}
               </Button>
               <Button type="submit" disabled={isSubmitting} className="min-w-[120px]">

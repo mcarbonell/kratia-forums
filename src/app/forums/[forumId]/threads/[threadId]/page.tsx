@@ -95,36 +95,40 @@ export default function ThreadPage() {
       setHasMorePosts(true);
 
       try {
+        console.log('[ThreadPage MAIN Effect] Fetching threadRef...');
         const threadRef = doc(db, "threads", threadId);
         const threadSnap = await getDoc(threadRef);
 
         if (!threadSnap.exists()) {
+          console.log('[ThreadPage MAIN Effect] Thread not found.');
           setError(t('threadPage.error.threadNotFound'));
           setThread(null); setVotation(null); setHasMorePosts(false);
           setIsLoading(false);
           return;
         }
 
-        let fetchedThreadData = threadSnap.data() as Omit<Thread, 'id'>;
+        let fetchedThreadDataRaw = threadSnap.data() as Omit<Thread, 'id'>;
         let currentThreadState: Thread = {
-          id: threadSnap.id, ...fetchedThreadData,
-          createdAt: formatFirestoreTimestamp(fetchedThreadData.createdAt) || new Date(0).toISOString(),
-          lastReplyAt: formatFirestoreTimestamp(fetchedThreadData.lastReplyAt),
-          author: fetchedThreadData.author || { username: t('common.unknownUser'), id: '' },
-          postCount: fetchedThreadData.postCount || 0,
-          isLocked: fetchedThreadData.isLocked || false,
-          isSticky: fetchedThreadData.isSticky || false,
-          relatedVotationId: fetchedThreadData.relatedVotationId || undefined,
-          poll: fetchedThreadData.poll || undefined,
+          id: threadSnap.id, ...fetchedThreadDataRaw,
+          createdAt: formatFirestoreTimestamp(fetchedThreadDataRaw.createdAt) || new Date(0).toISOString(),
+          lastReplyAt: formatFirestoreTimestamp(fetchedThreadDataRaw.lastReplyAt),
+          author: fetchedThreadDataRaw.author || { username: t('common.unknownUser'), id: '' },
+          postCount: fetchedThreadDataRaw.postCount || 0,
+          isLocked: fetchedThreadDataRaw.isLocked || false,
+          isSticky: fetchedThreadDataRaw.isSticky || false,
+          relatedVotationId: fetchedThreadDataRaw.relatedVotationId || undefined,
+          poll: fetchedThreadDataRaw.poll || undefined,
         };
+        console.log('[ThreadPage MAIN Effect] Thread data fetched:', currentThreadState);
 
         let fetchedVotationData: Votation | null = null;
         if (currentThreadState.relatedVotationId) {
+          console.log('[ThreadPage MAIN Effect] Fetching votation data for ID:', currentThreadState.relatedVotationId);
           const votationRef = doc(db, "votations", currentThreadState.relatedVotationId);
           const votationSnap = await getDoc(votationRef);
           if (votationSnap.exists()) {
             fetchedVotationData = { id: votationSnap.id, ...votationSnap.data() } as Votation;
-            console.log('[ThreadPage MAIN Effect] Fetched votation data:', fetchedVotationData);
+            console.log('[ThreadPage MAIN Effect] Votation data fetched:', fetchedVotationData);
           } else {
             console.warn('[ThreadPage MAIN Effect] Votation document not found for ID:', currentThreadState.relatedVotationId);
           }
@@ -163,7 +167,7 @@ export default function ThreadPage() {
             if (fetchedVotationData.type === 'sanction' && fetchedVotationData.targetUserId && fetchedVotationData.targetUsername) {
               console.log('[ThreadPage MAIN Effect] Applying sanction outcome for targetUserId:', fetchedVotationData.targetUserId);
               const targetUserRef = doc(db, "users", fetchedVotationData.targetUserId);
-              const sanctionEndDate = addDays(new Date(), 1); // Hardcoded 1 day for now
+              const sanctionEndDate = addDays(new Date(), 1); 
               batch.update(targetUserRef, { status: 'sanctioned', sanctionEndDate: sanctionEndDate.toISOString() });
               toast({ title: t('threadPage.toast.sanctionApplied.title'), description: t('threadPage.toast.sanctionApplied.desc', { username: fetchedVotationData.targetUsername })});
             }
@@ -184,7 +188,7 @@ export default function ThreadPage() {
             if (fetchedVotationData.type === 'new_forum_proposal' && fetchedVotationData.proposedForumName && fetchedVotationData.proposedForumCategoryId && fetchedVotationData.proposedForumDescription) {
                 console.log('[ThreadPage MAIN Effect] Applying NEW FORUM PROPOSAL outcome for forum:', fetchedVotationData.proposedForumName);
                 const newForumRef = doc(collection(db, "forums"));
-                const newForumData: Omit<ForumCategory, 'id' | 'forums'> & { categoryId: string, isPublic: boolean, isAgora: boolean, threadCount: number, postCount: number } = { // Corrected type
+                const newForumData: Omit<ForumCategory, 'id' | 'forums'> & { categoryId: string, isPublic: boolean, isAgora: boolean, threadCount: number, postCount: number } = {
                     name: fetchedVotationData.proposedForumName,
                     description: fetchedVotationData.proposedForumDescription,
                     categoryId: fetchedVotationData.proposedForumCategoryId,
@@ -201,9 +205,9 @@ export default function ThreadPage() {
           }
 
           if (currentThreadState && !currentThreadState.isLocked) {
-            console.log('[ThreadPage MAIN Effect] Locking Agora thread:', currentThreadState.id);
+            console.log('[ThreadPage MAIN Effect] Locking Agora thread automatically:', currentThreadState.id);
             batch.update(threadRef, { isLocked: true });
-            currentThreadState = { ...currentThreadState, isLocked: true };
+            currentThreadState = { ...currentThreadState, isLocked: true }; // Update local state preview
             toast({ title: t('threadPage.toast.agoraThreadLocked.title'), description: t('threadPage.toast.agoraThreadLocked.desc') });
           }
         }
@@ -215,7 +219,7 @@ export default function ThreadPage() {
           if (fetchedVotationData && outcomeMessage && newStatus) {
             toast({ title: t('threadPage.toast.votationProcessed.title'), description: t('threadPage.toast.votationProcessed.desc', { title: fetchedVotationData.title, outcome: outcomeMessage })});
             
-            // Notification for proposer
+            // Proposer Notification
             if (fetchedVotationData.proposerId) {
               const proposerUserRef = doc(db, "users", fetchedVotationData.proposerId);
               const proposerSnap = await getDoc(proposerUserRef);
@@ -228,11 +232,10 @@ export default function ThreadPage() {
                   const truncatedVotationTitle = fetchedVotationData.title.length > 50
                     ? `${fetchedVotationData.title.substring(0, 47)}...`
                     : fetchedVotationData.title;
-
                   const notificationData: Omit<Notification, 'id'> = {
                     recipientId: fetchedVotationData.proposerId,
                     actor: { id: 'system', username: t(KRATIA_CONFIG.FORUM_NAME), avatarUrl: '/kratia-logo.png' },
-                    type: 'votation_concluded',
+                    type: 'votation_concluded_proposer', // Corrected type
                     threadId: threadId,
                     votationTitle: truncatedVotationTitle,
                     votationOutcome: newStatus,
@@ -245,10 +248,45 @@ export default function ThreadPage() {
                     await addDoc(collection(db, "notifications"), notificationData);
                     console.log('[ThreadPage MAIN Effect] Notification created for proposer:', fetchedVotationData.proposerId);
                   } catch (notificationError) {
-                    console.error(`[ThreadPage MAIN Effect] Error creating notification for votation conclusion:`, notificationError);
+                    console.error(`[ThreadPage MAIN Effect] Error creating notification for votation conclusion (proposer):`, notificationError);
                   }
-                } else {
-                   console.log(`[ThreadPage MAIN Effect] User ${proposerData.username} has disabled web notifications for votation conclusions.`);
+                }
+              }
+            }
+            // Participant Notifications
+            if (fetchedVotationData.voters) {
+              for (const voterId in fetchedVotationData.voters) {
+                if (voterId !== fetchedVotationData.proposerId) { // Don't notify proposer twice
+                  const voterUserRef = doc(db, "users", voterId);
+                  const voterSnap = await getDoc(voterUserRef);
+                  if (voterSnap.exists()) {
+                    const voterData = voterSnap.data() as KratiaUser;
+                    const prefs = voterData.notificationPreferences;
+                    const shouldNotifyWebParticipant = prefs?.votationConcludedParticipant?.web ?? true;
+                    if (shouldNotifyWebParticipant) {
+                       const truncatedVotationTitle = fetchedVotationData.title.length > 50
+                        ? `${fetchedVotationData.title.substring(0, 47)}...`
+                        : fetchedVotationData.title;
+                      const participantNotification: Omit<Notification, 'id'> = {
+                        recipientId: voterId,
+                        actor: { id: 'system', username: t(KRATIA_CONFIG.FORUM_NAME), avatarUrl: '/kratia-logo.png' },
+                        type: 'votation_concluded_participant',
+                        threadId: threadId,
+                        votationTitle: truncatedVotationTitle,
+                        votationOutcome: newStatus,
+                        message: t('notifications.votationConcludedParticipant', { title: truncatedVotationTitle, outcome: outcomeMessage }),
+                        link: `/forums/${forumId}/threads/${threadId}`,
+                        createdAt: new Date().toISOString(),
+                        isRead: false,
+                      };
+                       try {
+                        await addDoc(collection(db, "notifications"), participantNotification);
+                        console.log(`[ThreadPage MAIN Effect] Notification created for participant: ${voterId}`);
+                      } catch (notificationError) {
+                        console.error(`[ThreadPage MAIN Effect] Error creating notification for votation conclusion (participant ${voterId}):`, notificationError);
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -310,7 +348,7 @@ export default function ThreadPage() {
 
     fetchDataAndProcess();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, forumId, t]);
+  }, [threadId, forumId, t]); // Removed loggedInUser for stability
 
   useEffect(() => {
     console.log('[ThreadPage VotationChoice Effect] Running. Votation ID:', votation?.id, 'Logged in user:', loggedInUser?.id);

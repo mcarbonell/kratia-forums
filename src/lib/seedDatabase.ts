@@ -13,7 +13,6 @@ import {
 } from '@/lib/mockData';
 import { collection, doc, writeBatch, increment, Timestamp } from 'firebase/firestore';
 
-// Helper to find a user from the MOCK_USERS_ARRAY
 const findUserByIdForSeed = (userId: string): KratiaUser => {
     const user = MOCK_USERS_ARRAY.find(u => u.id === userId);
     if (!user) {
@@ -92,37 +91,31 @@ Al completar el proceso de registro, declaras haber leído, entendido y aceptado
 const defaultNotificationPreferences: UserNotificationPreferences = {
   newReplyToMyThread: { web: true },
   votationConcludedProposer: { web: true },
+  postReaction: { web: true }, // New default
+  votationConcludedParticipant: { web: true }, // New default
 };
 
 export async function seedDatabase() {
   const batch = writeBatch(db);
   console.log("Starting database seed...");
 
-  const mockThreadsData = rawMockThreadsDataWithAuthorId.map(t => ({
-    ...t,
-    author: getAuthorPick(findUserByIdForSeed(t.authorId))
-  }));
-
-  const mockPostsData = rawMockPostsDataWithAuthorId.map(p => ({
-    ...p,
-    author: getAuthorPick(findUserByIdForSeed(p.authorId))
-  }));
-
   const usersToSeed = MOCK_USERS_ARRAY.filter(u => u.id !== 'visitor0' && u.id !== 'guest1');
   
   const threadsStartedCounts: Record<string, number> = {};
-  mockThreadsData.forEach(thread => {
-    threadsStartedCounts[thread.author.id] = (threadsStartedCounts[thread.author.id] || 0) + 1;
+  rawMockThreadsDataWithAuthorId.forEach(thread => {
+    threadsStartedCounts[thread.authorId] = (threadsStartedCounts[thread.authorId] || 0) + 1;
   });
 
   console.log(`Processing ${usersToSeed.length} users...`);
   usersToSeed.forEach(user => {
     const userRef = doc(db, "users", user.id);
     const userData: KratiaUser = {
-        ...user,
+        id: user.id, // Ensure ID is part of userData for consistency
+        username: user.username,
+        email: user.email,
         avatarUrl: user.avatarUrl || `https://placehold.co/100x100.png?text=${user.username?.[0]?.toUpperCase() || 'U'}`,
         registrationDate: user.registrationDate || new Date().toISOString(),
-        karma: 0, // Karma will be recalculated
+        karma: 0, 
         location: user.location || null,
         aboutMe: user.aboutMe || null,
         presentation: user.presentation || null,
@@ -136,7 +129,9 @@ export async function seedDatabase() {
         role: user.role || 'user',
         sanctionEndDate: user.sanctionEndDate || null,
         onboardingAccepted: user.onboardingAccepted || false,
-        notificationPreferences: user.notificationPreferences || defaultNotificationPreferences,
+        notificationPreferences: user.notificationPreferences 
+          ? { ...defaultNotificationPreferences, ...user.notificationPreferences } 
+          : defaultNotificationPreferences,
     };
     batch.set(userRef, userData);
   });
@@ -156,8 +151,13 @@ export async function seedDatabase() {
   });
   console.log("Forums prepared.");
 
-  console.log(`Processing ${mockThreadsData.length} threads...`);
-  mockThreadsData.forEach(thread => {
+  const processedMockThreadsData = rawMockThreadsDataWithAuthorId.map(t => ({
+    ...t,
+    author: getAuthorPick(findUserByIdForSeed(t.authorId))
+  }));
+
+  console.log(`Processing ${processedMockThreadsData.length} threads...`);
+  processedMockThreadsData.forEach(thread => {
     const threadRef = doc(db, "threads", thread.id);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { authorId, ...threadDataToSave } = thread; 
@@ -193,7 +193,12 @@ export async function seedDatabase() {
   batch.set(constitutionRef, constitutionData);
   console.log("Constitution setting prepared.");
 
-  console.log(`Processing ${mockPostsData.length} posts and updating counts/karma...`);
+  const processedMockPostsData = rawMockPostsDataWithAuthorId.map(p => ({
+    ...p,
+    author: getAuthorPick(findUserByIdForSeed(p.authorId))
+  }));
+
+  console.log(`Processing ${processedMockPostsData.length} posts and updating counts/karma...`);
   const threadPostCounts: Record<string, number> = {};
   const forumPostCounts: Record<string, number> = {};
   const userKarmaUpdates: Record<string, { posts: number; reactions: number; threadPosts: number }> = {};
@@ -202,7 +207,7 @@ export async function seedDatabase() {
     userKarmaUpdates[u.id] = { posts: 0, reactions: 0, threadPosts: 0 };
   });
 
-  mockPostsData.forEach(post => {
+  processedMockPostsData.forEach(post => {
     const postRef = doc(db, "posts", post.id);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { authorId, ...postDataToSave } = post; 
@@ -214,7 +219,7 @@ export async function seedDatabase() {
     });
 
     threadPostCounts[post.threadId] = (threadPostCounts[post.threadId] || 0) + 1;
-    const parentThread = mockThreadsData.find(t => t.id === post.threadId);
+    const parentThread = processedMockThreadsData.find(t => t.id === post.threadId);
     if (parentThread) {
       forumPostCounts[parentThread.forumId] = (forumPostCounts[parentThread.forumId] || 0) + 1;
       if (parentThread.author.id !== post.author.id && userKarmaUpdates[parentThread.author.id]) {
@@ -241,19 +246,19 @@ export async function seedDatabase() {
 
   for (const threadId in threadPostCounts) {
     const threadRef = doc(db, "threads", threadId);
-    const lastPostInThread = mockPostsData
+    const lastPostInThread = processedMockPostsData
         .filter(p => p.threadId === threadId)
         .sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
     
     batch.update(threadRef, { 
         postCount: threadPostCounts[threadId],
-        lastReplyAt: lastPostInThread ? lastPostInThread.createdAt : mockThreadsData.find(t=>t.id === threadId)?.createdAt 
+        lastReplyAt: lastPostInThread ? lastPostInThread.createdAt : processedMockThreadsData.find(t=>t.id === threadId)?.createdAt 
     });
   }
   console.log("Thread post counts updated.");
 
   const forumThreadCountsAgg: Record<string, number> = {};
-  mockThreadsData.forEach(thread => {
+  processedMockThreadsData.forEach(thread => {
     forumThreadCountsAgg[thread.forumId] = (forumThreadCountsAgg[thread.forumId] || 0) + 1;
   });
   for (const forumId in forumThreadCountsAgg) {
