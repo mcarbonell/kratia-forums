@@ -56,8 +56,6 @@ export default function MessagesPage() {
       orderBy("createdAt", "desc")
     );
 
-    let unsubSent: Unsubscribe | null = null;
-    let unsubReceived: Unsubscribe | null = null;
     let allMessages: PrivateMessage[] = [];
 
     const processMessages = () => {
@@ -83,11 +81,7 @@ export default function MessagesPage() {
             unreadCount: 0,
           };
         }
-        // Update last message if current message is newer (already handled by initial sort)
-        // if (new Date(msg.createdAt) > new Date(groupedConversations[otherUserId].lastMessage.createdAt)) {
-        //   groupedConversations[otherUserId].lastMessage = msg;
-        // }
-
+        
         if (msg.recipientId === user.id && !msg.isRead) {
           groupedConversations[otherUserId].unreadCount += 1;
         }
@@ -109,7 +103,6 @@ export default function MessagesPage() {
             const sentMessages = sentSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PrivateMessage));
             const receivedMessages = receivedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PrivateMessage));
             
-            // Combine and remove duplicates (though theoretically senderId/recipientId combo should be unique for a given timestamp if IDs are unique)
             const messageMap = new Map<string, PrivateMessage>();
             [...sentMessages, ...receivedMessages].forEach(msg => messageMap.set(msg.id, msg));
             allMessages = Array.from(messageMap.values());
@@ -126,14 +119,6 @@ export default function MessagesPage() {
 
     fetchAndCombine();
     
-    // Optional: Real-time updates (can be complex with combined queries)
-    // For simplicity, we'll stick to a fetch on load.
-    // Real-time would involve listening to both queries and re-processing.
-
-    return () => {
-      // Cleanup for real-time listeners if added
-    };
-
   }, [user, authLoading, t, i18n.language]);
 
 
@@ -183,7 +168,6 @@ export default function MessagesPage() {
           <MessageSquare className="mr-3 h-8 w-8 text-primary" />
           {t('messagesPage.title')}
         </h1>
-        {/* Button for "New Message" could go here in the future */}
       </div>
 
       {conversations.length === 0 ? (
@@ -200,9 +184,7 @@ export default function MessagesPage() {
         <div className="space-y-4">
           {conversations.map((convo) => (
             <Link 
-              // TODO: Update this link when conversation view page is ready
-              // href={`/messages/${convo.otherUser.id}`} // Example for future
-              href={`/profile/${convo.otherUser.id}`} // Placeholder: links to user profile for now
+              href={`/messages/${convo.otherUser.id}`}
               key={convo.otherUser.id} 
               className="block"
             >
@@ -239,5 +221,3 @@ export default function MessagesPage() {
     </div>
   );
 }
-
-    
