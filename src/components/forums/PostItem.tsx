@@ -96,13 +96,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
       (match, videoId) => {
         if (!videoId || videoId.length !== 11) return match;
         const embedUrl = `https://www.youtube.com/embed/${videoId}`;
-        console.log("[PostItem] Detected YouTube videoId:", videoId);
-        console.log("[PostItem] Constructing YouTube embed URL:", embedUrl);
-        const iframeTagHtml = `<iframe title="${t('postItem.youtubeEmbedTitle')}" src="${embedUrl}" width="100%" height="100%" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen class="absolute top-0 left-0 w-full h-full"></iframe>`;
-        console.log("[PostItem] Generated iframe tag HTML:", iframeTagHtml);
-        const fullContainerHtml = `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
-        console.log("[PostItem] Generated full YouTube container HTML:", fullContainerHtml);
-        return fullContainerHtml;
+        return `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;"><iframe title="${t('postItem.youtubeEmbedTitle')}" src="${embedUrl}" width="100%" height="100%" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen class="absolute top-0 left-0 w-full h-full"></iframe></div>`;
       }
     );
     let finalContent = processedContent;
@@ -175,7 +169,9 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     const postRef = doc(db, "posts", post.id);
     const postAuthorUserRef = doc(db, "users", post.author.id);
     const emoji = '👍';
+    
     const initialReactionsForNotificationCheck = { ...currentReactions };
+    let newReactionsStateForPost = { ...currentReactions }; // To hold the state intended for Firestore
 
     try {
       await runTransaction(db, async (transaction) => {
@@ -183,7 +179,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         if (!postDoc.exists()) throw new Error(t('postItem.error.postNotFoundTransaction'));
         
         let postAuthorDoc: DocumentSnapshot | null = null;
-        if (post.author.id && post.author.id !== 'unknown') { // Ensure author ID is valid before fetching
+        if (post.author.id && post.author.id !== 'unknown') {
           postAuthorDoc = await transaction.get(postAuthorUserRef);
         }
         
@@ -207,7 +203,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         }
         
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
-        const newReactionsStateForPost = { ...serverReactions }; // Use a new name for clarity
+        newReactionsStateForPost = { ...serverReactions }; 
         if (newEmojiUserIds.length === 0 && newReactionsStateForPost[emoji]) {
           delete newReactionsStateForPost[emoji];
         } else if (newEmojiUserIds.length > 0) {
@@ -215,10 +211,9 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         }
         
         transaction.update(postRef, { reactions: newReactionsStateForPost });
-        setCurrentReactions(newReactionsStateForPost);  // Update local state immediately after transaction setup
 
         if (post.author.id && post.author.id !== 'unknown' && (karmaChangeForAuthor !== 0 || reactionChangeForAuthor !== 0)) {
-            if (postAuthorDoc && postAuthorDoc.exists()) { // Check if author doc was fetched and exists
+            if (postAuthorDoc && postAuthorDoc.exists()) { 
                 transaction.update(postAuthorUserRef, {
                     karma: increment(karmaChangeForAuthor),
                     totalReactionsReceived: increment(reactionChangeForAuthor),
@@ -227,12 +222,15 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                 console.warn(`PostItem: Post author (ID: ${post.author.id}) not found during transaction. Karma/reaction count not updated for author.`);
             }
         }
-      }); // End of transaction
+      }); 
 
-      // Notification logic
-      if (!user) return; // Ensure user is still defined
+      setCurrentReactions(newReactionsStateForPost); 
+
+      if (!user) return;
+      
       const userHadLikedBefore = initialReactionsForNotificationCheck['👍']?.userIds?.includes(user.id) ?? false;
-      const userHasLikedNow = currentReactions['👍']?.userIds?.includes(user.id) ?? false;
+      // Use newReactionsStateForPost for the "after" state check
+      const userHasLikedNow = newReactionsStateForPost['👍']?.userIds?.includes(user.id) ?? false; 
       const justLiked = !userHadLikedBefore && userHasLikedNow;
 
       console.log(`[PostItem Notification] justLiked: ${justLiked}, userHadLikedBefore: ${userHadLikedBefore}, userHasLikedNow: ${userHasLikedNow}, post.author.id: ${post.author.id}, user.id: ${user.id}`);
@@ -273,12 +271,12 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
               isRead: false,
             };
             try {
-              console.log(`[PostItem Notification] Attempting to create notification for ${authorData.username} from ${user.username}`, notificationData);
+              console.log(`[PostItem Notification] Attempting to create notification for ${authorData.username} from ${user.username}`);
               await addDoc(collection(db, "notifications"), notificationData);
               console.log(`[PostItem Notification] Notification created successfully for ${authorData.username}`);
-            } catch (notificationError) {
+            } catch (notificationError: any) {
               console.error(`[PostItem Notification] Error creating notification:`, notificationError);
-              toast({ title: t('common.error'), description: t('postItem.toast.notification.createError'), variant: "destructive" });
+              toast({ title: t('common.error'), description: t('postItem.toast.notification.createError', { message: notificationError.message }), variant: "destructive" });
             }
           } else {
              console.log(`[PostItem Notification] ${authorData.username} has disabled web notifications for post reactions.`);
@@ -292,9 +290,11 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
 
     } catch (error: any) {
       console.error("[PostItem Like] Error updating reaction in transaction:", error);
-      console.error("[PostItem Like] Error code:", (error as FirestoreError)?.code); 
-      console.error("[PostItem Like] Error message:", (error as FirestoreError)?.message);
-      toast({ title: t('common.error'), description: t('postItem.toast.reaction.updateError') + (error.message ? `: ${error.message}` : ''), variant: "destructive" });
+      const errorCode = (error as FirestoreError)?.code;
+      const errorMessage = (error as FirestoreError)?.message;
+      console.error("[PostItem Like] Error code:", errorCode); 
+      console.error("[PostItem Like] Error message:", errorMessage);
+      toast({ title: t('common.error'), description: t('postItem.toast.reaction.updateError') + (errorMessage ? `: ${errorMessage}` : ''), variant: "destructive" });
     } finally {
       setIsLiking(false);
     }
