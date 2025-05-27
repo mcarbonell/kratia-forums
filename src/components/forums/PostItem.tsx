@@ -88,10 +88,12 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
 
   const formatContent = (content: string) => {
     let processedContent = content;
+    // Image embedding
     processedContent = processedContent.replace(
       /(https?:\/\/[^\s]+\.(?:png|jpe?g|gif|webp)(\?[^\s]*)?)/gi,
       (match) => `<div class="my-4"><img src="${match}" alt="${t('postItem.embeddedImageAlt')}" class="max-w-full h-auto rounded-md shadow-md border" data-ai-hint="forum image" /></div>`
     );
+    // YouTube video embedding
     processedContent = processedContent.replace(
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
@@ -101,12 +103,14 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         return `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
       }
     );
+    // Basic markdown-like formatting for bold and italics, only if no other HTML tags detected
     let finalContent = processedContent;
     if (!finalContent.match(/<[^>]+>/)) {
         finalContent = finalContent
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>');
     }
+    // Newline to <br />
     finalContent = finalContent.replace(/\n/g, '<br />');
     return finalContent;
   };
@@ -121,7 +125,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         return;
     }
     if (hasUserVotedInPoll) {
-        toast({ title: t('postItem.toast.poll.alreadyVotedTitle'), description: t('postItem.toast.poll.alreadyVotedDesc'), variant: "destructive" });
+        toast({ title: t('postItem.toast.poll.alreadyVotedTitle'), description: t('postItem.toast.poll.alreadyVotedDesc'), variant: "default" });
         return;
     }
     setIsSubmittingVote(true);
@@ -205,6 +209,8 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                     karma: increment(karmaChangeForAuthor),
                     totalReactionsReceived: increment(reactionChangeForAuthor),
                 });
+            } else {
+                console.warn(`Post author (ID: ${post.author.id}) not found. Karma/reaction count not updated.`);
             }
         }
         setCurrentReactions(newReactionsField); // Optimistic UI update
@@ -220,7 +226,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         if (authorSnap.exists()) {
           const authorData = authorSnap.data() as KratiaUser;
           const prefs = authorData.notificationPreferences;
-          const shouldNotifyWeb = prefs?.postReaction?.web ?? true; // Default to true
+          const shouldNotifyWeb = prefs?.postReaction?.web ?? true; 
 
           if (shouldNotifyWeb) {
             let parentThreadTitle = t('notifications.aThread');
@@ -251,8 +257,10 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         }
       }
 
-    } catch (error) {
-      console.error("Error updating reaction:", error);
+    } catch (error: any) {
+      console.error("Error updating reaction in transaction:", error);
+      console.error("Error code:", error.code); 
+      console.error("Error message:", error.message);
       toast({ title: t('common.error'), description: t('postItem.toast.reaction.updateError'), variant: "destructive" });
     } finally {
       setIsLiking(false);
@@ -362,7 +370,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   
   const canEditPost = user && (isAdminOrFounder || (isOwnPost && isWithinEditLimit));
   
-  const canAuthorDelete = isOwnPost && isWithinEditLimit; // For now, same as edit limit
+  const canAuthorDelete = isOwnPost && isWithinEditLimit; 
   const canAdminDelete = isAdminOrFounder;
   const canDeletePost = user && (canAdminDelete || canAuthorDelete);
 
@@ -390,13 +398,13 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         </div>
       </CardHeader>
 
-      {!isEditing && currentPoll && isFirstPost && (
+      {isFirstPost && threadPoll && (
          <CardContent className="p-4 border-b">
           <Card className="bg-background/70">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg font-semibold flex items-center">
                 <BarChartBig className="mr-2 h-5 w-5 text-primary" />
-                {t('postItem.poll.title')}: {currentPoll.question}
+                {t('postItem.poll.title')}: {threadPoll.question}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -406,7 +414,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                 disabled={hasUserVotedInPoll}
                 className="space-y-2"
               >
-                {currentPoll.options.map(option => (
+                {threadPoll.options.map(option => (
                   <div key={option.id} className={cn(
                       "p-3 rounded-md border",
                       hasUserVotedInPoll && userVoteOptionId === option.id && "border-primary ring-2 ring-primary bg-primary/10",
@@ -416,19 +424,19 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                     )}>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                            <RadioGroupItem value={option.id} id={`${currentPoll.id}-${option.id}`} disabled={hasUserVotedInPoll} className={cn(hasUserVotedInPoll ? "cursor-not-allowed" : "", "border-primary text-primary focus:ring-primary")} checked={userVoteOptionId === option.id || selectedOptionId === option.id} />
-                            <Label htmlFor={`${currentPoll.id}-${option.id}`} className={cn("text-sm", hasUserVotedInPoll ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer")}>{option.text}</Label>
+                            <RadioGroupItem value={option.id} id={`${threadPoll.id}-${option.id}`} disabled={hasUserVotedInPoll} className={cn(hasUserVotedInPoll ? "cursor-not-allowed" : "", "border-primary text-primary focus:ring-primary")} checked={userVoteOptionId === option.id || selectedOptionId === option.id} />
+                            <Label htmlFor={`${threadPoll.id}-${option.id}`} className={cn("text-sm", hasUserVotedInPoll ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer")}>{option.text}</Label>
                         </div>
                         <span className="text-sm font-medium text-primary">{option.voteCount || 0} {t('postItem.poll.votes', { count: option.voteCount || 0})}</span>
                     </div>
-                    {currentPoll.totalVotes > 0 && (<div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden"><div className="h-full bg-primary transition-all duration-300 ease-in-out" style={{ width: `${((option.voteCount || 0) / (currentPoll.totalVotes || 1)) * 100}%` }} /></div>)}
-                    {currentPoll.totalVotes === 0 && (<div className="mt-2 h-2 w-full bg-secondary rounded-full" />)}
+                    {threadPoll.totalVotes > 0 && (<div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden"><div className="h-full bg-primary transition-all duration-300 ease-in-out" style={{ width: `${((option.voteCount || 0) / (threadPoll.totalVotes || 1)) * 100}%` }} /></div>)}
+                    {threadPoll.totalVotes === 0 && (<div className="mt-2 h-2 w-full bg-secondary rounded-full" />)}
                   </div>
                 ))}
               </RadioGroup>
               <div className="text-xs text-muted-foreground pt-2 flex justify-between items-center">
-                <span>{t('postItem.poll.totalVotes')}: {currentPoll.totalVotes || 0}</span>
-                {currentPoll.endDate && <span>{t('postItem.poll.ends')}: {new Date(currentPoll.endDate).toLocaleDateString()}</span>}
+                <span>{t('postItem.poll.totalVotes')}: {threadPoll.totalVotes || 0}</span>
+                {threadPoll.endDate && <span>{t('postItem.poll.ends')}: {new Date(threadPoll.endDate).toLocaleDateString()}</span>}
               </div>
               {!hasUserVotedInPoll && user && user.role !== 'visitor' && user.role !== 'guest' && (
                 <Button variant="default" size="sm" onClick={handlePollVote} disabled={!selectedOptionId || isSubmittingVote || hasUserVotedInPoll || !threadId} className="mt-3 w-full sm:w-auto">
@@ -524,3 +532,4 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     </>
   );
 }
+
