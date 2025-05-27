@@ -95,9 +95,13 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
       /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi,
       (match, videoId) => {
         if (!videoId || videoId.length !== 11) return match;
+        console.log("Detected YouTube videoId:", videoId);
         const embedUrl = `https://www.youtube.com/embed/${videoId}`;
         const iframeTagHtml = `<iframe title="${t('postItem.youtubeEmbedTitle')}" src="${embedUrl}" width="100%" height="100%" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen class="absolute top-0 left-0 w-full h-full"></iframe>`;
-        return `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
+        console.log("Generated iframe tag HTML:", iframeTagHtml);
+        const fullContainerHtml = `<div class="my-4 relative rounded-md shadow-md border overflow-hidden" style="padding-bottom: 56.25%; height: 0; max-width: 100%;">${iframeTagHtml}</div>`;
+        console.log("Generated full YouTube container HTML:", fullContainerHtml);
+        return fullContainerHtml;
       }
     );
     let finalContent = processedContent;
@@ -170,6 +174,7 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     const postRef = doc(db, "posts", post.id);
     const postAuthorUserRef = doc(db, "users", post.author.id);
     const emoji = '👍';
+    const initialReactionsForNotificationCheck = { ...currentReactions }; // Capture current state for notification check
 
     try {
       await runTransaction(db, async (transaction) => {
@@ -203,15 +208,15 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
         }
         
         const updatedReactionsForEmoji = { userIds: newEmojiUserIds };
-        const newReactionsField = { ...serverReactions };
-        if (newEmojiUserIds.length === 0 && newReactionsField[emoji]) {
-          delete newReactionsField[emoji];
+        const newReactionsFieldForTransaction = { ...serverReactions };
+        if (newEmojiUserIds.length === 0 && newReactionsFieldForTransaction[emoji]) {
+          delete newReactionsFieldForTransaction[emoji];
         } else if (newEmojiUserIds.length > 0) {
-          newReactionsField[emoji] = updatedReactionsForEmoji;
+          newReactionsFieldForTransaction[emoji] = updatedReactionsForEmoji;
         }
         
         // --- ALL WRITES LAST ---
-        transaction.update(postRef, { reactions: newReactionsField });
+        transaction.update(postRef, { reactions: newReactionsFieldForTransaction });
         
         if (post.author.id && post.author.id !== 'unknown' && (karmaChangeForAuthor !== 0 || reactionChangeForAuthor !== 0)) {
             if (postAuthorDoc && postAuthorDoc.exists()) {
@@ -223,10 +228,10 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
                 console.warn(`PostItem: Post author (ID: ${post.author.id}) not found during write phase. Karma/reaction count not updated for author.`);
             }
         }
-        setCurrentReactions(newReactionsField); 
+        setCurrentReactions(newReactionsFieldForTransaction); 
       });
 
-      const justLiked = !currentReactions['👍']?.userIds.includes(user.id) && newReactionsField['👍']?.userIds.includes(user.id);
+      const justLiked = !initialReactionsForNotificationCheck['👍']?.userIds.includes(user.id) && currentReactions['👍']?.userIds.includes(user.id);
 
       if (justLiked && post.author.id !== user.id) {
         const authorRef = doc(db, "users", post.author.id);
@@ -376,8 +381,8 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
   const isWithinEditLimit = diffMinutes < KRATIA_CONFIG.EDIT_TIME_LIMIT_MINUTES;
   
   const canEditPost = user && (isAdminOrFounder || (isOwnPost && isWithinEditLimit));
-  const canDeletePost = user && (isAdminOrFounder || (isOwnPost && canAuthorDelete)); // canAuthorDelete was not defined, fixed to use general isOwnPost + time limit for now
-  const canAuthorDelete = isOwnPost && isWithinEditLimit;
+  const canDeletePost = user && (isAdminOrFounder || (isOwnPost && isWithinEditLimit));
+
 
   return (
     <>
@@ -535,3 +540,5 @@ export default function PostItem({ post: initialPost, isFirstPost = false, threa
     </>
   );
 }
+
+    
