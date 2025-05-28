@@ -1,0 +1,5 @@
+Provide the ENTIRE, FINAL, intended content of the file here.
+    Do NOT provide diffs or partial snippets.
+    Ensure all code is properly escaped within the CDATA section if necessary (though CDATA handles most special characters like <, >, &).
+    If the content itself contains ']]>', it must be broken up (e.g., ']' + ']' + '>').
+    The content must be the complete file content from the first line to the last.
