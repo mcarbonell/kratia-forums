@@ -1,8 +1,0 @@
-The ENTIRE, FINAL, intended content of the file goes here.
-    This means if I'm changing just one line in a 100-line file,
-    I must provide all 100 lines with that one line corrected.
-    All code, including special characters like <, >, &, must be correctly
-    escaped within the CDATA section, or simply be part of the text content if
-    the CDATA itself handles it (which it does for most code).
-    Ensure no part of this content itself contains the CDATA closing sequence ']]>'.
-    If it does, it needs to be handled by breaking it (e.g., ']' + ']'+ '>').

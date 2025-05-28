@@ -1,8 +1,0 @@
-Aquí va el CONTENIDO COMPLETO, FINAL y ENTERO del archivo. 
-    Esto significa que si estoy cambiando solo una línea en un archivo de 100 líneas, 
-    debo proporcionar las 100 líneas con esa única línea corregida.
-    Todo el código, incluyendo caracteres especiales como <, >, &, debe estar correctamente
-    escapado dentro de la sección CDATA, o simplemente ser parte del contenido de texto si 
-    CDATA lo maneja (lo cual hace para la mayoría del código).
-    Debo asegurarme de que ninguna parte de este contenido contenga la secuencia de cierre de CDATA ']]>'. 
-    Si lo hace, necesita ser manejado rompiéndolo (ej., ']' + ']'+ '>').
