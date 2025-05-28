@@ -1,7 +1,7 @@
 
-# AI Coding Guidelines for Kratia Forums
+# AI Coding Guidelines for the current project
 
-This document provides guidelines for the AI assistant (Firebase Studio App Prototyper) when making code changes to the Kratia Forums project.
+This document provides guidelines for the AI assistant (Firebase Studio App Prototyper) when making code changes to the project.
 
 ## I. General Coding Style & Best Practices
 
@@ -47,6 +47,16 @@ When making changes to the app code, you **MUST** use the following XML-based st
     <content><![CDATA[Provide the ENTIRE, FINAL, intended content of the file here.
     Do NOT provide diffs or partial snippets.
     Ensure all code is properly escaped within the CDATA section if necessary (though CDATA handles most special characters like <, >, &).
-    If the content itself contains '', it must be broken up (e.g., ']' + ']' + '>').
-    The content must be the complete file content from the first line to the last.
-    ]]>
+    ]]></content> 
+  </change> 
+</changes>
+```
+
+If the content itself contains ']]>', it must be broken up (e.g., ']' + ']' + '>').
+The content must be the complete file content from the first line to the last.
+
+Example:
+
+If you are asked to change a single line in src/app/example.tsx from const a = 1; to const a = 2; and the file is 10 lines long, the <content> block must contain all 10 lines of src/app/example.tsx with that one line changed.
+
+Adherence to this XML format is crucial for the changes to be applied correctly. 
