@@ -14,7 +14,8 @@ This document outlines potential future enhancements, features, and areas for im
     - Advanced search for post content (likely requires a dedicated search service like Algolia or Typesense for performance at scale).
 - **Advanced Poll Features:**
     - Option for multiple choice votes in polls.
-    - Poll end dates.
+    - Poll end dates (currently they don't expire).
+- **Refine Sanction Duration:** Allow proposers to specify sanction duration in days (number input) instead of free text, and have the system calculate the `sanctionEndDate` accurately.
 
 ## II. Agora & Governance System Enhancements
 - **Secret Voting (Current votes are public in DB):** Implement a mechanism where individual votes are not publicly visible in the votation document until the votation closes (more complex, might require backend logic/Cloud Functions).
@@ -27,7 +28,7 @@ This document outlines potential future enhancements, features, and areas for im
     - Filter votations by type or status.
     - More detailed display of votation parameters (e.g., proposed text diff for constitution changes).
 - **Votation Delegation (Advanced):** Allow users to delegate their vote to another trusted user (liquid democracy concept).
-- **Configurable Admission Process:** Allow founder/admins (or via votation) to toggle the "admission by community vote" requirement.
+- **Configurable Admission Process:** Allow founder/admins (or via votation) to toggle the "admission by community vote" requirement, or set different admission criteria (e.g., auto-admit after X days/karma if no negative flags).
 
 ## III. User Management & Profiles
 - **Private Messaging System:**
@@ -39,7 +40,7 @@ This document outlines potential future enhancements, features, and areas for im
 - **User Badges/Achievements:** Award badges based on karma, activity, or roles.
 - **Karma Enhancements:**
     - Consider karma decay for inactivity.
-    - Display karma history or breakdown.
+    - Display karma history or breakdown on profile.
 - **Enhanced User Activity Feed:** Show more detailed activity on user profiles (e.g., reactions given, votes cast on proposals).
 - **"Follow User" Functionality:** Allow users to follow others to see their activity more easily.
 
@@ -57,9 +58,12 @@ This document outlines potential future enhancements, features, and areas for im
     - When a post/thread a user subscribed to gets a new reply.
 - **Granular Notification Settings:**
     - **DONE (UI):** UI allows configuring web notifications for implemented types.
-    - **DONE (Logic):** System respects these preferences for implemented types.
+    - **DONE (Logic):** System respects these preferences for implemented types (replies, votation conclusions, post reactions, new PMs).
     - **TODO:** Add email/push notification channels in UI and backend.
     - **TODO:** System needs to respect these settings when creating *all* types of notifications (review if fully covered for all future types).
+- **Notification Page Enhancements:**
+    - Consider pagination for notifications if the list becomes very long.
+    - Option to mark individual notifications as read/unread.
 
 ## VI. Technical & Performance
 - **Full PWA Offline Support:** Implement a robust Service Worker for caching strategies, enabling better offline access. (Basic PWA for "Add to Home Screen" is DONE).
@@ -67,7 +71,7 @@ This document outlines potential future enhancements, features, and areas for im
     - Implement list virtualization (e.g., `react-virtualized`, `@tanstack/react-virtual`) for thread lists, post lists, and message lists if they become very long.
 - **Robust Server-Side Logic (Cloud Functions):**
     - **Automatic Votation Closing:** Use scheduled Cloud Functions (cron jobs) to close votations when their `deadline` is reached, instead of relying on user visits.
-    - **Automatic Sanction Lifting:** Use server-side time checks (Cloud Functions) to lift sanctions when `sanctionEndDate` passes, independent of client-side clock.
+    - **Automatic Sanction Lifting:** Use server-side time checks (Cloud Functions) to lift sanctions when `sanctionEndDate` passes, independent of client-side clock, to mitigate client-time manipulation.
     - **Aggregated Counts:** For very high traffic, consider using Cloud Functions to maintain aggregated counts (like forum post/thread counts, user total posts) to reduce client-side write contention or complexity.
 - **Scalable Search Solution:** Integrate a dedicated search service if forum grows significantly.
 - **Comprehensive Error Boundary Components:** Implement more specific error boundaries for different parts of the application.
@@ -79,14 +83,14 @@ This document outlines potential future enhancements, features, and areas for im
 
 ## VIII. Internationalization (i18n)
 - **Translate All UI (Mostly DONE for static text):** Continue translating all static UI text across all components and pages.
-    - **DONE (Most):** Header, Footer, Homepage, Auth pages, Admin pages, User Profile pages, Agora pages, Forum/Thread/Post UI, Notification page, Messages pages, Privacy Policy (UI elements), Main Layout Title.
-    - **Remaining Components (to review):** Specific dialogs, tooltips, less common alerts, dynamic parts of messages (e.g., "You: ..."), potentially placeholders or error messages not yet covered.
+    - **DONE (Main UI Areas):** Header, Footer, Homepage, Auth pages, Admin pages, User Profile pages, Agora pages, Forum/Thread/Post UI & components, Notification page, Messages pages, Constitution page (UI), Privacy Policy page (UI), Main Layout Title, relative date formatting.
+    - **Remaining Components (to review):** Specific dialogs not yet covered, less common alerts or error messages, tooltips not caught, dynamic parts of messages (e.g., "You: ..." in PM list), potentially placeholders or error messages not yet encountered.
 - **Translate Dynamic Content (Advanced):** Consider strategies for translating user-generated content (e.g., forum names/descriptions set by admins if they are not meant to be i18n keys) or admin-settable strings (like category names from DB) if multi-language dynamic content is desired. This would require data model changes.
+- **Translate AI-Generated Content:** The Genkit onboarding message is currently generated based on the app's default language. For multi-language AI welcome messages, the flow would need to accept a language parameter and instruct the AI accordingly.
 
 ## IX. AI Enhancements (Long-term)
 - **AI as a Forum Participant:** Explore the advanced idea of an AI user that can post, reply, and potentially participate in governance.
 - **AI for Content Moderation:** Suggestions for moderators, flagging potentially problematic content.
 - **AI for Content Summarization:** Summarize long threads or debates.
-- **AI for Welcome Message Translation:** Generate the personalized welcome message in the user's detected language.
 
 This list provides a good roadmap for the continued development and enhancement of Kratia Forums!
