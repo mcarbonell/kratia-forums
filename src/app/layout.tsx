@@ -10,7 +10,7 @@ import Footer from '@/components/layout/Footer';
 import SanctionCheckWrapper from '@/components/layout/SanctionCheckWrapper';
 
 import i18n from 'i18next';
-import { initReactI18next, I18nextProvider } from 'react-i18next';
+import { initReactI18next, I18nextProvider, useTranslation } from 'react-i18next';
 import { useEffect } from 'react';
 
 // Import JSON files directly
@@ -43,59 +43,81 @@ if (!i18n.isInitialized) {
     });
 }
 
+function LayoutContent({ children }: { children: React.ReactNode }) {
+  const { t, i18n: i18nInstance } = useTranslation();
+
+  useEffect(() => {
+    const detectedLng = typeof window !== 'undefined' 
+      ? (localStorage.getItem('i18nextLng') || navigator.language.split('-')[0]) 
+      : 'en';
+
+    if (i18nInstance.isInitialized) {
+      const currentLang = i18nInstance.language.split('-')[0];
+      const targetLang = detectedLng.split('-')[0];
+
+      if (currentLang !== targetLang && i18nInstance.languages.includes(targetLang)) {
+        i18nInstance.changeLanguage(targetLang).catch(err => console.error("Error changing language:", err));
+      } else if (!i18nInstance.languages.includes(targetLang) && currentLang !== 'en') {
+        i18nInstance.changeLanguage('en').catch(err => console.error("Error changing language to fallback:", err));
+      }
+    }
+  }, [i18nInstance]);
+
+  return (
+    <html lang={i18nInstance.language}>
+      <head>
+        <title>{t('layout.title')}</title>
+        <meta name="description" content={t('layout.description')} />
+        <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="16x16"/>
+        {/* PWA Manifest Link */}
+        <link rel="manifest" href="/manifest.json" />
+        {/* Theme color for browser UI */}
+        <meta name="theme-color" content="#3498db" />
+        {/* Apple-specific PWA settings */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content={t('layout.title')} />
+      </head>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased flex flex-col min-h-screen`}>
+        <Header />
+        <main className="flex-grow container mx-auto px-4 py-8">
+          <SanctionCheckWrapper>
+            {children}
+          </SanctionCheckWrapper>
+        </main>
+        <Footer />
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  useEffect(() => {
-    // Language detection and setting logic
-    const detectedLng = typeof window !== 'undefined' 
-      ? (localStorage.getItem('i18nextLng') || navigator.language.split('-')[0]) 
-      : 'en';
-
-    if (i18n.isInitialized) {
-      if (i18n.language !== detectedLng && i18n.languages.includes(detectedLng)) {
-        i18n.changeLanguage(detectedLng).catch(err => console.error("Error changing language:", err));
-      } else if (!i18n.languages.includes(detectedLng) && i18n.language !== 'en') {
-        i18n.changeLanguage('en').catch(err => console.error("Error changing language to fallback:", err));
-      }
-    }
-  }, []);
-
   if (!i18n.isInitialized) {
-    return null; 
-  }
-
-  return (
-    <I18nextProvider i18n={i18n}>
-      <html lang={i18n.language}>
+    // This can happen during server-side rendering pass or if init fails
+    // You might want to return a basic loader or minimal HTML structure
+    return (
+      <html lang="en">
         <head>
             <title>Kratia Forums</title>
             <meta name="description" content="Forums with direct democracy for self-regulated communities." />
             <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="16x16"/>
-            {/* PWA Manifest Link */}
-            <link rel="manifest" href="/manifest.json" />
-            {/* Theme color for browser UI */}
-            <meta name="theme-color" content="#3498db" />
-            {/* Apple-specific PWA settings */}
-            <meta name="apple-mobile-web-app-capable" content="yes" />
-            <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-            <meta name="apple-mobile-web-app-title" content="Kratia Forums" />
-            {/* You can add Apple touch icons here if needed */}
-            {/* e.g., <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" /> */}
         </head>
         <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased flex flex-col min-h-screen`}>
-          <Header />
-          <main className="flex-grow container mx-auto px-4 py-8">
-            <SanctionCheckWrapper>
-              {children}
-            </SanctionCheckWrapper>
-          </main>
-          <Footer />
-          <Toaster />
+          <div>Loading localization...</div>
         </body>
       </html>
+    );
+  }
+
+  return (
+    <I18nextProvider i18n={i18n}>
+      <LayoutContent>{children}</LayoutContent>
     </I18nextProvider>
   );
 }

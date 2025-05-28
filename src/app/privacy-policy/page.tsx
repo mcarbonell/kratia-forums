@@ -1,13 +1,18 @@
 
-// src/app/privacy-policy/page.tsx
+"use client"; // This page needs to be a client component to use useTranslation
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Link from "next/link";
 import { FileText, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from 'react-i18next'; // Import useTranslation
 
 export default function PrivacyPolicyPage() {
+  const { t } = useTranslation('common'); // Initialize useTranslation
+
   // Basic placeholder text. Replace with your actual privacy policy.
+  // This text itself is not translated by i18next here, only the UI elements.
   const privacyPolicyText = `
 Privacy Policy for Kratia Forums
 Last Updated: ${new Date().toLocaleDateString()}
@@ -106,14 +111,14 @@ Based on the applicable laws of your country, you may have the right to request 
     <div className="space-y-8">
        <Button variant="outline" asChild className="mb-6">
           <Link href="/">
-            <ChevronLeft className="mr-2 h-4 w-4" /> Back to Homepage
+            <ChevronLeft className="mr-2 h-4 w-4" /> {t('privacyPolicyPage.backToHomepageButton')}
           </Link>
         </Button>
       <Card className="shadow-xl">
         <CardHeader>
           <CardTitle className="text-3xl font-bold flex items-center">
             <FileText className="mr-3 h-8 w-8 text-primary" />
-            Privacy Policy
+            {t('privacyPolicyPage.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
